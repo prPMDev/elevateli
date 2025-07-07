@@ -1,0 +1,492 @@
+/**
+ * ElevateLI Overlay Styles
+ * Progressive UI states and LinkedIn-matching design
+ */
+
+/* ============================================
+ * BASE OVERLAY STYLES
+ * ============================================ */
+.elevateli-overlay-wrapper {
+  /* LinkedIn card styling */
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  margin: 16px 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.elevateli-overlay {
+  padding: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333;
+}
+
+/* ============================================
+ * HEADER SECTION
+ * ============================================ */
+.overlay-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.header-left h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #0a66c2; /* LinkedIn blue */
+}
+
+.timestamp-display {
+  font-size: 12px;
+  color: #666;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.overlay-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #666;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.overlay-close:hover {
+  background: #f3f2ef;
+  color: #333;
+}
+
+/* ============================================
+ * SCORES CONTAINER
+ * ============================================ */
+.scores-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.score-block {
+  text-align: center;
+}
+
+.score-block label {
+  display: block;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.score-display {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.score-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #333;
+  transition: all 0.3s ease;
+}
+
+.score-value.skeleton {
+  color: #e0e0e0;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.score-suffix {
+  font-size: 16px;
+  color: #666;
+  margin-left: 4px;
+}
+
+.score-bar {
+  width: 100%;
+  height: 8px;
+  background: #f3f2ef;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.score-bar-fill {
+  height: 100%;
+  background: #0a66c2;
+  border-radius: 4px;
+  transition: width 0.5s ease, background-color 0.3s ease;
+}
+
+.score-bar-fill.skeleton {
+  width: 30% !important;
+  background: #e0e0e0;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.ai-status {
+  font-size: 11px;
+  color: #666;
+  margin-top: 4px;
+}
+
+/* AI disabled message */
+.ai-disabled-message {
+  font-size: 13px;
+  color: #666;
+  text-align: center;
+  padding: 12px 0;
+}
+
+/* ============================================
+ * STATUS INDICATOR
+ * ============================================ */
+.status-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: #f3f2ef;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  min-height: 44px;
+}
+
+.status-icon {
+  font-size: 20px;
+  margin-right: 8px;
+}
+
+.status-icon.spinning {
+  animation: spin 1s linear infinite;
+}
+
+.status-text {
+  font-size: 14px;
+  color: #333;
+  transition: opacity 0.2s ease;
+}
+
+/* ============================================
+ * SCAN PROGRESS SECTION
+ * ============================================ */
+.scan-progress {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  transition: all 0.3s ease;
+}
+
+.scan-progress.hidden {
+  display: none;
+}
+
+.scan-progress h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.scan-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.scan-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.scan-item[data-status="scanning"] {
+  border-color: #0a66c2;
+  background: #f0f8ff;
+}
+
+.scan-item[data-status="complete"] {
+  border-color: #057642;
+  background: #f0fdf4;
+}
+
+.scan-icon {
+  margin-right: 6px;
+  font-size: 14px;
+}
+
+.scan-label {
+  flex: 1;
+  color: #333;
+}
+
+.scan-count {
+  margin-left: 4px;
+  color: #666;
+  font-size: 11px;
+}
+
+/* ============================================
+ * RECOMMENDATIONS SECTION
+ * ============================================ */
+.recommendations-section {
+  margin-bottom: 20px;
+  transition: all 0.3s ease;
+}
+
+.recommendations-section.hidden {
+  display: none;
+}
+
+.recommendations-section h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 12px 0;
+}
+
+.recommendations-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.recommendation-item {
+  padding: 8px 0;
+  padding-left: 24px;
+  position: relative;
+  color: #666;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.recommendation-item::before {
+  content: "→";
+  position: absolute;
+  left: 0;
+  color: #0a66c2;
+  font-weight: bold;
+}
+
+/* ============================================
+ * INSIGHTS SECTION
+ * ============================================ */
+.insights-section {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #f0f8ff;
+  border-radius: 6px;
+  border: 1px solid #d0e5ff;
+  transition: all 0.3s ease;
+}
+
+.insights-section.hidden {
+  display: none;
+}
+
+.insights-section h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0a66c2;
+  margin: 0 0 8px 0;
+}
+
+.insights-content {
+  font-size: 13px;
+  color: #333;
+  line-height: 1.6;
+}
+
+.insights-content strong {
+  color: #0a66c2;
+  font-weight: 600;
+}
+
+/* ============================================
+ * ACTION BUTTONS
+ * ============================================ */
+.overlay-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 20px;
+  border: 1px solid #0a66c2;
+  background: #fff;
+  color: #0a66c2;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.action-button:hover {
+  background: #0a66c2;
+  color: #fff;
+}
+
+.action-button.hidden {
+  display: none;
+}
+
+.button-icon {
+  margin-right: 6px;
+  font-size: 16px;
+}
+
+/* Primary button style */
+.analyze-button {
+  background: #0a66c2;
+  color: #fff;
+}
+
+.analyze-button:hover {
+  background: #084d8a;
+  border-color: #084d8a;
+}
+
+/* ============================================
+ * STATE-BASED STYLING
+ * ============================================ */
+.elevateli-overlay[data-state="initializing"] .status-indicator {
+  background: #e3f2fd;
+}
+
+.elevateli-overlay[data-state="scanning"] .status-indicator {
+  background: #fff3cd;
+}
+
+.elevateli-overlay[data-state="extracting"] .status-indicator {
+  background: #d1ecf1;
+}
+
+.elevateli-overlay[data-state="calculating"] .status-indicator {
+  background: #d4edda;
+}
+
+.elevateli-overlay[data-state="ai_analyzing"] .status-indicator {
+  background: #e2e3ff;
+}
+
+.elevateli-overlay[data-state="complete"] .status-indicator {
+  background: #d4edda;
+}
+
+.elevateli-overlay[data-state="error"] .status-indicator {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+/* ============================================
+ * ANIMATIONS
+ * ============================================ */
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ============================================
+ * RESPONSIVE DESIGN
+ * ============================================ */
+@media (max-width: 768px) {
+  .scores-container {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .scan-items {
+    grid-template-columns: 1fr;
+  }
+  
+  .overlay-actions {
+    flex-direction: column;
+  }
+  
+  .action-button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ============================================
+ * SKELETON LOADING STATES
+ * ============================================ */
+.skeleton::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.4),
+    transparent
+  );
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton.loading {
+  position: relative;
+  overflow: hidden;
+  background: #e0e0e0;
+}
+
+/* ============================================
+ * LINKEDIN INTEGRATION
+ * ============================================ */
+/* Ensure overlay matches LinkedIn's visual hierarchy */
+.pvs-list__paged-list-item + .elevateli-overlay-wrapper {
+  margin-top: 24px;
+}
+
+/* Match LinkedIn's card hover behavior */
+.elevateli-overlay-wrapper:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}

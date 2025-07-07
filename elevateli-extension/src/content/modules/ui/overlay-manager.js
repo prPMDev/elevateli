@@ -1,0 +1,922 @@
+/**
+ * Overlay Manager Module for ElevateLI
+ * Handles progressive UI states and smooth transitions
+ * This module will be concatenated into analyzer.js for Manifest V3 compatibility
+ */
+
+const OverlayManager = {
+  // UI States
+  states: {
+    INITIALIZING: 'initializing',
+    EMPTY_CACHE: 'empty_cache',
+    CACHE_LOADED: 'cache_loaded',
+    SCANNING: 'scanning',
+    EXTRACTING: 'extracting',
+    CALCULATING: 'calculating',
+    ANALYZING: 'analyzing',
+    AI_ANALYZING: 'ai_analyzing',
+    COMPLETE: 'complete',
+    ERROR: 'error'
+  },
+  
+  // Current state tracking
+  currentState: null,
+  overlayElement: null,
+  
+  /**
+   * Initialize overlay and show immediately
+   * @returns {OverlayManager} Self for chaining
+   */
+  async initialize() {
+    console.log('[OverlayManager] Initializing overlay');
+    this.setState(this.states.INITIALIZING);
+    this.createAndInject();
+    return this;
+  },
+  
+  /**
+   * Create overlay HTML with skeleton UI
+   */
+  createAndInject() {
+    // Create wrapper for proper integration
+    const wrapperHtml = `
+      <div class="elevateli-overlay-wrapper artdeco-card pv-profile-card break-words mt4">
+        <div id="elevateli-overlay" class="elevateli-overlay" data-state="${this.currentState}">
+          <div class="overlay-header">
+            <div class="header-left">
+              <h3>ElevateLI Analysis</h3>
+              <span class="last-analyzed" style="font-size: 12px; color: #666; margin-left: 12px; opacity: 0;"></span>
+            </div>
+            <div class="header-right">
+              <button class="overlay-close" aria-label="Close overlay">&times;</button>
+            </div>
+          </div>
+        
+        <div class="scores-container">
+          <div class="score-block completeness">
+            <label>Profile Completeness</label>
+            <div class="score-display">
+              <span class="score-value skeleton">--</span>
+              <span class="score-suffix">%</span>
+            </div>
+            <div class="score-bar">
+              <div class="score-bar-fill skeleton" style="width: 0%"></div>
+            </div>
+          </div>
+          
+          <div class="score-block quality">
+            <label>Content Quality (AI)</label>
+            <div class="score-display">
+              <span class="score-value skeleton">--</span>
+              <span class="score-suffix">/10</span>
+            </div>
+            <div class="score-bar">
+              <div class="score-bar-fill skeleton" style="width: 0%"></div>
+            </div>
+            <div class="ai-status"></div>
+          </div>
+        </div>
+        
+        <div class="status-indicator">
+          <span class="status-icon"></span>
+          <span class="status-text">Initializing...</span>
+        </div>
+        
+        <div class="scan-progress hidden">
+          <h4>Scanning Profile Sections</h4>
+          <div class="scan-items"></div>
+        </div>
+        
+        <div class="missing-items-section hidden">
+          <h4>To Reach 100% Completeness</h4>
+          <div class="missing-items-list"></div>
+        </div>
+        
+        <div class="recommendations-section hidden">
+          <h4>Top Recommendations</h4>
+          <ul class="recommendations-list"></ul>
+        </div>
+        
+        <div class="insights-section hidden">
+          <h4>Key Insights</h4>
+          <div class="insights-content"></div>
+        </div>
+        
+        <div class="overlay-actions">
+          <button class="action-button analyze-button hidden">
+            <span class="button-icon">🚀</span>
+            Analyze Profile
+          </button>
+          <button class="action-button refresh-button hidden">
+            <span class="button-icon">🔄</span>
+            Re-analyze
+          </button>
+          <button class="action-button details-button hidden">
+            <span class="button-icon">📊</span>
+            View Details
+          </button>
+        </div>
+      </div>
+      </div><!-- Close wrapper -->
+    `;
+    
+    // Remove any existing overlay wrapper
+    const existingWrapper = document.querySelector('.elevateli-overlay-wrapper');
+    if (existingWrapper) existingWrapper.remove();
+    
+    // Find the right place to inject
+    let injected = false;
+    
+    // Primary: After main profile card section (most reliable)
+    const profileCard = document.querySelector('section.artdeco-card[data-member-id]');
+    if (profileCard) {
+      Logger.info('[OverlayManager] Injecting after main profile card');
+      profileCard.insertAdjacentHTML('afterend', wrapperHtml);
+      injected = true;
+    }
+    
+    // Fallback 1: After About anchor
+    if (!injected) {
+      const aboutAnchor = document.querySelector('#about.pv-profile-card__anchor');
+      if (aboutAnchor) {
+        Logger.info('[OverlayManager] Injecting after About anchor (fallback)');
+        aboutAnchor.insertAdjacentHTML('afterend', wrapperHtml);
+        injected = true;
+      }
+    }
+    
+    // Fallback 2: After any artdeco-card section
+    if (!injected) {
+      const anyCard = document.querySelector('section.artdeco-card');
+      if (anyCard) {
+        Logger.info('[OverlayManager] Injecting after first card section (last resort)');
+        anyCard.insertAdjacentHTML('afterend', wrapperHtml);
+        injected = true;
+      }
+    }
+    
+    // Last resort: Prepend to main content
+    if (!injected) {
+      const mainContent = document.querySelector('main[role="main"], .scaffold-layout__main');
+      if (mainContent) {
+        Logger.info('[OverlayManager] Injecting at beginning of main content (final fallback)');
+        mainContent.insertAdjacentHTML('afterbegin', wrapperHtml);
+        injected = true;
+      }
+    }
+    
+    if (!injected) {
+      Logger.error('[OverlayManager] Failed to inject overlay - no suitable location found');
+      return;
+    }
+    
+    this.overlayElement = document.getElementById('elevateli-overlay');
+    
+    // Attach event listeners
+    this.attachEventListeners();
+    
+    console.log('[OverlayManager] Overlay injected into DOM');
+  },
+  
+  /**
+   * Attach event listeners to overlay elements
+   */
+  attachEventListeners() {
+    // Close button
+    const closeBtn = this.overlayElement.querySelector('.overlay-close');
+    closeBtn?.addEventListener('click', () => this.close());
+    
+    // Analyze button (for first-time analysis)
+    const analyzeBtn = this.overlayElement.querySelector('.analyze-button');
+    analyzeBtn?.addEventListener('click', () => this.handleAnalyze());
+    
+    // Refresh button (for re-analysis)
+    const refreshBtn = this.overlayElement.querySelector('.refresh-button');
+    refreshBtn?.addEventListener('click', () => this.handleRefresh());
+    
+    // Details button
+    const detailsBtn = this.overlayElement.querySelector('.details-button');
+    detailsBtn?.addEventListener('click', () => this.handleViewDetails());
+  },
+  
+  /**
+   * Update overlay state and UI
+   * @param {string} newState - New state from states enum
+   * @param {Object} data - Data for the new state
+   */
+  setState(newState, data = {}) {
+    console.log(`[OverlayManager] State change: ${this.currentState} → ${newState}`);
+    this.currentState = newState;
+    
+    if (!this.overlayElement) return;
+    
+    this.overlayElement.setAttribute('data-state', newState);
+    
+    // State-specific updates
+    const stateHandlers = {
+      [this.states.INITIALIZING]: () => {
+        this.updateStatus('Initializing analysis...', '⣾');
+        this.showSkeletons();
+        // Show analyze button for first-time analysis
+        this.showActionButtons({ showAnalyze: true, showDetails: false });
+      },
+      
+      [this.states.EMPTY_CACHE]: () => {
+        this.updateStatus('No previous analysis found', 'ℹ️');
+        this.hideSkeletons();
+        
+        // Show empty state message
+        const scoresContainer = this.overlayElement.querySelector('.scores-container');
+        if (scoresContainer) {
+          scoresContainer.innerHTML = `
+            <div class="empty-state-message" style="
+              grid-column: 1 / -1;
+              text-align: center;
+              padding: 30px 20px;
+              color: #666;
+            ">
+              <div style="font-size: 48px; margin-bottom: 16px; opacity: 0.3;">📊</div>
+              <p style="margin-bottom: 12px; font-size: 16px; font-weight: 600;">
+                This profile hasn't been analyzed yet
+              </p>
+              <p style="font-size: 14px; color: #999;">
+                Click below to generate your profile scores
+              </p>
+            </div>
+          `;
+        }
+        
+        // Show prominent analyze button
+        this.showActionButtons({ 
+          showAnalyze: true,
+          showRefresh: false,
+          showDetails: false 
+        });
+      },
+      
+      [this.states.CACHE_LOADED]: () => {
+        this.updateStatus('Analysis complete', '✓');
+        this.hideSkeletons();
+        this.populateScores(data);
+        this.showMissingItems(data.completenessData);
+        this.showRecommendations(data.recommendations);
+        // Show timestamp
+        if (data.timestamp) {
+          this.showTimestamp(data.timestamp);
+        }
+        // Show re-analyze button for cached results
+        this.showActionButtons({ showRefresh: true });
+      },
+      
+      [this.states.SCANNING]: () => {
+        this.updateStatus('Scanning profile sections...', '⣾');
+        this.showScanProgress();
+      },
+      
+      [this.states.EXTRACTING]: () => {
+        this.updateStatus('Extracting profile data...', '⣾');
+        this.hideScanProgress();
+        this.showProgressBar('extracting');
+      },
+      
+      [this.states.CALCULATING]: () => {
+        this.updateStatus('Calculating completeness...', '⣾');
+        if (data.completeness !== undefined) {
+          this.updateCompleteness(data.completeness);
+        }
+      },
+      
+      [this.states.ANALYZING]: () => {
+        this.updateStatus('Running AI analysis...', '⣾');
+        if (data.completeness !== undefined) {
+          this.updateCompleteness(data.completeness);
+        }
+        this.showProgressBar('analyzing');
+      },
+      
+      [this.states.AI_ANALYZING]: () => {
+        this.updateStatus('AI analyzing profile sections...', '⣾');
+        this.hideScanProgress();
+        if (data.completeness !== undefined) {
+          this.updateCompleteness(data.completeness);
+        }
+      },
+      
+      [this.states.COMPLETE]: () => {
+        this.updateStatus('Analysis complete', '✓');
+        this.hideSkeletons();
+        this.populateScores(data);
+        this.showMissingItems(data.completenessData);
+        this.showRecommendations(data.recommendations);
+        this.showInsights(data.insights);
+        // Show timestamp
+        if (data.timestamp) {
+          this.showTimestamp(data.timestamp);
+        }
+        // Show re-analyze button after fresh analysis
+        this.showActionButtons({ showRefresh: true });
+      },
+      
+      [this.states.ERROR]: () => {
+        this.updateStatus(data.message || 'Analysis failed', '✗');
+        this.hideSkeletons();
+        if (data.completeness !== undefined) {
+          this.updateCompleteness(data.completeness);
+        }
+        // Show analyze button to retry
+        this.showActionButtons({ showAnalyze: true });
+      }
+    };
+    
+    // Execute state handler
+    const handler = stateHandlers[newState];
+    if (handler) {
+      handler();
+    }
+  },
+  
+  /**
+   * Update status indicator
+   * @param {string} text - Status message
+   * @param {string} icon - Status icon
+   */
+  updateStatus(text, icon = '') {
+    const statusText = this.overlayElement.querySelector('.status-text');
+    const statusIcon = this.overlayElement.querySelector('.status-icon');
+    
+    if (statusText) {
+      statusText.style.opacity = '0';
+      setTimeout(() => {
+        statusText.textContent = text;
+        statusText.style.opacity = '1';
+      }, 150);
+    }
+    
+    if (statusIcon && icon) {
+      statusIcon.textContent = icon;
+      statusIcon.className = 'status-icon';
+      if (icon === '⣾') {
+        statusIcon.classList.add('spinning');
+      }
+    }
+  },
+  
+  /**
+   * Show skeleton loaders
+   */
+  showSkeletons() {
+    const skeletons = this.overlayElement.querySelectorAll('.skeleton');
+    skeletons.forEach(el => el.classList.add('loading'));
+  },
+  
+  /**
+   * Hide skeleton loaders
+   */
+  hideSkeletons() {
+    const skeletons = this.overlayElement.querySelectorAll('.skeleton');
+    skeletons.forEach(el => {
+      el.classList.remove('skeleton', 'loading');
+    });
+  },
+  
+  /**
+   * Update completeness score
+   * @param {number} score - Completeness percentage
+   */
+  updateCompleteness(score) {
+    const valueEl = this.overlayElement.querySelector('.completeness .score-value');
+    const barEl = this.overlayElement.querySelector('.completeness .score-bar-fill');
+    
+    if (valueEl) {
+      valueEl.textContent = Math.round(score);
+      valueEl.classList.remove('skeleton');
+    }
+    
+    if (barEl) {
+      barEl.style.width = `${score}%`;
+      barEl.classList.remove('skeleton');
+      
+      // Color based on score
+      if (score >= 80) barEl.style.backgroundColor = '#057642';
+      else if (score >= 60) barEl.style.backgroundColor = '#f59e0b';
+      else barEl.style.backgroundColor = '#dc2626';
+    }
+  },
+  
+  /**
+   * Populate all scores
+   * @param {Object} data - Score data
+   */
+  populateScores(data) {
+    // Update completeness
+    if (data.completeness !== undefined) {
+      this.updateCompleteness(data.completeness);
+    }
+    
+    // Check if AI is disabled
+    if (data.aiDisabled || (!data.contentScore && data.fromCache !== true)) {
+      // Replace quality score block with AI disabled message
+      const qualityBlock = this.overlayElement.querySelector('.score-block.quality');
+      if (qualityBlock) {
+        qualityBlock.innerHTML = `
+          <label>Content Quality (AI)</label>
+          <div class="ai-disabled-message">
+            Configure AI in extension settings
+          </div>
+        `;
+      }
+    } else if (data.contentScore !== undefined) {
+      // Update quality score normally
+      const valueEl = this.overlayElement.querySelector('.quality .score-value');
+      const barEl = this.overlayElement.querySelector('.quality .score-bar-fill');
+      const statusEl = this.overlayElement.querySelector('.ai-status');
+      
+      if (valueEl) {
+        valueEl.textContent = data.contentScore.toFixed(1);
+        valueEl.classList.remove('skeleton');
+      }
+      
+      if (barEl) {
+        barEl.style.width = `${data.contentScore * 10}%`;
+        barEl.classList.remove('skeleton');
+        
+        // Color based on score
+        if (data.contentScore >= 8) barEl.style.backgroundColor = '#057642';
+        else if (data.contentScore >= 6) barEl.style.backgroundColor = '#f59e0b';
+        else barEl.style.backgroundColor = '#dc2626';
+      }
+      
+      if (statusEl) {
+        statusEl.textContent = data.fromCache ? 'Cached' : 'Fresh';
+      }
+    }
+  },
+  
+  /**
+   * Show timestamp
+   * @param {number} timestamp - Unix timestamp
+   */
+  showTimestamp(timestamp) {
+    const timestampEl = this.overlayElement.querySelector('.timestamp-display');
+    if (!timestampEl || !timestamp) return;
+    
+    const date = new Date(timestamp);
+    const formatted = date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    
+    timestampEl.textContent = `Last analyzed: ${formatted}`;
+    timestampEl.style.opacity = '1';
+  },
+  
+  /**
+   * Show recommendations
+   * @param {Array|Object} recommendations - Recommendations data
+   */
+  showRecommendations(recommendations) {
+    if (!recommendations) return;
+    
+    const section = this.overlayElement.querySelector('.recommendations-section');
+    const list = this.overlayElement.querySelector('.recommendations-list');
+    
+    if (!section || !list) return;
+    
+    // Clear existing
+    list.innerHTML = '';
+    
+    // Extract recommendations array
+    let items = [];
+    if (Array.isArray(recommendations)) {
+      items = recommendations;
+    } else if (recommendations.critical) {
+      items = recommendations.critical;
+    } else if (recommendations.high) {
+      items = recommendations.high;
+    }
+    
+    // Show top 3-5 recommendations
+    items.slice(0, 5).forEach(rec => {
+      const li = document.createElement('li');
+      li.className = 'recommendation-item';
+      li.textContent = typeof rec === 'string' ? rec : (rec.action || rec.message || rec);
+      list.appendChild(li);
+    });
+    
+    if (items.length > 0) {
+      section.classList.remove('hidden');
+    }
+  },
+  
+  /**
+   * Show insights
+   * @param {Object} insights - Insights data
+   */
+  showInsights(insights) {
+    if (!insights) return;
+    
+    const section = this.overlayElement.querySelector('.insights-section');
+    const content = this.overlayElement.querySelector('.insights-content');
+    
+    if (!section || !content) return;
+    
+    // Format insights
+    let insightText = '';
+    if (insights.strengths) {
+      insightText += `<strong>Strengths:</strong> ${insights.strengths}<br>`;
+    }
+    if (insights.improvements) {
+      insightText += `<strong>Areas to improve:</strong> ${insights.improvements}`;
+    }
+    
+    if (insightText) {
+      content.innerHTML = insightText;
+      section.classList.remove('hidden');
+    }
+  },
+  
+  /**
+   * Show action buttons based on current state
+   * @param {Object} options - Button visibility options
+   */
+  showActionButtons(options = {}) {
+    const analyzeBtn = this.overlayElement.querySelector('.analyze-button');
+    const refreshBtn = this.overlayElement.querySelector('.refresh-button');
+    const detailsBtn = this.overlayElement.querySelector('.details-button');
+    
+    // Hide all buttons first
+    [analyzeBtn, refreshBtn, detailsBtn].forEach(btn => btn?.classList.add('hidden'));
+    
+    // Show appropriate buttons based on state
+    if (options.showAnalyze && analyzeBtn) {
+      analyzeBtn.classList.remove('hidden');
+      // Update text based on current state
+      if (this.currentState === this.states.EMPTY_CACHE) {
+        analyzeBtn.innerHTML = '<span class="button-icon">🚀</span>Analyze Profile';
+      } else {
+        analyzeBtn.innerHTML = '<span class="button-icon">🔄</span>Re-analyze';
+      }
+    }
+    if (options.showRefresh && refreshBtn) {
+      refreshBtn.classList.remove('hidden');
+      // Reset button state after analysis completes
+      refreshBtn.disabled = false;
+      refreshBtn.innerHTML = '<span class="button-icon">🔄</span>Re-analyze';
+    }
+    // Never show details button anymore
+  },
+  
+  /**
+   * Show progress bar
+   * @param {string} phase - Current phase
+   */
+  showProgressBar(phase) {
+    // Could add a progress bar UI element if desired
+    console.log(`[OverlayManager] Progress phase: ${phase}`);
+  },
+  
+  /**
+   * Handle analyze button click (first-time analysis)
+   */
+  handleAnalyze() {
+    console.log('[OverlayManager] Analysis requested');
+    const btn = this.overlayElement.querySelector('.analyze-button');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="button-icon">⏳</span>Analyzing...';
+    }
+    // Send message to trigger analysis
+    window.postMessage({ type: 'ELEVATE_REFRESH' }, '*');
+  },
+  
+  /**
+   * Handle refresh button click (re-analysis)
+   */
+  handleRefresh() {
+    console.log('[OverlayManager] Refresh requested');
+    const btn = this.overlayElement.querySelector('.refresh-button');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="button-icon">⏳</span>Re-analyzing...';
+    }
+    // Send message to trigger re-analysis
+    window.postMessage({ type: 'ELEVATE_REFRESH' }, '*');
+  },
+  
+  /**
+   * Handle view details button click
+   */
+  handleViewDetails() {
+    console.log('[OverlayManager] View details requested');
+    const btn = this.overlayElement.querySelector('.details-button');
+    if (btn) {
+      btn.disabled = true;
+    }
+    // Open dashboard
+    chrome.runtime.sendMessage({ action: 'openDashboard' }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error('Failed to open dashboard:', chrome.runtime.lastError);
+        if (btn) btn.disabled = false;
+      }
+    });
+  },
+  
+  /**
+   * Close overlay
+   */
+  close() {
+    const wrapper = document.querySelector('.elevateli-overlay-wrapper');
+    if (wrapper) {
+      wrapper.style.opacity = '0';
+      setTimeout(() => {
+        wrapper.remove();
+        this.overlayElement = null;
+      }, 300);
+    }
+  },
+  
+  /**
+   * Show scan progress UI
+   */
+  showScanProgress() {
+    const scanProgress = this.overlayElement.querySelector('.scan-progress');
+    if (scanProgress) {
+      scanProgress.classList.remove('hidden');
+    }
+  },
+  
+  /**
+   * Hide scan progress UI
+   */
+  hideScanProgress() {
+    const scanProgress = this.overlayElement.querySelector('.scan-progress');
+    if (scanProgress) {
+      scanProgress.classList.add('hidden');
+    }
+  },
+  
+  /**
+   * Update scan progress with section statuses
+   * @param {Array<Object>} sections - Array of {name, status, itemCount}
+   */
+  updateScanProgress(sections) {
+    const scanItems = this.overlayElement.querySelector('.scan-items');
+    if (!scanItems) return;
+    
+    // Clear existing items
+    scanItems.innerHTML = '';
+    
+    // Create progress items for each section
+    sections.forEach(section => {
+      const item = document.createElement('div');
+      item.className = 'scan-item';
+      item.setAttribute('data-status', section.status);
+      
+      const icon = document.createElement('span');
+      icon.className = 'scan-icon';
+      
+      // Set icon based on status
+      if (section.status === 'complete') {
+        icon.textContent = '✓';
+      } else if (section.status === 'scanning') {
+        icon.textContent = '⣾';
+        icon.classList.add('spinning');
+      } else {
+        icon.textContent = '○';
+      }
+      
+      const label = document.createElement('span');
+      label.className = 'scan-label';
+      label.textContent = this.formatSectionName(section.name);
+      
+      // Add item count if available
+      if (section.itemCount !== undefined && section.status === 'complete') {
+        const count = document.createElement('span');
+        count.className = 'scan-count';
+        count.textContent = `(${section.itemCount})`;
+        label.appendChild(count);
+      }
+      
+      item.appendChild(icon);
+      item.appendChild(label);
+      scanItems.appendChild(item);
+    });
+  },
+  
+  /**
+   * Update extraction progress
+   * @param {string} currentSection - Section currently being extracted
+   */
+  updateExtractionProgress(currentSection) {
+    const statusText = this.overlayElement.querySelector('.status-text');
+    if (statusText) {
+      statusText.textContent = `Extracting ${this.formatSectionName(currentSection)}...`;
+    }
+  },
+  
+  /**
+   * Update AI analysis progress
+   * @param {string} phase - Current AI phase
+   * @param {string} section - Current section (optional)
+   */
+  updateAIProgress(phase, section) {
+    const statusText = this.overlayElement.querySelector('.status-text');
+    if (!statusText) return;
+    
+    const messages = {
+      'generating': 'Generating AI insights...',
+      'analyzing-about': 'AI analyzing About section...',
+      'analyzing-experience': 'AI analyzing Experience...',
+      'analyzing-skills': 'AI analyzing Skills...',
+      'analyzing-headline': 'AI analyzing Headline...',
+      'analyzing-education': 'AI analyzing Education...',
+      'analyzing-recommendations': 'AI analyzing Recommendations...',
+      'analyzing-certifications': 'AI analyzing Certifications...',
+      'analyzing-projects': 'AI analyzing Projects...'
+    };
+    
+    statusText.textContent = messages[phase] || `AI analyzing ${section || 'profile'}...`;
+  },
+  
+  /**
+   * Show timestamp
+   * @param {string|number} timestamp - Timestamp (ISO string or Unix timestamp)
+   */
+  showTimestamp(timestamp) {
+    const timestampEl = this.overlayElement?.querySelector('.timestamp-display');
+    if (!timestampEl || !timestamp) return;
+    
+    let date;
+    if (typeof timestamp === 'string') {
+      date = new Date(timestamp);
+    } else {
+      date = new Date(timestamp);
+    }
+    
+    const formatted = date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    
+    timestampEl.textContent = `Last analyzed: ${formatted}`;
+    timestampEl.style.opacity = '1';
+  },
+  
+  /**
+   * Format section name for display
+   * @param {string} name - Section name
+   * @returns {string} Formatted name
+   */
+  formatSectionName(name) {
+    const nameMap = {
+      'headline': 'Headline',
+      'about': 'About',
+      'experience': 'Experience',
+      'skills': 'Skills',
+      'education': 'Education',
+      'recommendations': 'Recommendations',
+      'certifications': 'Certifications',
+      'projects': 'Projects',
+      'featured': 'Featured'
+    };
+    
+    return nameMap[name] || name.charAt(0).toUpperCase() + name.slice(1);
+  },
+  
+  /**
+   * Show missing items for completeness
+   * @param {Object} completenessData - Completeness analysis data
+   */
+  showMissingItems(completenessData) {
+    if (!completenessData || !completenessData.recommendations) return;
+    
+    const section = this.overlayElement.querySelector('.missing-items-section');
+    const list = this.overlayElement.querySelector('.missing-items-list');
+    
+    if (!section || !list) return;
+    
+    // Clear existing items
+    list.innerHTML = '';
+    
+    // Get missing items sorted by priority (highest weight first)
+    const missingItems = completenessData.recommendations;
+    if (!missingItems || missingItems.length === 0) {
+      // If 100% complete, hide the section
+      section.classList.add('hidden');
+      return;
+    }
+    
+    // Create a clean list of missing items
+    const itemsHtml = missingItems.slice(0, 5).map(item => {
+      const iconMap = {
+        photo: '📷',
+        headline: '📝',
+        about: '📄',
+        experience: '💼',
+        skills: '🎯',
+        education: '🎓',
+        recommendations: '👍',
+        certifications: '📜',
+        projects: '🚀'
+      };
+      
+      const icon = iconMap[item.section] || '•';
+      const points = item.impact || item.weight || 0;
+      
+      return `
+        <div class="missing-item" style="
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 0;
+          border-bottom: 1px solid #e0e0e0;
+          font-size: 13px;
+        ">
+          <span style="font-size: 16px;">${icon}</span>
+          <span style="flex: 1;">${item.message}</span>
+          <span style="
+            background: #f3f4f6;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+          ">+${points}%</span>
+        </div>
+      `;
+    }).join('');
+    
+    list.innerHTML = itemsHtml;
+    
+    // Show the section
+    section.classList.remove('hidden');
+    
+    // If there are more than 5 items, show count
+    if (missingItems.length > 5) {
+      list.innerHTML += `
+        <div style="
+          text-align: center;
+          padding: 8px 0;
+          font-size: 13px;
+          color: #666;
+        ">
+          and ${missingItems.length - 5} more items...
+        </div>
+      `;
+    }
+  },
+  
+  /**
+   * Format and display timestamp
+   * @param {number} timestamp - Unix timestamp
+   */
+  showTimestamp(timestamp) {
+    const lastAnalyzed = this.overlayElement.querySelector('.last-analyzed');
+    if (!lastAnalyzed) return;
+    
+    const formatted = this.formatTimestamp(timestamp);
+    lastAnalyzed.textContent = `Last analyzed: ${formatted}`;
+    lastAnalyzed.style.opacity = '1';
+  },
+  
+  /**
+   * Format timestamp to human-readable format
+   * @param {number} timestamp - Unix timestamp
+   * @returns {string} Formatted date/time string
+   */
+  formatTimestamp(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    
+    // Check if it's today
+    const isToday = date.toDateString() === now.toDateString();
+    
+    // Check if it's yesterday
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const isYesterday = date.toDateString() === yesterday.toDateString();
+    
+    // Format time
+    const timeOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
+    const timeStr = date.toLocaleTimeString('en-US', timeOptions);
+    
+    if (isToday) {
+      return `Today at ${timeStr}`;
+    } else if (isYesterday) {
+      return `Yesterday at ${timeStr}`;
+    } else {
+      // For older dates, show month/day and time
+      const dateOptions = { month: 'short', day: 'numeric' };
+      const dateStr = date.toLocaleDateString('en-US', dateOptions);
+      return `${dateStr} at ${timeStr}`;
+    }
+  }
+};

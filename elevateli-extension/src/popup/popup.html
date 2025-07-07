@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>ElevateLI</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header>
+      <h3>ElevateLI</h3>
+      <span class="version">v0.4.0</span>
+    </header>
+    
+    <!-- First Time Setup -->
+    <div id="profileSetup" class="hidden">
+      <h4>First Time Setup</h4>
+      <div class="compliance-notice">
+        <p>⚠️ Important: Only analyze your own LinkedIn profile</p>
+        <p>Per LinkedIn's Terms of Service, this extension should only be used on your own profile.</p>
+        <label class="checkbox-label">
+          <input type="checkbox" id="complianceCheck">
+          <span>I understand and will only analyze my own profile</span>
+        </label>
+      </div>
+      <button id="acknowledgeCompliance" class="primary-button" disabled>Continue</button>
+    </div>
+    
+    <!-- Initial AI Setup (Optional) -->
+    <div id="setup" class="hidden">
+      <h4>AI Provider Setup (Optional)</h4>
+      <p class="setup-note">Enable AI for content quality analysis</p>
+      <select id="aiProvider">
+        <option value="">Select AI Model</option>
+        <option value="openai">OpenAI GPT-4</option>
+        <option value="openai-gpt-3.5">OpenAI GPT-3.5 Turbo</option>
+      </select>
+      <input type="password" id="apiKey" placeholder="Enter OpenAI API key">
+      <div style="display: flex; gap: 8px; margin-top: 12px;">
+        <button id="saveSetup" style="flex: 1;">Save & Continue</button>
+        <button id="testApiKey" class="secondary-button" style="flex: 0 0 auto;">Test Key</button>
+      </div>
+      <button id="skipSetup" class="secondary-button" style="margin-top: 8px;">Skip for Now</button>
+    </div>
+    
+    <!-- Main Controls -->
+    <div id="controls" class="hidden">
+      <div id="profileStatus" class="profile-status">
+        <p>Checking profile...</p>
+      </div>
+      
+      <section class="settings-section">
+        <h4>Settings</h4>
+        
+        <!-- AI Toggle -->
+        <div class="toggle-row">
+          <label for="aiEnabled">Enable AI Analysis</label>
+          <input type="checkbox" id="aiEnabled" class="toggle-switch">
+        </div>
+        
+        <!-- AI Configuration Box -->
+        <div id="aiConfig" class="ai-config disabled">
+          <div class="ai-provider-row">
+            <select id="aiProviderMain">
+              <option value="">Select AI Model...</option>
+              <option value="openai">OpenAI GPT-4</option>
+              <option value="openai-gpt-3.5">OpenAI GPT-3.5 Turbo</option>
+            </select>
+          </div>
+          
+          <div class="api-key-row">
+            <input type="password" id="apiKeyMain" placeholder="Enter API key">
+            <button id="testApiKeyMain" class="test-button">Test</button>
+          </div>
+          
+          <div class="separator"></div>
+          
+          <div class="form-group">
+            <label for="targetRole">Target Role</label>
+            <select id="targetRole">
+              <option value="">Select your role...</option>
+              <option value="product-manager">Product Manager</option>
+              <option value="software-engineer">Software Engineer</option>
+              <option value="data-scientist">Data Scientist</option>
+              <option value="designer">Designer</option>
+              <option value="marketing">Marketing Professional</option>
+              <option value="sales">Sales Professional</option>
+              <option value="consultant">Consultant</option>
+              <option value="entrepreneur">Entrepreneur</option>
+              <option value="general">General Professional</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="seniorityLevel">Experience Level</label>
+            <select id="seniorityLevel">
+              <option value="">Select level...</option>
+              <option value="entry">Entry Level</option>
+              <option value="mid">Mid Level</option>
+              <option value="senior">Senior</option>
+              <option value="lead">Lead/Principal</option>
+              <option value="director">Director+</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="customInstructions">Additional Context</label>
+            <textarea id="customInstructions" 
+                      placeholder="e.g., Focus on leadership experience, highlight international work..."
+                      rows="2"></textarea>
+          </div>
+        </div>
+      </section>
+      
+      <!-- Action Buttons -->
+      <div class="action-buttons">
+        <button id="saveSettings" class="primary-button">Save Settings</button>
+        <button id="resetAnalysis" class="secondary-button">Reset Analysis</button>
+        <a href="#" id="resetExtension" class="reset-link">Reset Extension</a>
+      </div>
+    </div>
+    
+    <!-- Confirmation Dialog -->
+    <div id="confirmDialog" class="confirm-overlay hidden">
+      <div class="confirm-content">
+        <p class="confirm-message"></p>
+        <div class="confirm-buttons">
+          <button class="confirm-yes">Confirm</button>
+          <button class="confirm-no">Cancel</button>
+        </div>
+      </div>
+    </div>
+    
+    <div class="footer-links">
+      <a href="https://github.com/yourusername/elevateli-extension/blob/main/TERMS.md" 
+         target="_blank" 
+         rel="noopener">
+        Terms & Privacy
+      </a>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

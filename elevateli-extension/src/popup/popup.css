@@ -1,0 +1,502 @@
+/* ElevateLI Popup - Enhanced Design */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  color: #1d1d1f;
+  background: #ffffff;
+}
+
+.popup-container {
+  width: 340px;
+  padding: 20px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Header */
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #dadce0;
+}
+
+header h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #0856a0;
+}
+
+.version {
+  font-size: 12px;
+  color: #5f6368;
+}
+
+/* Setup Sections */
+#setup h4, #profileSetup h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #1d1d1f;
+}
+
+.setup-note {
+  font-size: 13px;
+  color: #5f6368;
+  margin-bottom: 16px;
+}
+
+.compliance-notice {
+  background: #fef7e0;
+  border: 1px solid #f9e4a8;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.compliance-notice p {
+  font-size: 13px;
+  color: #7c6f3f;
+  margin-bottom: 8px;
+}
+
+.compliance-notice p:first-child {
+  font-weight: 600;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  margin-top: 2px;
+  cursor: pointer;
+}
+
+.checkbox-label span {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Form Elements */
+select, input[type="password"], textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #dadce0;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+  margin-bottom: 12px;
+  transition: all 0.2s ease;
+}
+
+select:focus, input:focus, textarea:focus {
+  outline: none;
+  border-color: #0856a0;
+  box-shadow: 0 0 0 3px rgba(8, 86, 160, 0.1);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 60px;
+  font-family: inherit;
+}
+
+/* Buttons */
+.primary-button {
+  background: #0856a0;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  width: 100%;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.primary-button:hover:not(:disabled) {
+  background: #064480;
+  box-shadow: 0 2px 8px rgba(8, 86, 160, 0.25);
+}
+
+.primary-button:disabled {
+  background: #dadce0;
+  color: #9aa0a6;
+  cursor: not-allowed;
+}
+
+.primary-button.success {
+  background: #0a7c4a;
+}
+
+.secondary-button {
+  background: white;
+  color: #5f6368;
+  border: 1px solid #dadce0;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.secondary-button:hover {
+  background: #f8f9fa;
+  border-color: #5f6368;
+}
+
+.test-button {
+  background: white;
+  color: #0856a0;
+  border: 1px solid #0856a0;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.test-button:hover:not(:disabled) {
+  background: #0856a0;
+  color: white;
+}
+
+.test-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.test-button.success {
+  background: #0a7c4a;
+  color: white;
+  border-color: #0a7c4a;
+}
+
+.test-button.error {
+  background: #d93025;
+  color: white;
+  border-color: #d93025;
+}
+
+/* Profile Status */
+.profile-status {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.profile-status p {
+  font-size: 14px;
+  color: #1d1d1f;
+  margin: 0;
+}
+
+.profile-status .profile-url {
+  font-size: 12px;
+  color: #5f6368;
+  margin-top: 4px;
+}
+
+/* Settings Section */
+.settings-section {
+  margin-bottom: 20px;
+}
+
+.settings-section h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #1d1d1f;
+}
+
+/* Toggle Row */
+.toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 8px 0;
+}
+
+.toggle-row label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1d1d1f;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #dadce0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.toggle-switch:checked {
+  background: #0856a0;
+}
+
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: white;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-switch:checked::after {
+  left: 22px;
+}
+
+/* AI Configuration Box */
+.ai-config {
+  background: #f8f9fa;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 8px;
+  transition: all 0.3s ease;
+}
+
+.ai-config.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  position: relative;
+}
+
+.ai-config.disabled::before {
+  content: "Enable AI to configure settings";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #5f6368;
+  font-size: 13px;
+  font-style: italic;
+  white-space: nowrap;
+  background: rgba(248, 249, 250, 0.95);
+  padding: 8px 16px;
+  border-radius: 4px;
+  z-index: 1;
+}
+
+.ai-config select,
+.ai-config input,
+.ai-config textarea {
+  margin-bottom: 12px;
+}
+
+.api-key-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.api-key-row input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.separator {
+  height: 1px;
+  background: #dadce0;
+  margin: 16px -16px 16px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #5f6368;
+  margin-bottom: 6px;
+}
+
+.form-group select,
+.form-group textarea {
+  margin-bottom: 0;
+}
+
+/* Action Buttons */
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.reset-link {
+  color: #5f6368;
+  font-size: 12px;
+  text-decoration: none;
+  text-align: center;
+  opacity: 0.8;
+  transition: all 0.2s ease;
+  padding: 4px;
+}
+
+.reset-link:hover {
+  color: #d93025;
+  text-decoration: underline;
+  opacity: 1;
+}
+
+/* Confirmation Dialog */
+.confirm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.confirm-content {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 280px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+  from { 
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.confirm-message {
+  font-size: 14px;
+  color: #1d1d1f;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.confirm-yes,
+.confirm-no {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.confirm-yes {
+  background: #0856a0;
+  color: white;
+}
+
+.confirm-yes:hover {
+  background: #064480;
+}
+
+.confirm-no {
+  background: white;
+  color: #5f6368;
+  border: 1px solid #dadce0;
+}
+
+.confirm-no:hover {
+  background: #f8f9fa;
+  border-color: #5f6368;
+}
+
+/* Footer */
+.footer-links {
+  text-align: center;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #dadce0;
+}
+
+.footer-links a {
+  color: #5f6368;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.footer-links a:hover {
+  text-decoration: underline;
+}
+
+/* Utility Classes */
+.hint {
+  font-size: 12px;
+  color: #5f6368;
+  margin-top: 4px;
+}
+
+.error-message {
+  color: #d93025;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.success-message {
+  color: #0a7c4a;
+  font-size: 13px;
+  margin-top: 4px;
+}

@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artifacts
+*.zip
+*.crx
+*.pem
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Sensitive
+*.pem
+.env
+.env.local
+config.local.js
+secrets.json
+apikeys.json
+
+# Cache and logs
+*.cache
+*.log
+logs/
+chrome-extension://
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Personal notes
+personal-notes/
+TODO.personal.md
+scratch/
+
+# Old extension folder (can be removed after verification)
+extension/
+
+# Archive is version controlled but ignore temp files
+archive/**/*.tmp
+archive/**/*.cache
+archive/**/*.log
