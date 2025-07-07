@@ -1,6 +1,10 @@
-# ElevateLI - LinkedIn Profile Optimizer
+# ElevateLI Chrome Extension
 
 Optimize your LinkedIn profile with AI-powered analysis and actionable insights.
+
+[![Version](https://img.shields.io/badge/version-0.4.2-blue.svg)](https://github.com/yourusername/elevateli)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome-Extension-yellow.svg)](#)
 
 ## What is ElevateLI?
 
@@ -50,6 +54,59 @@ To use the AI-powered quality analysis, you'll need your own API key from:
 - **Anthropic** - Get one at [console.anthropic.com](https://console.anthropic.com)
 
 Cost: Approximately $0.05 per full profile analysis
+
+## Configuration
+
+### First-Time Setup
+1. Click the extension icon in your Chrome toolbar
+2. Accept the terms of service
+3. Configure AI settings (optional):
+   - Select AI provider (OpenAI or Anthropic)
+   - Enter your API key
+   - Choose target role and experience level
+   - Save settings
+
+### Profile Detection
+- **Automatic**: Visit `linkedin.com/in/me/` to auto-detect your profile
+- **Manual**: Click "Set Current Profile as Mine" on any LinkedIn profile page
+
+### Settings
+- **Enable/Disable AI**: Toggle AI analysis on/off
+- **Cache Duration**: Results cached for 7 days (configurable)
+- **Custom Instructions**: Add specific focus areas for AI analysis
+- **Reset Options**: Clear cache or reset entire extension
+
+## Technical Details
+
+### Profile Analysis
+The extension analyzes 10 key profile sections:
+- Photo & Background
+- Headline & Location
+- About/Summary
+- Experience
+- Skills & Endorsements
+- Education
+- Recommendations
+- Certifications
+- Projects
+- Featured Content
+
+### Scoring Methodology
+**Completeness Score (0-100%)**:
+- Based on presence and depth of profile sections
+- Calculated locally without API calls
+- Instant feedback
+
+**Quality Score (1-10)**:
+- AI evaluates content clarity, keywords, and impact
+- Considers target role and seniority level
+- Provides specific improvement suggestions
+
+### Performance
+- **Fast Scanning**: ~2 seconds for completeness analysis
+- **Smart Extraction**: Automatically expands "Show all" sections
+- **Efficient Caching**: Reduces API calls and costs
+- **Progressive UI**: Real-time feedback during analysis
 
 ## Privacy & Security
 
