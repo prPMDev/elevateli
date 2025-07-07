@@ -707,6 +707,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   
+  // Handle synthesis of section scores
+  if (action === 'synthesizeAnalysis') {
+    handleSynthesisAnalysis(request, sender, sendResponse);
+    return true;
+  }
+  
   return true;
 });
 
@@ -755,11 +761,17 @@ async function testApiKey(provider, apiKey, model) {
   }
 }
 
-// Section-specific analysis handler
+// Section-specific analysis handler for distributed architecture
 async function handleSectionAnalysis(request, sendResponse) {
-  const { section, data, settings } = request;
+  const { section, data, context, settings } = request;
   
-  chrome.storage.local.get(['aiProvider', 'aiModel', 'targetRole', 'customInstructions', 'sectionScores', 'enableAI'], async (config) => {
+  console.log('[AI] Section analysis requested:', { 
+    section, 
+    hasData: !!data,
+    hasContext: !!context 
+  });
+  
+  chrome.storage.local.get(['aiProvider', 'aiModel', 'targetRole', 'seniorityLevel', 'customInstructions', 'sectionScores', 'enableAI'], async (config) => {
     // Get decrypted API key
     const apiKey = await getDecryptedApiKey();
     
@@ -782,9 +794,41 @@ async function handleSectionAnalysis(request, sendResponse) {
     }
     
     try {
-      const sectionPrompt = buildSectionPrompt(section, data, {...config, ...settings});
-      let result;
+      // Build appropriate prompt based on section type
+      let sectionPrompt;
+      let modelOverride = null;
       
+      switch(section) {
+        case 'profile_intro':
+          sectionPrompt = buildProfileIntroPrompt(data, config);
+          modelOverride = 'gpt-3.5-turbo'; // Simple analysis
+          break;
+          
+        case 'experience_role':
+          sectionPrompt = buildExperienceRolePrompt(data, context, config);
+          modelOverride = config.aiModel || 'gpt-4'; // Complex analysis
+          break;
+          
+        case 'skills':
+          sectionPrompt = buildSkillsPrompt(data, config);
+          modelOverride = 'gpt-3.5-turbo'; // List analysis
+          break;
+          
+        case 'recommendations':
+          sectionPrompt = buildRecommendationsPrompt(data, config);
+          modelOverride = 'gpt-3.5-turbo';
+          break;
+          
+        default:
+          sectionPrompt = buildSectionPrompt(section, data, {...config, ...settings});
+      }
+      
+      // Use model override if specified
+      if (modelOverride && config.aiProvider === 'openai') {
+        config.aiModel = modelOverride;
+      }
+      
+      let result;
       if (config.aiProvider === 'openai') {
         result = await analyzeWithOpenAI({}, {...config, sectionPrompt});
       } else if (config.aiProvider === 'anthropic') {
@@ -1256,7 +1300,7 @@ async function analyzeWithOpenAI(profileData, settings) {
     const messages = [
       { 
         role: 'system', 
-        content: 'You are a LinkedIn profile optimization expert. Analyze profiles and provide structured feedback in JSON format. Focus on actionable recommendations with specific implementation steps and measurable outcomes.'
+        content: 'You are a LinkedIn profile optimization expert. Analyze profiles and provide structured feedback. IMPORTANT: Respond with ONLY valid JSON - no markdown formatting, no code blocks, no \`\`\`json markers, just the raw JSON object. Focus on actionable recommendations with specific implementation steps and measurable outcomes.'
       }
     ];
     
@@ -1292,7 +1336,10 @@ async function analyzeWithOpenAI(profileData, settings) {
         model: settings.aiModel || 'gpt-3.5-turbo',
         messages,
         temperature: 0.1,
-        max_tokens: 1000
+        // Token limits by model:
+        // - GPT-4 and GPT-4o: No limit needed (they handle it automatically)
+        // - GPT-3.5-turbo: 4096 max completion tokens
+        ...(settings.aiModel?.includes('gpt-4') ? {} : { max_tokens: 4096 })
       })
     });
     
@@ -1336,7 +1383,9 @@ async function analyzeWithOpenAI(profileData, settings) {
       hasChoices: !!data.choices,
       choicesLength: data.choices?.length,
       hasContent: !!data.choices?.[0]?.message?.content,
-      contentLength: data.choices?.[0]?.message?.content?.length
+      contentLength: data.choices?.[0]?.message?.content?.length,
+      finishReason: data.choices?.[0]?.finish_reason,
+      usage: data.usage
     });
     return parseAIResponse(data.choices[0].message.content, profileData);
   } catch (error) {
@@ -1382,11 +1431,11 @@ async function analyzeWithAnthropic(profileData, settings) {
         messages: [
           { 
             role: 'system', 
-            content: 'You are a LinkedIn profile optimization expert. Respond ONLY with valid JSON matching the specified schema. Focus on actionable recommendations with metrics.'
+            content: 'You are a LinkedIn profile optimization expert. IMPORTANT: Respond with ONLY valid JSON - no markdown formatting, no code blocks, no \`\`\`json markers, just the raw JSON object. Focus on actionable recommendations with metrics.'
           },
           { role: 'user', content: prompt }
         ],
-        max_tokens: 1000,
+        max_tokens: 8000,  // Increased to allow complete responses
         temperature: 0.1
       })
     });
@@ -1431,7 +1480,9 @@ async function analyzeWithAnthropic(profileData, settings) {
       hasContent: !!data.content,
       contentLength: data.content?.length,
       hasText: !!data.content?.[0]?.text,
-      textLength: data.content?.[0]?.text?.length
+      textLength: data.content?.[0]?.text?.length,
+      stopReason: data.stop_reason,
+      usage: data.usage
     });
     return parseAIResponse(data.content[0].text, profileData);
   } catch (error) {
@@ -1460,8 +1511,408 @@ async function analyzeWithAnthropic(profileData, settings) {
   }
 }
 
+// Section-specific prompt builders for distributed analysis
+
+function buildProfileIntroPrompt(data, config) {
+  const { headline, about, photo, topSkills } = data;
+  const targetRole = config.targetRole || 'Professional';
+  const seniorityLevel = config.seniorityLevel || 'mid';
+  
+  return `Analyze this LinkedIn profile introduction for a ${targetRole} at ${seniorityLevel} level.
+
+Profile Data:
+- Photo: ${photo?.exists ? 'Present' : 'Missing'}
+- Headline: "${headline?.text || 'Missing'}" (${headline?.charCount || 0}/220 chars)
+- About Section: ${about?.charCount || 0}/2600 chars
+${about?.text ? `Content: "${about.text}"` : 'No about section'}
+- Top Skills Listed: ${topSkills?.join(', ') || 'None visible'}
+
+Evaluate and respond with ONLY valid JSON (no markdown):
+{
+  "score": [0-10],
+  "analysis": {
+    "headline": {
+      "score": [0-10],
+      "strengths": ["specific strength"],
+      "issues": ["specific issue"],
+      "roleAlignment": [0-10]
+    },
+    "about": {
+      "score": [0-10],
+      "narrativeQuality": [0-10],
+      "keywordDensity": [0-10],
+      "uniqueness": [0-10],
+      "missingElements": ["what's missing"]
+    },
+    "firstImpression": {
+      "score": [0-10],
+      "professionalismScore": [0-10]
+    }
+  },
+  "recommendations": [
+    {
+      "priority": "critical|high|medium",
+      "section": "headline|about|photo",
+      "action": {
+        "what": "Specific action to take",
+        "why": "Impact on profile",
+        "how": "Implementation steps",
+        "example": "Before → After example"
+      },
+      "timeInvestment": "5min|15min|30min",
+      "impactScore": [0-10]
+    }
+  ],
+  "insights": {
+    "profileHook": "What makes this profile memorable",
+    "marketPositioning": "How well positioned for target role",
+    "differentiators": ["unique aspects"],
+    "redFlags": ["concerns for recruiters"]
+  }
+}`;
+}
+
+function buildExperienceRolePrompt(data, context, config) {
+  const { title, company, duration, location, description, bullets, hasQuantifiedAchievements, hasTechStack, keywords } = data;
+  const { position, totalRoles, previousRole, nextRole } = context;
+  const targetRole = config.targetRole || 'Professional';
+  
+  // Calculate content metrics
+  const contentLength = (description?.length || 0) + bullets?.reduce((sum, b) => sum + b.length, 0) || 0;
+  const hasContent = contentLength > 50;
+  
+  return `Analyze this specific work experience for a ${targetRole} profile.
+
+Role Context:
+- Position: ${position + 1} of ${totalRoles} total roles
+- Career Progression: ${previousRole?.title || 'Start'} → ${title} → ${nextRole?.title || 'Current'}
+
+Role Data:
+- Title: ${title}
+- Company: ${company}
+- Duration: ${duration}
+- Location: ${location || 'Not specified'}
+- Content Length: ${contentLength} characters
+- Has Quantified Achievements: ${hasQuantifiedAchievements}
+- Has Tech Stack: ${hasTechStack}
+- Keywords Found: ${keywords?.join(', ') || 'None'}
+
+Content:
+${description ? `Description: "${description}"` : 'No description provided'}
+${bullets?.length ? `\nKey Achievements:\n${bullets.map((b, i) => `${i+1}. ${b}`).join('\n')}` : ''}
+
+Evaluate for ${targetRole} relevance and respond with ONLY valid JSON:
+{
+  "score": [0-10],
+  "analysis": {
+    "relevance": {
+      "score": [0-10],
+      "keySkillsShown": ["skill1", "skill2"],
+      "missingForRole": ["what's missing for ${targetRole}"],
+      "roleAlignment": "how well this aligns with ${targetRole} career path"
+    },
+    "impact": {
+      "score": [0-10],
+      "quantifiedResults": ["specific metrics found"],
+      "missingMetrics": ["metrics that should be added"],
+      "achievementQuality": "none|basic|good|excellent"
+    },
+    "progression": {
+      "score": [0-10],
+      "growthShown": "how role shows growth",
+      "alignmentToTarget": [0-10],
+      "seniorityProgression": "lateral|upward|unclear"
+    },
+    "storytelling": {
+      "score": [0-10],
+      "clarity": [0-10],
+      "specificity": [0-10],
+      "completeness": [0-10]
+    }
+  },
+  "recommendations": [
+    {
+      "priority": "critical|high|medium",
+      "action": {
+        "what": "${hasContent ? 'Enhance' : 'Add'} specific metric or achievement",
+        "why": "Impact for ${targetRole} applications",
+        "how": "Specific implementation steps",
+        "example": "Before → After example with metrics"
+      },
+      "impactScore": [0-10],
+      "timeInvestment": "5min|15min|30min"
+    }
+  ],
+  "extractedMetrics": {
+    "teamSize": "number or null",
+    "budget": "amount or null",
+    "impact": ["quantified results found"],
+    "timeline": ["project durations found"],
+    "technologies": ["tech stack mentioned"]
+  },
+  "contentAssessment": {
+    "hasDescription": ${hasContent},
+    "descriptionQuality": ${hasContent ? '"evaluate quality"' : '"missing"'},
+    "bulletPointsEffective": ${bullets?.length > 0},
+    "keywordOptimization": "poor|fair|good|excellent"
+  }
+}`;
+}
+
+function buildSkillsPrompt(data, config) {
+  const { skills, totalCount } = data;
+  const targetRole = config.targetRole || 'Professional';
+  
+  return `Analyze the skills section for a ${targetRole} profile.
+
+Skills Data:
+- Total Skills: ${totalCount}
+- Skills with Endorsements: ${skills?.length || 0}
+${skills?.slice(0, 20).map(s => `- ${s.name}: ${s.endorsements} endorsements`).join('\n')}
+
+Market Context: Evaluate against current ${targetRole} job requirements.
+
+Respond with ONLY valid JSON:
+{
+  "score": [0-10],
+  "analysis": {
+    "relevance": {
+      "score": [0-10],
+      "criticalSkillsCoverage": [0-100],
+      "missingCriticalSkills": ["skill1", "skill2"]
+    },
+    "credibility": {
+      "score": [0-10],
+      "endorsementStrength": "strong|moderate|weak",
+      "topEndorsedRelevant": true|false
+    },
+    "marketAlignment": {
+      "score": [0-10],
+      "trendingSkillsCovered": ["skill1", "skill2"],
+      "outdatedSkills": ["skill1", "skill2"]
+    }
+  },
+  "recommendations": [
+    {
+      "priority": "critical|high|medium",
+      "action": {
+        "what": "Add/remove/reorder specific skills",
+        "why": "Market demand reasoning",
+        "how": "Specific steps"
+      },
+      "impactScore": [0-10]
+    }
+  ],
+  "insights": {
+    "skillGaps": ["Missing ${targetRole} skills"],
+    "endorsementStrategy": "How to improve endorsements",
+    "competitiveAdvantage": ["Unique skill combinations"]
+  }
+}`;
+}
+
+// Synthesis handler for aggregating section scores
+async function handleSynthesisAnalysis(request, sendResponse) {
+  const { sectionScores, sectionRecommendations } = request;
+  
+  console.log('[AI] Synthesis requested for sections:', Object.keys(sectionScores));
+  
+  chrome.storage.local.get(['aiProvider', 'aiModel', 'targetRole', 'seniorityLevel'], async (config) => {
+    const apiKey = await getDecryptedApiKey();
+    
+    if (!config.aiProvider || !apiKey) {
+      sendResponse({ error: 'AI not configured' });
+      return;
+    }
+    
+    config.apiKey = apiKey;
+    
+    try {
+      const synthesisPrompt = buildSynthesisPrompt(sectionScores, sectionRecommendations, config);
+      
+      let result;
+      if (config.aiProvider === 'openai') {
+        // Use GPT-4 for synthesis
+        result = await analyzeWithOpenAI({}, {...config, aiModel: 'gpt-4', sectionPrompt: synthesisPrompt});
+      } else if (config.aiProvider === 'anthropic') {
+        result = await analyzeWithAnthropic({}, {...config, sectionPrompt: synthesisPrompt});
+      }
+      
+      sendResponse({
+        success: true,
+        finalScore: result.contentScore,
+        synthesis: result.fullAnalysis || JSON.parse(result.summary),
+        overallRecommendations: result.recommendations,
+        careerNarrative: result.insights
+      });
+      
+    } catch (error) {
+      console.error('[AI] Synthesis error:', error);
+      sendResponse({ 
+        success: false, 
+        error: error.message 
+      });
+    }
+  });
+}
+
+function buildSynthesisPrompt(sectionScores, sectionRecommendations, config) {
+  const targetRole = config.targetRole || 'Professional';
+  const seniorityLevel = config.seniorityLevel || 'mid';
+  
+  return `Synthesize the LinkedIn profile analysis for a ${targetRole} at ${seniorityLevel} level.
+
+Section Analysis Results:
+${Object.entries(sectionScores).map(([section, data]) => `
+${section}:
+- Score: ${data.score}/10
+- Key Issues: ${data.analysis?.issues?.join(', ') || 'None identified'}
+- Strengths: ${data.analysis?.strengths?.join(', ') || 'None identified'}
+`).join('\n')}
+
+Top Recommendations by Section:
+${Object.entries(sectionRecommendations).map(([section, recs]) => `
+${section}: ${recs.slice(0, 2).map(r => r.action?.what || r).join('; ')}
+`).join('\n')}
+
+Provide a holistic analysis with ONLY valid JSON:
+{
+  "overallScore": [0-10],
+  "scoreBreakdown": {
+    "contentQuality": [0-10],
+    "roleAlignment": [0-10],
+    "marketPositioning": [0-10],
+    "narrativeCoherence": [0-10]
+  },
+  "careerNarrative": {
+    "story": "The coherent career story being told",
+    "progression": "Career growth trajectory analysis",
+    "positioning": "Current market position for ${targetRole}",
+    "gaps": ["Major gaps in the narrative"]
+  },
+  "prioritizedRecommendations": [
+    {
+      "rank": 1,
+      "category": "quick_wins|high_impact|strategic",
+      "timeframe": "immediate|this_week|this_month",
+      "actions": [
+        {
+          "section": "which section",
+          "what": "Specific action",
+          "expectedImpact": "+X points to overall score"
+        }
+      ],
+      "combinedImpact": "Overall expected improvement"
+    }
+  ],
+  "competitiveAnalysis": {
+    "estimatedPercentile": [0-100],
+    "standoutFactors": ["What makes this profile unique"],
+    "competitiveGaps": ["What competitors likely have"],
+    "marketReadiness": "ready|needs_work|significant_gaps"
+  },
+  "nextSteps": {
+    "immediate": ["Do within 24 hours"],
+    "shortTerm": ["Do within a week"],
+    "longTerm": ["Strategic improvements"]
+  }
+}`;
+}
+
+function buildRecommendationsPrompt(data, config) {
+  const { recommendations, count } = data;
+  const targetRole = config.targetRole || 'Professional';
+  
+  return `Analyze the recommendations section for a ${targetRole} profile.
+
+Recommendations Data:
+- Total Count: ${count}
+${recommendations?.slice(0, 3).map((r, i) => `
+Recommendation ${i+1}:
+- From: ${r.recommenderTitle} at ${r.recommenderCompany}
+- Relationship: ${r.relationship}
+- Content: "${r.text?.substring(0, 200)}..."`).join('\n')}
+
+Respond with ONLY valid JSON:
+{
+  "score": [0-10],
+  "analysis": {
+    "quantity": {
+      "score": [0-10],
+      "adequacy": "insufficient|adequate|strong"
+    },
+    "quality": {
+      "score": [0-10],
+      "specificity": [0-10],
+      "credibility": [0-10],
+      "diversity": [0-10]
+    },
+    "relevance": {
+      "score": [0-10],
+      "roleAlignment": "how well they support ${targetRole}",
+      "skillsHighlighted": ["skill1", "skill2"]
+    }
+  },
+  "recommendations": [
+    {
+      "priority": "critical|high|medium",
+      "action": {
+        "what": "Request specific type of recommendation",
+        "why": "Gap it would fill",
+        "who": "Type of person to ask",
+        "template": "Message template to use"
+      },
+      "impactScore": [0-10]
+    }
+  ]
+}`;
+}
+
 function buildAnalysisPrompt(profileData, settings) {
   const { headline, about, experience, skills, education, recommendations, location, openToWork, photo } = profileData;
+  
+  // Log all profile data being sent to AI
+  console.log('[AI] Profile data for analysis:', {
+    photo: {
+      exists: photo?.exists,
+      url: photo?.url ? photo.url.substring(0, 100) + '...' : 'No URL'
+    },
+    headline: {
+      exists: headline?.exists,
+      text: headline?.text,
+      charCount: headline?.charCount
+    },
+    about: {
+      exists: about?.exists,
+      text: about?.text ? about.text.substring(0, 200) + '...' : 'No text',
+      charCount: about?.charCount
+    },
+    experience: {
+      count: experience?.count || experience?.totalCount,
+      experiences: experience?.experiences?.slice(0, 2).map(exp => ({
+        title: exp.title,
+        company: exp.company,
+        duration: exp.duration,
+        hasDescription: !!exp.description
+      }))
+    },
+    skills: {
+      count: skills?.count || skills?.totalCount,
+      topSkills: skills?.skills?.slice(0, 5).map(s => {
+        const name = s?.name || s?.skill || 'Unknown';
+        const endorsements = s?.endorsements || s?.endorsementCount || 0;
+        return `${name}(${endorsements})`;
+      }) || []
+    },
+    education: {
+      count: education?.count,
+      schools: education?.schools?.slice(0, 2).map(s => s.school)
+    },
+    recommendations: {
+      count: recommendations?.count,
+      hasRecommendations: recommendations?.count > 0
+    }
+  });
   
   // Generate unique analysis ID
   const analysisId = crypto.randomUUID ? crypto.randomUUID() : 
@@ -1505,7 +1956,7 @@ function buildAnalysisPrompt(profileData, settings) {
   };
   
   // Build structured prompt for JSON response
-  return `Analyze this LinkedIn profile and provide a comprehensive assessment in JSON format.
+  const prompt = `Analyze this LinkedIn profile and provide a comprehensive assessment in JSON format.
 
 Target Role: ${targetRole}${roleSpecificInstructions}
 Seniority Level: ${seniorityDescriptions[seniorityLevel] || seniorityLevel}
@@ -1590,11 +2041,20 @@ IMPORTANT: Respond with ONLY valid JSON matching this exact structure:
 }
 
 Critical requirements:
-1. Return ONLY valid JSON, no additional text
-2. Score sections based on ${targetRole} requirements
-3. Provide actionable recommendations with specific examples
-4. Prioritize by impact and effort required
-5. Include metrics and measurement methods`;
+1. Return ONLY valid JSON, no additional text or markdown
+2. Do NOT wrap the JSON in code blocks or use \`\`\`json markers
+3. Score sections based on ${targetRole} requirements
+4. Provide actionable recommendations with specific examples
+5. Prioritize by impact and effort required
+6. Include metrics and measurement methods
+
+REMINDER: Output raw JSON only - no markdown, no code blocks, no explanations.`;
+
+  // Log the complete prompt being sent
+  console.log('[AI] Complete prompt length:', prompt.length);
+  console.log('[AI] Prompt preview (first 1000 chars):', prompt.substring(0, 1000));
+  
+  return prompt;
 }
 
 function parseAIResponse(aiText, profileData) {
@@ -1602,8 +2062,38 @@ function parseAIResponse(aiText, profileData) {
   console.log('[AI] First 500 chars of response:', aiText?.substring(0, 500));
   
   try {
+    // Remove markdown code block markers if present
+    let cleanedText = aiText;
+    
+    // Log the raw text for debugging
+    console.log('[AI] Raw response (first 100 chars):', aiText.substring(0, 100));
+    
+    // More robust markdown removal
+    if (aiText.includes('```')) {
+      // Match everything between first ``` and last ```
+      const jsonMatch = aiText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+      if (jsonMatch && jsonMatch[1]) {
+        cleanedText = jsonMatch[1].trim();
+        console.log('[AI] Extracted JSON from markdown blocks');
+      } else {
+        // Fallback: just remove all ``` markers
+        cleanedText = aiText.replace(/```(?:json)?\s*/g, '').trim();
+        console.log('[AI] Removed markdown markers (fallback)');
+      }
+    }
+    
+    console.log('[AI] Cleaned text (first 100 chars):', cleanedText.substring(0, 100));
+    console.log('[AI] Cleaned text (last 100 chars):', cleanedText.substring(cleanedText.length - 100));
+    
     // First try to parse as JSON (new format)
-    const jsonResponse = JSON.parse(aiText);
+    let jsonResponse;
+    try {
+      jsonResponse = JSON.parse(cleanedText);
+    } catch (parseError) {
+      console.log('[AI] JSON.parse failed:', parseError.message);
+      console.log('[AI] Failed at character position:', parseError.message.match(/position (\d+)/)?.[1]);
+      throw parseError;
+    }
     console.log('[AI] Successfully parsed JSON response:', {
       hasOverallScore: !!jsonResponse.overallScore,
       hasRecommendations: !!jsonResponse.recommendations,
@@ -1611,37 +2101,61 @@ function parseAIResponse(aiText, profileData) {
       hasInsights: !!jsonResponse.insights
     });
     
-    // Validate required fields
-    if (jsonResponse.overallScore && jsonResponse.recommendations) {
+    // Log the parsed JSON structure
+    console.log('[AI] Parsed JSON structure:', {
+      hasMetadata: !!jsonResponse.metadata,
+      hasOverallScore: !!jsonResponse.overallScore,
+      overallScore: jsonResponse.overallScore?.score,
+      hasRecommendations: !!jsonResponse.recommendations,
+      recommendationsKeys: jsonResponse.recommendations ? Object.keys(jsonResponse.recommendations) : [],
+      hasSectionScores: !!jsonResponse.sectionScores,
+      sectionScoreKeys: jsonResponse.sectionScores ? Object.keys(jsonResponse.sectionScores) : [],
+      hasInsights: !!jsonResponse.insights,
+      insightKeys: jsonResponse.insights ? Object.keys(jsonResponse.insights) : []
+    });
+    
+    // Validate required fields - only require overallScore
+    if (jsonResponse.overallScore) {
       // Convert JSON response to expected format
       const contentScore = jsonResponse.overallScore.score;
       
       // Build summary from insights and top recommendations
       let summary = `**Summary**\n`;
-      summary += `Your LinkedIn profile scores ${contentScore}/10 for ${jsonResponse.metadata.targetRole}. `;
-      summary += `${jsonResponse.insights.strengths[0]}. `;
-      summary += `Key gaps: ${jsonResponse.insights.gaps[0]}.\n\n`;
+      summary += `Your LinkedIn profile scores ${contentScore}/10 for ${jsonResponse.metadata?.targetRole || 'Professional'}. `;
       
-      summary += `**Critical Actions:**\n`;
-      jsonResponse.recommendations.critical.forEach((rec, idx) => {
-        summary += `${idx + 1}. ${rec.section}: ${rec.action.what}\n`;
-        summary += `   Why: ${rec.action.why}\n`;
-        summary += `   How: ${rec.action.how}\n\n`;
-      });
+      // Add insights if available
+      if (jsonResponse.insights?.strengths?.[0]) {
+        summary += `${jsonResponse.insights.strengths[0]}. `;
+      }
+      if (jsonResponse.insights?.gaps?.[0]) {
+        summary += `Key gaps: ${jsonResponse.insights.gaps[0]}.\n\n`;
+      }
       
-      summary += `**Important Improvements:**\n`;
-      jsonResponse.recommendations.important.forEach((rec, idx) => {
-        summary += `${idx + 1}. ${rec.section}: ${rec.action.what}\n`;
-      });
+      // Add recommendations if available
+      if (jsonResponse.recommendations?.critical?.length > 0) {
+        summary += `**Critical Actions:**\n`;
+        jsonResponse.recommendations.critical.forEach((rec, idx) => {
+          summary += `${idx + 1}. ${rec.section}: ${rec.action.what}\n`;
+          summary += `   Why: ${rec.action.why}\n`;
+          summary += `   How: ${rec.action.how}\n\n`;
+        });
+      }
+      
+      if (jsonResponse.recommendations?.important?.length > 0) {
+        summary += `**Important Improvements:**\n`;
+        jsonResponse.recommendations.important.forEach((rec, idx) => {
+          summary += `${idx + 1}. ${rec.section}: ${rec.action.what}\n`;
+        });
+      }
       
       // Store full JSON response for detailed analysis
       const result = {
         contentScore: contentScore,
         summary: summary,
         fullAnalysis: jsonResponse,
-        sectionScores: jsonResponse.sectionScores,
-        recommendations: jsonResponse.recommendations,
-        insights: jsonResponse.insights
+        sectionScores: jsonResponse.sectionScores || {},
+        recommendations: jsonResponse.recommendations || { critical: [], important: [], niceToHave: [] },
+        insights: jsonResponse.insights || { strengths: [], gaps: [], opportunities: [] }
       };
       
       console.log('[AI] Parsed result:', {
@@ -1663,6 +2177,8 @@ function parseAIResponse(aiText, profileData) {
       return result;
     }
   } catch (jsonError) {
+    console.log('[AI] Error in JSON parsing or processing:', jsonError.message);
+    console.log('[AI] Error stack:', jsonError.stack);
     console.log('Response is not JSON, falling back to text parsing');
   }
   

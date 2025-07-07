@@ -30,7 +30,31 @@ const OverlayManager = {
   async initialize() {
     console.log('[OverlayManager] Initializing overlay');
     this.setState(this.states.INITIALIZING);
+    
+    // Try to inject immediately
     this.createAndInject();
+    
+    // If injection failed, retry with delays
+    if (!this.overlayElement) {
+      console.log('[OverlayManager] Initial injection failed, scheduling retries...');
+      
+      // Retry after DOM settles
+      setTimeout(() => {
+        if (!this.overlayElement) {
+          console.log('[OverlayManager] Retrying injection (attempt 2)...');
+          this.createAndInject();
+        }
+      }, 1000);
+      
+      // Final retry after LinkedIn finishes loading
+      setTimeout(() => {
+        if (!this.overlayElement) {
+          console.log('[OverlayManager] Final injection attempt (attempt 3)...');
+          this.createAndInject();
+        }
+      }, 3000);
+    }
+    
     return this;
   },
   
@@ -127,46 +151,88 @@ const OverlayManager = {
     // Find the right place to inject
     let injected = false;
     
-    // Primary: After main profile card section (most reliable)
-    const profileCard = document.querySelector('section.artdeco-card[data-member-id]');
-    if (profileCard) {
-      Logger.info('[OverlayManager] Injecting after main profile card');
-      profileCard.insertAdjacentHTML('afterend', wrapperHtml);
+    // Log available elements for debugging
+    Logger.debug('[OverlayManager] Looking for injection points...', {
+      profileCard: !!document.querySelector('section.artdeco-card[data-member-id]'),
+      profileSection: !!document.querySelector('.pv-top-card'),
+      aboutSection: !!document.querySelector('#about'),
+      mainContent: !!document.querySelector('main'),
+      scaffoldMain: !!document.querySelector('.scaffold-layout__main')
+    });
+    
+    // Strategy 1: After the profile top card (most common location)
+    const topCard = document.querySelector('.pv-top-card');
+    if (topCard && topCard.parentElement) {
+      Logger.info('[OverlayManager] Injecting after profile top card');
+      topCard.parentElement.insertAdjacentHTML('afterend', wrapperHtml);
       injected = true;
     }
     
-    // Fallback 1: After About anchor
+    // Strategy 2: After the profile photo/intro section
     if (!injected) {
-      const aboutAnchor = document.querySelector('#about.pv-profile-card__anchor');
-      if (aboutAnchor) {
-        Logger.info('[OverlayManager] Injecting after About anchor (fallback)');
-        aboutAnchor.insertAdjacentHTML('afterend', wrapperHtml);
+      const profileSection = document.querySelector('section.artdeco-card.pv-top-card-profile-picture');
+      if (profileSection) {
+        Logger.info('[OverlayManager] Injecting after profile intro section');
+        profileSection.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
     }
     
-    // Fallback 2: After any artdeco-card section
+    // Strategy 3: After any section with class pv-profile-card
+    if (!injected) {
+      const profileCards = document.querySelectorAll('section.pv-profile-card');
+      if (profileCards.length > 0) {
+        Logger.info('[OverlayManager] Injecting after first profile card');
+        profileCards[0].insertAdjacentHTML('afterend', wrapperHtml);
+        injected = true;
+      }
+    }
+    
+    // Strategy 4: After About section (if exists)
+    if (!injected) {
+      const aboutSection = document.querySelector('section#about, div#about');
+      if (aboutSection && aboutSection.parentElement) {
+        Logger.info('[OverlayManager] Injecting after About section');
+        aboutSection.parentElement.insertAdjacentHTML('afterend', wrapperHtml);
+        injected = true;
+      }
+    }
+    
+    // Strategy 5: Inside main content area
+    if (!injected) {
+      const mainContent = document.querySelector('main.scaffold-layout__main, main[role="main"]');
+      if (mainContent) {
+        // Find the container that holds profile sections
+        const profileContainer = mainContent.querySelector('.pv-profile-body-container, .scaffold-layout__inner');
+        if (profileContainer) {
+          Logger.info('[OverlayManager] Injecting in profile container');
+          profileContainer.insertAdjacentHTML('afterbegin', wrapperHtml);
+          injected = true;
+        } else {
+          Logger.info('[OverlayManager] Injecting at beginning of main content');
+          mainContent.insertAdjacentHTML('afterbegin', wrapperHtml);
+          injected = true;
+        }
+      }
+    }
+    
+    // Strategy 6: Any artdeco-card (very generic fallback)
     if (!injected) {
       const anyCard = document.querySelector('section.artdeco-card');
       if (anyCard) {
-        Logger.info('[OverlayManager] Injecting after first card section (last resort)');
+        Logger.info('[OverlayManager] Injecting after first artdeco card (generic fallback)');
         anyCard.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
     }
     
-    // Last resort: Prepend to main content
     if (!injected) {
-      const mainContent = document.querySelector('main[role="main"], .scaffold-layout__main');
-      if (mainContent) {
-        Logger.info('[OverlayManager] Injecting at beginning of main content (final fallback)');
-        mainContent.insertAdjacentHTML('afterbegin', wrapperHtml);
-        injected = true;
-      }
-    }
-    
-    if (!injected) {
-      Logger.error('[OverlayManager] Failed to inject overlay - no suitable location found');
+      Logger.error('[OverlayManager] Failed to inject overlay - no suitable location found', {
+        url: window.location.href,
+        hasMain: !!document.querySelector('main'),
+        hasBody: !!document.body,
+        bodyChildren: document.body.children.length
+      });
       return;
     }
     
@@ -558,39 +624,115 @@ const OverlayManager = {
   },
   
   /**
-   * Show recommendations
+   * Show recommendations with categorization
    * @param {Array|Object} recommendations - Recommendations data
    */
   showRecommendations(recommendations) {
-    if (!recommendations) return;
+    console.log('[OverlayManager] showRecommendations called with:', recommendations);
+    
+    if (!recommendations) {
+      console.log('[OverlayManager] No recommendations provided');
+      return;
+    }
     
     const section = this.overlayElement.querySelector('.recommendations-section');
     const list = this.overlayElement.querySelector('.recommendations-list');
     
-    if (!section || !list) return;
+    if (!section || !list) {
+      console.log('[OverlayManager] Recommendations section or list not found');
+      return;
+    }
     
     // Clear existing
     list.innerHTML = '';
     
-    // Extract recommendations array
-    let items = [];
+    // Create categorized structure
+    const categories = {
+      critical: { items: [], label: '🔴 Critical Actions', time: '15 min' },
+      high: { items: [], label: '🟡 High Impact', time: '30 min' },
+      medium: { items: [], label: '🟢 Nice to Have', time: '1 hour' }
+    };
+    
+    // Categorize recommendations
+    let allRecs = [];
     if (Array.isArray(recommendations)) {
-      items = recommendations;
-    } else if (recommendations.critical) {
-      items = recommendations.critical;
-    } else if (recommendations.high) {
-      items = recommendations.high;
+      allRecs = recommendations;
+    } else {
+      if (recommendations.critical) allRecs = allRecs.concat(recommendations.critical.map(r => ({...r, priority: 'critical'})));
+      if (recommendations.important) allRecs = allRecs.concat(recommendations.important.map(r => ({...r, priority: 'high'})));
+      if (recommendations.niceToHave) allRecs = allRecs.concat(recommendations.niceToHave.map(r => ({...r, priority: 'medium'})));
     }
     
-    // Show top 3-5 recommendations
-    items.slice(0, 5).forEach(rec => {
-      const li = document.createElement('li');
-      li.className = 'recommendation-item';
-      li.textContent = typeof rec === 'string' ? rec : (rec.action || rec.message || rec);
-      list.appendChild(li);
+    // Sort into categories
+    allRecs.forEach(rec => {
+      const priority = rec.priority || 'medium';
+      if (categories[priority]) {
+        categories[priority].items.push(rec);
+      }
     });
     
-    if (items.length > 0) {
+    // Display by category
+    Object.entries(categories).forEach(([priority, category]) => {
+      if (category.items.length === 0) return;
+      
+      // Create category header
+      const categoryDiv = document.createElement('div');
+      categoryDiv.className = 'recommendation-category';
+      categoryDiv.style.cssText = 'margin-bottom: 16px;';
+      
+      const header = document.createElement('h5');
+      header.style.cssText = 'font-size: 13px; font-weight: 600; margin: 0 0 8px 0; color: #333; display: flex; align-items: center; justify-content: space-between;';
+      header.innerHTML = `
+        <span>${category.label}</span>
+        <span style="font-size: 11px; color: #666; font-weight: normal;">~${category.time}</span>
+      `;
+      categoryDiv.appendChild(header);
+      
+      const categoryList = document.createElement('ul');
+      categoryList.style.cssText = 'list-style: none; padding: 0; margin: 0;';
+      
+      // Add items to category
+      category.items.slice(0, 3).forEach(rec => {
+        const li = document.createElement('li');
+        li.className = 'recommendation-item';
+        li.style.cssText = 'padding: 8px 0; padding-left: 24px; position: relative; font-size: 13px; line-height: 1.5;';
+        
+        // Extract recommendation details
+        const action = rec.action || {};
+        const what = action.what || rec.what || rec.message || rec;
+        const why = action.why || rec.why;
+        const example = action.example || rec.example;
+        const impact = rec.impactScore || rec.impact;
+        
+        // Create content structure
+        let content = `<div style="margin-bottom: 4px;">${what}</div>`;
+        
+        if (why) {
+          content += `<div style="font-size: 12px; color: #666; margin-top: 4px;">→ ${why}</div>`;
+        }
+        
+        if (example) {
+          content += `<div style="font-size: 11px; color: #0a66c2; margin-top: 4px; font-style: italic;">${example}</div>`;
+        }
+        
+        if (impact) {
+          content += `<div style="font-size: 11px; color: #057642; margin-top: 4px;">+${impact} points</div>`;
+        }
+        
+        li.innerHTML = content;
+        
+        // Add hover effect
+        li.onmouseover = () => li.style.backgroundColor = '#f3f2ef';
+        li.onmouseout = () => li.style.backgroundColor = 'transparent';
+        
+        categoryList.appendChild(li);
+      });
+      
+      categoryDiv.appendChild(categoryList);
+      list.appendChild(categoryDiv);
+    });
+    
+    if (list.children.length > 0) {
       section.classList.remove('hidden');
     }
   },
@@ -912,10 +1054,57 @@ const OverlayManager = {
       'recommendations': 'Recommendations',
       'certifications': 'Certifications',
       'projects': 'Projects',
-      'featured': 'Featured'
+      'featured': 'Featured',
+      'profile_intro': 'Profile Intro',
+      'experience_role': 'Experience'
     };
     
     return nameMap[name] || name.charAt(0).toUpperCase() + name.slice(1);
+  },
+  
+  /**
+   * Update section score progressively
+   * @param {string} section - Section name
+   * @param {number} score - Section score
+   */
+  updateSectionScore(section, score) {
+    // Create or update section scores display
+    let scoresDisplay = this.overlayElement.querySelector('.section-scores-display');
+    if (!scoresDisplay) {
+      scoresDisplay = document.createElement('div');
+      scoresDisplay.className = 'section-scores-display';
+      scoresDisplay.style.cssText = 'margin: 16px 0; padding: 12px; background: #f3f2ef; border-radius: 6px;';
+      
+      const statusIndicator = this.overlayElement.querySelector('.status-indicator');
+      if (statusIndicator) {
+        statusIndicator.insertAdjacentElement('afterend', scoresDisplay);
+      }
+    }
+    
+    // Update or add section score
+    let sectionItem = scoresDisplay.querySelector(`[data-section="${section}"]`);
+    if (!sectionItem) {
+      sectionItem = document.createElement('div');
+      sectionItem.setAttribute('data-section', section);
+      sectionItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px;';
+      scoresDisplay.appendChild(sectionItem);
+    }
+    
+    // Format section name
+    const displayName = this.formatSectionName(section);
+    const scoreColor = score >= 8 ? '#057642' : score >= 6 ? '#f59e0b' : '#dc2626';
+    
+    sectionItem.innerHTML = `
+      <span>${displayName}</span>
+      <span style="font-weight: 600; color: ${scoreColor};">${score.toFixed(1)}/10</span>
+    `;
+    
+    // Add animation
+    sectionItem.style.opacity = '0';
+    setTimeout(() => {
+      sectionItem.style.transition = 'opacity 0.3s ease';
+      sectionItem.style.opacity = '1';
+    }, 50);
   },
   
   /**

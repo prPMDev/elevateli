@@ -95,14 +95,33 @@ function extractProfileIdFromUrl() {
  */
 async function getSavedProfile() {
   return new Promise((resolve) => {
+    // Check if chrome APIs are available
     if (!chrome?.storage?.local) {
       resolve(null);
       return;
     }
     
-    chrome.storage.local.get(['userProfile'], (data) => {
-      resolve(data.userProfile || null);
-    });
+    // Check if extension context is still valid
+    if (!chrome.runtime?.id) {
+      console.warn('[WARN] Extension context invalidated');
+      resolve(null);
+      return;
+    }
+    
+    try {
+      chrome.storage.local.get(['userProfile'], (data) => {
+        // Check for runtime errors
+        if (chrome.runtime.lastError) {
+          console.warn('[WARN] Chrome storage error:', chrome.runtime.lastError);
+          resolve(null);
+          return;
+        }
+        resolve(data.userProfile || null);
+      });
+    } catch (error) {
+      console.warn('[WARN] Error accessing chrome storage:', error);
+      resolve(null);
+    }
   });
 }
 
@@ -191,6 +210,12 @@ async function saveUserProfileId() {
   };
   
   try {
+    // Check if chrome storage is available
+    if (!chrome?.storage?.local) {
+      console.warn('[WARN] Chrome storage not available, cannot save profile');
+      return;
+    }
+    
     await chrome.storage.local.set({ userProfile });
     console.log('[INFO] User profile saved:', userProfile);
   } catch (error) {

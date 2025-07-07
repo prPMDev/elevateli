@@ -142,6 +142,13 @@ class Analyzer {
           result.insights = aiResult.insights;
           result.sectionScores = aiResult.sectionScores;
           
+          Logger.info('[Analyzer] AI Result Details:', {
+            score: aiResult.score,
+            recommendations: aiResult.recommendations,
+            insights: aiResult.insights,
+            fullResult: aiResult
+          });
+          
           Logger.info('[Analyzer] AI analysis successful:', {
             contentScore: result.contentScore,
             hasRecommendations: !!result.recommendations,
@@ -277,10 +284,171 @@ class Analyzer {
   }
   
   /**
-   * Run AI analysis
+   * Run distributed AI analysis (section by section)
+   */
+  async runDistributedAIAnalysis(extractedData) {
+    Logger.info('[Analyzer] Starting distributed AI analysis');
+    
+    const sectionPromises = [];
+    const sectionResults = {};
+    const sectionRecommendations = {};
+    
+    // 1. Analyze Profile Intro (About + Headline + Photo)
+    if (extractedData.headline || extractedData.about) {
+      sectionPromises.push(
+        this.analyzeSection('profile_intro', {
+          headline: extractedData.headline,
+          about: extractedData.about,
+          photo: extractedData.photo,
+          topSkills: extractedData.skills?.skills?.slice(0, 10).map(s => s.name || s.skill)
+        })
+      );
+    }
+    
+    // 2. Analyze Each Experience Role
+    if (extractedData.experience?.experiences?.length > 0) {
+      extractedData.experience.experiences.forEach((exp, index) => {
+        sectionPromises.push(
+          this.analyzeSection('experience_role', exp, {
+            position: index,
+            totalRoles: extractedData.experience.experiences.length,
+            previousRole: extractedData.experience.experiences[index - 1],
+            nextRole: extractedData.experience.experiences[index + 1]
+          })
+        );
+      });
+    }
+    
+    // 3. Analyze Skills
+    if (extractedData.skills) {
+      sectionPromises.push(
+        this.analyzeSection('skills', extractedData.skills)
+      );
+    }
+    
+    // 4. Analyze Recommendations
+    if (extractedData.recommendations) {
+      sectionPromises.push(
+        this.analyzeSection('recommendations', extractedData.recommendations)
+      );
+    }
+    
+    // Execute all section analyses in parallel
+    const results = await Promise.allSettled(sectionPromises);
+    
+    // Process results
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value.success) {
+        const section = result.value.section;
+        sectionResults[section] = result.value;
+        sectionRecommendations[section] = result.value.recommendations || [];
+        
+        // Update UI progressively
+        OverlayManager.updateSectionScore(section, result.value.score);
+      }
+    });
+    
+    // 5. Synthesize all results
+    const synthesis = await this.synthesizeResults(sectionResults, sectionRecommendations);
+    
+    return synthesis;
+  }
+  
+  /**
+   * Analyze individual section
+   */
+  async analyzeSection(sectionType, data, context = {}) {
+    return new Promise((resolve) => {
+      safeSendMessage({
+        action: 'analyzeSectionAI',
+        section: sectionType,
+        data: data,
+        context: context,
+        settings: this.settings
+      }, (response) => {
+        if (response && response.success) {
+          resolve({
+            success: true,
+            section: sectionType,
+            score: response.score,
+            analysis: response.analysis,
+            recommendations: response.recommendations,
+            insights: response.insights
+          });
+        } else {
+          resolve({
+            success: false,
+            section: sectionType,
+            error: response?.error || 'Section analysis failed'
+          });
+        }
+      });
+    });
+  }
+  
+  /**
+   * Synthesize all section results
+   */
+  async synthesizeResults(sectionResults, sectionRecommendations) {
+    return new Promise((resolve) => {
+      safeSendMessage({
+        action: 'synthesizeAnalysis',
+        sectionScores: sectionResults,
+        sectionRecommendations: sectionRecommendations
+      }, (response) => {
+        if (response && response.success) {
+          resolve({
+            success: true,
+            score: response.finalScore,
+            synthesis: response.synthesis,
+            recommendations: response.overallRecommendations,
+            insights: response.careerNarrative
+          });
+        } else {
+          // Fallback: calculate weighted average
+          const weights = {
+            profile_intro: 0.25,
+            experience: 0.40,
+            skills: 0.20,
+            recommendations: 0.15
+          };
+          
+          let totalScore = 0;
+          let totalWeight = 0;
+          
+          Object.entries(sectionResults).forEach(([section, result]) => {
+            const weight = weights[section] || 0.1;
+            totalScore += (result.score || 0) * weight;
+            totalWeight += weight;
+          });
+          
+          resolve({
+            success: true,
+            score: totalWeight > 0 ? totalScore / totalWeight : 5,
+            recommendations: Object.values(sectionRecommendations).flat(),
+            insights: { message: 'Synthesis unavailable, showing section results' }
+          });
+        }
+      });
+    });
+  }
+  
+  /**
+   * Run AI analysis (legacy monolithic approach)
    */
   async runAIAnalysis(extractedData) {
-    Logger.info('[Analyzer] Sending AI analysis request', {
+    // Try distributed approach first
+    try {
+      const distributedResult = await this.runDistributedAIAnalysis(extractedData);
+      if (distributedResult.success) {
+        return distributedResult;
+      }
+    } catch (error) {
+      Logger.warn('[Analyzer] Distributed analysis failed, falling back to monolithic', error);
+    }
+    
+    // Fallback to original monolithic approach
+    Logger.info('[Analyzer] Using monolithic AI analysis', {
       hasData: !!extractedData,
       dataKeys: Object.keys(extractedData || {}),
       settingsKeys: Object.keys(this.settings || {})
@@ -300,11 +468,14 @@ class Analyzer {
         });
         
         if (response && response.success) {
+          Logger.info('[Analyzer] Full AI response:', response);
           resolve({
             success: true,
             score: response.score,
             recommendations: response.recommendations,
-            insights: response.insights
+            insights: response.insights,
+            sectionScores: response.sectionScores,
+            summary: response.summary
           });
         } else {
           resolve({

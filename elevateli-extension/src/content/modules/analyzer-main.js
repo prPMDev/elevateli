@@ -12,9 +12,20 @@
   
   console.log(`${CONFIG.EXTENSION_NAME} content script loaded`);
   
+  // Check if extension context is still valid
+  function isExtensionContextValid() {
+    return !!(chrome?.runtime?.id);
+  }
+  
   // Initialize the extension
   function init() {
     console.log('[INFO] Initializing ElevateLI', { url: location.href });
+    
+    // Check if extension context is still valid
+    if (!isExtensionContextValid()) {
+      console.warn('[WARN] Extension context invalidated - old content script instance');
+      return;
+    }
     
     // Check if we're on a LinkedIn profile page
     if (!isProfilePage()) {
@@ -42,7 +53,18 @@
       }
       
       // Check if user has accepted terms
+      if (!isExtensionContextValid()) {
+        console.warn('[WARN] Extension context invalidated before checking compliance');
+        return;
+      }
+      
       chrome.storage.local.get(['compliance', 'userProfile'], async (data) => {
+        // Check for runtime errors
+        if (chrome.runtime.lastError) {
+          console.warn('[WARN] Failed to check compliance:', chrome.runtime.lastError);
+          return;
+        }
+        
         if (!data.compliance?.hasAcknowledged) {
           console.log('[INFO] Terms not accepted - skipping overlay injection');
           return;
@@ -102,6 +124,12 @@
   async function startAnalysis(forceRefresh = false) {
     console.log('[INFO] Starting analysis', { forceRefresh });
     
+    // Check if extension context is still valid
+    if (!isExtensionContextValid()) {
+      console.warn('[WARN] Extension context invalidated - cannot start analysis');
+      return;
+    }
+    
     const profileId = getProfileIdFromUrl();
     if (!profileId) return;
     
@@ -110,9 +138,27 @@
     const cacheProfileId = savedProfile?.profileId || profileId;
     
     const isOwn = await isOwnProfile();
-    const settings = await new Promise(resolve => {
-      chrome.storage.local.get(['enableAI', 'apiKey', 'encryptedApiKey', 'aiProvider', 'cacheDuration'], resolve);
-    });
+    
+    let settings = {};
+    try {
+      settings = await new Promise((resolve, reject) => {
+        if (!isExtensionContextValid()) {
+          resolve({});
+          return;
+        }
+        chrome.storage.local.get(['enableAI', 'apiKey', 'encryptedApiKey', 'aiProvider', 'cacheDuration'], (data) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[WARN] Failed to get settings:', chrome.runtime.lastError);
+            resolve({});
+          } else {
+            resolve(data);
+          }
+        });
+      });
+    } catch (error) {
+      console.warn('[WARN] Error getting settings:', error);
+      settings = {};
+    }
     
     // Log settings for debugging
     console.log('[INFO] Settings loaded:', {
