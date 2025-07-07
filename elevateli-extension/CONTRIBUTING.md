@@ -1,5 +1,36 @@
 # Contributing to ElevateLI
 
+Thank you for your interest in contributing! This guide covers development practices and Chrome Web Store requirements.
+
+## Chrome Web Store Approval Guidelines
+
+When developing features, ensure strict adherence to these policies:
+
+### Manifest V3 Compliance (Required)
+- **Service Workers Only**: All background logic must use Service Workers
+- **No Remote Code**: All code must be bundled - no `eval()`, `new Function()`, or remote scripts
+- **Declarative Net Request**: Use for network modifications when possible
+- **Strict CSP**: Follow the default Content Security Policy
+
+### Security Requirements
+- **Never use innerHTML with user content** - Use DOM manipulation methods
+- **Sanitize all inputs** - Prevent XSS attacks
+- **Least privilege** - Request only necessary permissions
+- **No obfuscation** - Keep code readable for review
+
+### Privacy & Data Handling
+- **Minimize data collection** - Only what's essential
+- **Local processing** - User data stays in their browser
+- **Transparency** - Clear disclosure of data usage
+- **Secure API keys** - Encrypted storage only
+
+### Red Flags to Avoid
+- `eval()` or `new Function()` anywhere
+- Fetching/executing external JavaScript
+- Overly broad permissions (`<all_urls>`)
+- Direct innerHTML with dynamic content
+- Altering browser settings without consent
+
 ## Development Guide
 
 ### Directory Structure

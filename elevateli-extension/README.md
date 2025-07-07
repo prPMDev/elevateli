@@ -2,7 +2,7 @@
 
 Optimize your LinkedIn profile with AI-powered analysis and actionable insights.
 
-[![Version](https://img.shields.io/badge/version-0.4.2-blue.svg)](https://github.com/yourusername/elevateli)
+[![Version](https://img.shields.io/badge/version-0.4.3-blue.svg)](https://github.com/yourusername/elevateli)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Chrome Web Store](https://img.shields.io/badge/Chrome-Extension-yellow.svg)](#)
 

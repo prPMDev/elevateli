@@ -2,6 +2,28 @@
 
 All notable changes to ElevateLI will be documented in this file.
 
+## [0.4.3] - January 7, 2025
+
+### New Features
+- **Distributed AI Analysis**: Analyzes profile sections individually to avoid token limits
+- **Enhanced Experience Extraction**: Captures bullet points, location, and content metrics
+- **Categorized Recommendations**: Organized by effort/impact (Critical, High Impact, Nice to Have)
+- **Progressive UI Updates**: Shows real-time progress during AI analysis
+- **Synthesis Engine**: Combines section scores into overall analysis
+
+### Improved
+- Experience extractor now clicks "Show more" buttons for full content
+- Overlay injection with retry mechanism and 6 fallback strategies
+- Better error messages for different API failure types
+- Dynamic AI model selection based on section complexity
+- Skills data properly sent to AI for analysis
+
+### Fixed
+- JSON parsing handles markdown-wrapped responses from AI
+- Token limit errors prevented with model-specific limits
+- Extension context validation prevents runtime errors
+- Message format mismatch between content script and service worker
+
 ## [0.4.2] - January 7, 2025
 
 ### Fixed
