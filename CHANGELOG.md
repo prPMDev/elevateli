@@ -5,6 +5,20 @@ All notable changes to the ElevateLI Chrome Extension will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2025-01-07
+
+### Fixed
+- **Selector Syntax Errors**: Removed invalid `:has()` and `:contains()` selectors causing console errors
+- **Edit Button Detection**: Updated to look for "Edit intro" instead of "Edit profile" (LinkedIn's actual label)
+- **Popup Status Update**: "Not your profile" message now properly updates after setting profile
+- **Auto-Detection on /in/me/**: Waits for redirect to actual profile URL before saving
+
+### Improved
+- Profile detection reliability with accurate LinkedIn button selectors
+- Popup UI updates immediately after profile setup without requiring manual refresh
+- Error handling for content script communication with graceful fallbacks
+- Empty state message cleanup when transitioning between overlay states
+
 ## [0.4.1] - 2025-01-07
 
 ### Added
