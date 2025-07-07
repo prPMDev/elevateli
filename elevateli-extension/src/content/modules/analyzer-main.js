@@ -42,8 +42,8 @@
       }
       
       // Check if user has accepted terms
-      chrome.storage.local.get(['compliance'], (complianceData) => {
-        if (!complianceData.compliance?.hasAcknowledged) {
+      chrome.storage.local.get(['compliance', 'userProfile'], async (data) => {
+        if (!data.compliance?.hasAcknowledged) {
           console.log('[INFO] Terms not accepted - skipping overlay injection');
           return;
         }
@@ -51,13 +51,18 @@
         // Initialize overlay only after all checks pass
         OverlayManager.initialize();
         
+        // Use saved profile ID for cache if available, otherwise use URL
+        const cacheProfileId = data.userProfile?.profileId || profileId;
+        console.log('[INFO] Using profile ID for cache:', cacheProfileId);
+        
         // Get settings and check cache
-        chrome.storage.local.get(['enableAI', 'apiKey', 'aiProvider', 'cacheDuration'], async (settings) => {
-          const enableAI = settings.enableAI && settings.apiKey && settings.aiProvider;
+        chrome.storage.local.get(['enableAI', 'apiKey', 'encryptedApiKey', 'aiProvider', 'cacheDuration'], async (settings) => {
+          const hasApiKey = settings.apiKey || settings.encryptedApiKey;
+          const enableAI = settings.enableAI && hasApiKey && settings.aiProvider;
           
           // Check cache first
           const cacheManager = new CacheManager(settings.cacheDuration || 7);
-          const cachedData = await cacheManager.get(profileId);
+          const cachedData = await cacheManager.get(cacheProfileId);
           
           if (cachedData && cachedData.completeness !== undefined) {
             console.log('[INFO] Found cached data', { 
@@ -100,14 +105,27 @@
     const profileId = getProfileIdFromUrl();
     if (!profileId) return;
     
+    // Get saved profile for consistent cache key
+    const savedProfile = await getSavedProfile();
+    const cacheProfileId = savedProfile?.profileId || profileId;
+    
     const isOwn = await isOwnProfile();
     const settings = await new Promise(resolve => {
-      chrome.storage.local.get(['enableAI', 'apiKey', 'aiProvider', 'cacheDuration'], resolve);
+      chrome.storage.local.get(['enableAI', 'apiKey', 'encryptedApiKey', 'aiProvider', 'cacheDuration'], resolve);
     });
     
-    // Create analyzer instance
+    // Log settings for debugging
+    console.log('[INFO] Settings loaded:', {
+      enableAI: settings.enableAI,
+      hasApiKey: !!(settings.apiKey || settings.encryptedApiKey),
+      apiKeyType: settings.apiKey ? 'plain' : settings.encryptedApiKey ? 'encrypted' : 'none',
+      aiProvider: settings.aiProvider,
+      cacheDuration: settings.cacheDuration
+    });
+    
+    // Create analyzer instance with consistent cache profile ID
     const analyzer = new Analyzer();
-    await analyzer.init(profileId, isOwn, settings);
+    await analyzer.init(cacheProfileId, isOwn, settings);
     
     // Run analysis
     const results = await analyzer.analyze(forceRefresh);
@@ -179,6 +197,29 @@
             data: data[`cache_${profileId}`] || null 
           });
         });
+        return true;
+      }
+      
+      if (request.action === 'profileUpdated') {
+        console.log('[INFO] Profile updated notification received');
+        const currentProfileId = getProfileIdFromUrl();
+        
+        if (currentProfileId === request.userProfile.profileId) {
+          console.log('[INFO] Current page matches saved profile, initializing overlay');
+          
+          // Check if overlay already exists
+          if (!document.querySelector('.elevateli-overlay-wrapper')) {
+            // Re-run initialization
+            init();
+            sendResponse({ success: true, overlayInitialized: true });
+          } else {
+            console.log('[INFO] Overlay already exists');
+            sendResponse({ success: true, overlayExists: true });
+          }
+        } else {
+          console.log('[INFO] Current page does not match saved profile');
+          sendResponse({ success: false, reason: 'Profile mismatch' });
+        }
         return true;
       }
     });

@@ -9,11 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Profile Auto-Detection**: Automatically saves user's profile ID when visiting `/in/me/`
+- **Manual Profile Setting**: New "My Profile" section in popup to manually set/update your profile
+- **Profile Ownership Validation**: Checks for Edit Profile, Add Section, and Analytics buttons
+- **Smart Confirmation Dialog**: Shows different messages based on ownership verification
+- **Verified Profile Indicator**: Shows checkmark (✓) for verified profiles
 - **In-Popup Confirmations**: Custom confirmation dialogs replace browser alerts for better UX
 - **Test API Key Button**: Validates API keys in real-time with visual feedback
 - **Reset Extension Option**: Factory reset with double confirmation for safety
 - **Save Settings Button**: Primary CTA that validates and saves all settings at once
 - **Enhanced AI Toggle**: AI configuration box visually disabled when AI is off
+- **Comprehensive AI Logging**: Enhanced service worker logging to debug AI response parsing
+- **Section Score Display**: Shows individual section scores from AI analysis
 
 ### Changed
 - **Popup Redesign**: Expanded width from 280px to 340px for better spacing
@@ -22,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Conditional Overlay**: Only injects on user's own profile after terms acceptance
 - **Reset Options**: Split into "Reset Analysis" (cache only) vs "Reset Extension" (factory reset)
 - **API Key Handling**: Consistent encryption between popup and service worker
+- **AI Response Format**: Expects structured JSON with section scores and recommendations
 
 ### Fixed
 - **Profile Detection**: Enhanced `isOwnProfile()` to use saved profile ID
@@ -29,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Service Worker Handlers**: Added missing `analyzeWithAI` and `encryptApiKey` handlers
 - **Timestamp Display**: Shows human-readable format "Today at 3:45 PM" instead of raw timestamps
 - **Cache Display**: Removed confusing "from cache" messaging
+- **API Key Storage**: Fixed mismatch between apiKey and encryptedApiKey in settings check
+- **Message Passing**: Fixed structure mismatch in analyzeWithAI message handler
+- **Conflicting UI Messages**: Fixed overlay showing both "hasn't been analyzed" and "Analysis complete"
+- **Profile Setup Flow**: Overlay now appears without refresh when setting profile on current page
+- **Selector Syntax Errors**: Removed invalid `:has()` and `:contains()` selectors causing errors
+- **Edit Button Detection**: Updated to look for "Edit intro" instead of "Edit profile"
+- **Popup Status Update**: "Not your profile" message now updates after setting profile
+- **Auto-Detection on /in/me/**: Waits for redirect to actual profile URL before saving
 
 ### Security
 - **Terms Check**: Overlay won't inject until user accepts terms
@@ -39,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **No Browser Popups**: All confirmations handled within extension UI
 - **Progressive Disclosure**: UI complexity hidden until needed
 - **Clear Hierarchy**: Primary (Save) → Secondary (Reset Analysis) → Tertiary (Reset Extension)
+- **Enhanced Debugging**: Added detailed logging for AI analysis flow and response parsing
 
 ## [0.3.4] - 2025-07-06
 

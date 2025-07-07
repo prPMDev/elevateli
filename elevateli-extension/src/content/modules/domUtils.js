@@ -52,29 +52,34 @@ function isProfilePage() {
  * Check if viewing own profile
  */
 async function isOwnProfile() {
+  const currentProfileId = extractProfileIdFromUrl();
+  if (!currentProfileId) return false;
+  
+  // First, check saved profile
+  const savedProfile = await getSavedProfile();
+  if (savedProfile?.profileId === currentProfileId) {
+    console.log('[INFO] Matched saved profile:', savedProfile.profileId);
+    return true;
+  }
+  
   // Check if URL contains /in/me/ (LinkedIn's "view your own profile" URL)
   if (window.location.pathname.includes('/in/me/')) {
-    // Auto-save profile ID when user is on their own profile
+    console.log('[INFO] Detected /in/me/ URL, saving profile');
     await saveUserProfileId();
     return true;
   }
   
-  // Get saved user profile ID and compare with current URL
-  return new Promise((resolve) => {
-    if (!chrome?.storage?.local) {
-      resolve(false);
-      return;
+  // If no saved profile yet, check for ownership indicators
+  if (!savedProfile) {
+    const hasIndicators = await detectOwnProfileIndicators();
+    if (hasIndicators) {
+      console.log('[INFO] Profile ownership indicators detected, saving profile');
+      await saveUserProfileId();
+      return true;
     }
-    
-    chrome.storage.local.get(['userProfile'], (data) => {
-      if (data.userProfile?.profileId) {
-        const currentProfileId = extractProfileIdFromUrl();
-        resolve(currentProfileId === data.userProfile.profileId);
-      } else {
-        resolve(false);
-      }
-    });
-  });
+  }
+  
+  return false;
 }
 
 /**
@@ -86,11 +91,92 @@ function extractProfileIdFromUrl() {
 }
 
 /**
+ * Get saved user profile from storage
+ */
+async function getSavedProfile() {
+  return new Promise((resolve) => {
+    if (!chrome?.storage?.local) {
+      resolve(null);
+      return;
+    }
+    
+    chrome.storage.local.get(['userProfile'], (data) => {
+      resolve(data.userProfile || null);
+    });
+  });
+}
+
+/**
+ * Detect profile ownership indicators on the page
+ */
+async function detectOwnProfileIndicators() {
+  // Wait a bit for page to load if needed
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // Check for edit intro button (LinkedIn uses "Edit intro" not "Edit profile")
+  const editButton = document.querySelector('button[aria-label*="Edit intro"]') ||
+                     document.querySelector('a[href*="/edit/intro/"]') ||
+                     document.querySelector('.pvs-profile-actions__edit-profile') ||
+                     Array.from(document.querySelectorAll('button')).find(btn => 
+                       btn.getAttribute('aria-label')?.includes('Edit'));
+  
+  // Check for "Add profile section" button
+  const addSectionButton = document.querySelector('button[aria-label*="Add profile section"]') ||
+                          document.querySelector('a[href*="add-edit/"]') ||
+                          Array.from(document.querySelectorAll('button')).find(btn => 
+                            btn.textContent?.includes('Add profile section'));
+  
+  // Check for analytics button (only on own profile)
+  const analyticsButton = document.querySelector('button[aria-label*="View profile analytics"]') ||
+                         document.querySelector('a[href*="/dashboard/"]') ||
+                         Array.from(document.querySelectorAll('button')).find(btn => 
+                           btn.textContent?.includes('View profile analytics'));
+  
+  // Check for Resources button (another ownership indicator)
+  const resourcesButton = Array.from(document.querySelectorAll('button')).find(btn => 
+                         btn.textContent?.trim() === 'Resources');
+  
+  // Check if any ownership indicator exists
+  const hasOwnershipIndicator = !!(editButton || addSectionButton || analyticsButton || resourcesButton);
+  
+  if (hasOwnershipIndicator) {
+    console.log('[INFO] Profile ownership indicators found:', {
+      editButton: !!editButton,
+      addSectionButton: !!addSectionButton,
+      analyticsButton: !!analyticsButton,
+      resourcesButton: !!resourcesButton
+    });
+  }
+  
+  return hasOwnershipIndicator;
+}
+
+/**
  * Save user's profile ID when detected
  */
 async function saveUserProfileId() {
-  const profileId = extractProfileIdFromUrl();
-  if (!profileId || profileId === 'me') return;
+  let profileId = extractProfileIdFromUrl();
+  
+  // If it's /in/me/, wait for redirect to actual profile
+  if (profileId === 'me') {
+    console.log('[INFO] Detected /in/me/ URL, waiting for redirect...');
+    
+    // Wait up to 3 seconds for redirect
+    let attempts = 0;
+    while (profileId === 'me' && attempts < 6) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      profileId = extractProfileIdFromUrl();
+      attempts++;
+    }
+    
+    // If still 'me' after waiting, can't save
+    if (profileId === 'me') {
+      console.log('[WARN] URL still shows /in/me/ after waiting, cannot save profile');
+      return;
+    }
+  }
+  
+  if (!profileId) return;
   
   // Get profile name from the page
   const profileNameElement = document.querySelector('h1.text-heading-xlarge');
@@ -100,7 +186,8 @@ async function saveUserProfileId() {
     profileId,
     profileName,
     profileUrl: window.location.href.split('?')[0],
-    savedAt: Date.now()
+    savedAt: Date.now(),
+    verifiedOwnership: true // Auto-detected profiles are verified
   };
   
   try {

@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const saveSetupBtn = document.getElementById('saveSetup');
   const aiEnabledToggle = document.getElementById('aiEnabled');
   const customInstructionsTextarea = document.getElementById('customInstructions');
-  const updateInstructionsBtn = document.getElementById('updateInstructions');
+  // const updateInstructionsBtn = document.getElementById('updateInstructions'); // Removed in new design
   const targetRoleSelect = document.getElementById('targetRole');
   const seniorityLevelSelect = document.getElementById('seniorityLevel');
   const resetAnalysisBtn = document.getElementById('resetAnalysis');
@@ -390,17 +390,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await chrome.storage.local.set({ seniorityLevel: e.target.value });
   });
   
-  // Handle custom instructions save
-  updateInstructionsBtn.addEventListener('click', async () => {
-    const instructions = customInstructionsTextarea.value.trim();
-    await chrome.storage.local.set({ customInstructions: instructions });
-    
-    // Visual feedback
-    updateInstructionsBtn.textContent = 'Saved!';
-    setTimeout(() => {
-      updateInstructionsBtn.textContent = 'Save';
-    }, 2000);
-  });
+  // Custom instructions are now saved with the main Save Settings button
   
   // Handle Save Settings button
   saveSettingsBtn?.addEventListener('click', async () => {
@@ -597,6 +587,196 @@ document.addEventListener('DOMContentLoaded', async () => {
         resetAnalysisBtn.textContent = 'Reset Analysis';
         resetAnalysisBtn.disabled = false;
       }, 2000);
+    }
+  });
+  
+  // Profile Management
+  const profileStatusEl = document.querySelector('.profile-info .profile-status');
+  const setProfileBtn = document.getElementById('setProfile');
+  
+  // Update profile display
+  async function updateProfileDisplay() {
+    const data = await chrome.storage.local.get(['userProfile']);
+    if (data.userProfile) {
+      let displayText = data.userProfile.profileName || data.userProfile.profileId;
+      if (data.userProfile.verifiedOwnership) {
+        displayText += ' ✓';
+      }
+      profileStatusEl.textContent = displayText;
+      profileStatusEl.classList.add('set');
+      setProfileBtn.textContent = 'Update';
+      setProfileBtn.title = data.userProfile.verifiedOwnership ? 
+        'Profile ownership verified' : 'Profile set manually';
+    } else {
+      profileStatusEl.textContent = 'Not set';
+      profileStatusEl.classList.remove('set');
+      setProfileBtn.textContent = 'Set Current Profile as Mine';
+      setProfileBtn.title = 'Click to set your LinkedIn profile';
+    }
+  }
+  
+  // Initial profile display
+  updateProfileDisplay();
+  
+  // Handle set profile button
+  setProfileBtn?.addEventListener('click', async () => {
+    try {
+      // Get current tab
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (!tab.url || !tab.url.includes('linkedin.com/in/')) {
+        await showConfirmDialog('Please navigate to a LinkedIn profile page first.');
+        return;
+      }
+      
+      // Extract profile ID from URL
+      const profileMatch = tab.url.match(/\/in\/([^\/]+)/);
+      const profileId = profileMatch ? profileMatch[1] : null;
+      
+      if (!profileId || profileId === 'me') {
+        await showConfirmDialog('Could not extract profile ID. Please navigate to your specific profile URL.');
+        return;
+      }
+      
+      // Get profile info and check ownership indicators
+      let profileData = { name: profileId, hasIndicators: false, isMeUrl: false };
+      try {
+        const [result] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            // Get profile name
+            const nameEl = document.querySelector('h1.text-heading-xlarge');
+            const name = nameEl ? nameEl.textContent.trim() : null;
+            
+            // Check ownership indicators
+            const editButton = document.querySelector('button[aria-label*="Edit intro"]') ||
+                             document.querySelector('a[href*="/edit/intro/"]') ||
+                             document.querySelector('.pvs-profile-actions__edit-profile') ||
+                             Array.from(document.querySelectorAll('button')).find(btn => 
+                               btn.getAttribute('aria-label')?.includes('Edit'));
+            
+            const addSectionButton = document.querySelector('button[aria-label*="Add profile section"]') ||
+                                   document.querySelector('a[href*="add-edit/"]') ||
+                                   Array.from(document.querySelectorAll('button')).find(btn => 
+                                     btn.textContent?.includes('Add profile section'));
+            
+            const analyticsButton = document.querySelector('button[aria-label*="View profile analytics"]') ||
+                                  document.querySelector('a[href*="/dashboard/"]') ||
+                                  Array.from(document.querySelectorAll('button')).find(btn => 
+                                    btn.textContent?.includes('View profile analytics'));
+            
+            const hasIndicators = !!(editButton || addSectionButton || analyticsButton);
+            
+            return {
+              name: name,
+              hasIndicators: hasIndicators,
+              indicators: {
+                editButton: !!editButton,
+                addSectionButton: !!addSectionButton,
+                analyticsButton: !!analyticsButton
+              }
+            };
+          }
+        });
+        
+        if (result?.result) {
+          profileData = {
+            ...result.result,
+            isMeUrl: tab.url.includes('/in/me/')
+          };
+        }
+      } catch (error) {
+        console.log('Could not get profile data from page:', error);
+      }
+      
+      const profileName = profileData.name || profileId;
+      const hasValidation = profileData.hasIndicators || profileData.isMeUrl;
+      
+      // Build confirmation message
+      let confirmMessage = `Set "${profileName}" as your profile?\n\n`;
+      
+      if (hasValidation) {
+        confirmMessage += '✅ Profile ownership verified';
+        if (profileData.isMeUrl) {
+          confirmMessage += ' (me URL detected)';
+        } else if (profileData.hasIndicators) {
+          confirmMessage += ' (profile controls found)';
+        }
+      } else {
+        confirmMessage += '⚠️ Could not verify profile ownership\n\n';
+        confirmMessage += 'No "Edit profile" or "Add section" buttons found.\n';
+        confirmMessage += 'Are you sure this is your profile?';
+      }
+      
+      // Show confirmation dialog
+      const confirmed = await showConfirmDialog(confirmMessage);
+      
+      if (!confirmed) {
+        return;
+      }
+      
+      // Save profile
+      const userProfile = {
+        profileId,
+        profileName,
+        profileUrl: tab.url.split('?')[0],
+        savedAt: Date.now(),
+        verifiedOwnership: hasValidation
+      };
+      
+      await chrome.storage.local.set({ userProfile });
+      
+      // Update display
+      await updateProfileDisplay();
+      
+      // Try to notify content script to initialize overlay
+      try {
+        await chrome.tabs.sendMessage(tab.id, { 
+          action: 'profileUpdated',
+          userProfile: userProfile 
+        });
+        
+        // Show success
+        setProfileBtn.textContent = '✓ Saved';
+        setProfileBtn.disabled = true;
+        
+        // Update profile status to remove "Not your profile" message
+        await checkProfileStatus();
+        
+        setTimeout(() => {
+          setProfileBtn.disabled = false;
+          setProfileBtn.textContent = 'Update';
+        }, 2000);
+        
+      } catch (error) {
+        console.log('Content script not ready, prompting for refresh');
+        
+        // Show success with refresh prompt
+        setProfileBtn.textContent = '✓ Saved';
+        setProfileBtn.disabled = true;
+        
+        // Ask if user wants to refresh
+        const shouldRefresh = await showConfirmDialog(
+          'Profile saved successfully!\n\nRefresh the page to see your analysis?'
+        );
+        
+        if (shouldRefresh) {
+          await chrome.tabs.reload(tab.id);
+          window.close(); // Close popup after reload
+        } else {
+          // Update profile status even if user doesn't refresh
+          await checkProfileStatus();
+          
+          setTimeout(() => {
+            setProfileBtn.disabled = false;
+            setProfileBtn.textContent = 'Update';
+          }, 2000);
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error setting profile:', error);
+      await showConfirmDialog('Failed to set profile. Please try again.');
     }
   });
   

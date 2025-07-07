@@ -403,6 +403,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   
+  if (action === 'openPopup') {
+    // Open extension popup programmatically (Chrome doesn't allow this directly)
+    // Instead, open the popup in a new tab
+    chrome.tabs.create({
+      url: chrome.runtime.getURL('src/popup/popup.html')
+    });
+    sendResponse({ success: true });
+    return true;
+  }
+  
   if (action === 'calculateScore') {
     // Use the URL from the request if provided (content script knows its URL)
     const profileUrl = request.url || payload?.url;
@@ -1287,15 +1297,71 @@ async function analyzeWithOpenAI(profileData, settings) {
     });
     
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error?.message || 'OpenAI API error');
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage = errorData.error?.message || `HTTP ${response.status}`;
+      
+      // Categorize the error
+      if (response.status === 401) {
+        throw new Error(JSON.stringify({
+          type: 'AUTH',
+          message: 'Invalid API key. Please check your OpenAI API key in settings.',
+          status: 401
+        }));
+      } else if (response.status === 429) {
+        // Extract retry-after if available
+        const retryAfter = response.headers.get('retry-after') || '60';
+        throw new Error(JSON.stringify({
+          type: 'RATE_LIMIT',
+          message: `Rate limit exceeded. Please wait ${retryAfter} seconds before trying again.`,
+          status: 429,
+          retryAfter: parseInt(retryAfter)
+        }));
+      } else if (response.status === 503) {
+        throw new Error(JSON.stringify({
+          type: 'SERVICE_UNAVAILABLE',
+          message: 'OpenAI service is temporarily unavailable. Please try again in a few moments.',
+          status: 503
+        }));
+      } else {
+        throw new Error(JSON.stringify({
+          type: 'API_ERROR',
+          message: `OpenAI API error: ${errorMessage}`,
+          status: response.status
+        }));
+      }
     }
     
     const data = await response.json();
+    console.log('[AI] OpenAI raw response:', {
+      hasChoices: !!data.choices,
+      choicesLength: data.choices?.length,
+      hasContent: !!data.choices?.[0]?.message?.content,
+      contentLength: data.choices?.[0]?.message?.content?.length
+    });
     return parseAIResponse(data.choices[0].message.content, profileData);
   } catch (error) {
     console.error('OpenAI API error:', error);
-    throw error;
+    
+    // If it's already a categorized error, pass it through
+    if (error.message.startsWith('{')) {
+      throw error;
+    }
+    
+    // Network errors
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new Error(JSON.stringify({
+        type: 'NETWORK',
+        message: 'Network connection error. Please check your internet connection.',
+        status: 0
+      }));
+    }
+    
+    // Generic error
+    throw new Error(JSON.stringify({
+      type: 'GENERIC',
+      message: error.message || 'An unexpected error occurred',
+      status: 0
+    }));
   }
 }
 
@@ -1326,15 +1392,71 @@ async function analyzeWithAnthropic(profileData, settings) {
     });
     
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error?.message || 'Anthropic API error');
+      const errorData = await response.json().catch(() => ({}));
+      const errorMessage = errorData.error?.message || `HTTP ${response.status}`;
+      
+      // Categorize the error
+      if (response.status === 401) {
+        throw new Error(JSON.stringify({
+          type: 'AUTH',
+          message: 'Invalid API key. Please check your Anthropic API key in settings.',
+          status: 401
+        }));
+      } else if (response.status === 429) {
+        // Anthropic uses error object for rate limit info
+        const retryAfter = errorData.error?.retry_after || 60;
+        throw new Error(JSON.stringify({
+          type: 'RATE_LIMIT',
+          message: `Rate limit exceeded. Please wait ${retryAfter} seconds before trying again.`,
+          status: 429,
+          retryAfter: retryAfter
+        }));
+      } else if (response.status === 503 || response.status === 529) {
+        throw new Error(JSON.stringify({
+          type: 'SERVICE_UNAVAILABLE',
+          message: 'Anthropic service is temporarily overloaded. Please try again in a few moments.',
+          status: response.status
+        }));
+      } else {
+        throw new Error(JSON.stringify({
+          type: 'API_ERROR',
+          message: `Anthropic API error: ${errorMessage}`,
+          status: response.status
+        }));
+      }
     }
     
     const data = await response.json();
+    console.log('[AI] Anthropic raw response:', {
+      hasContent: !!data.content,
+      contentLength: data.content?.length,
+      hasText: !!data.content?.[0]?.text,
+      textLength: data.content?.[0]?.text?.length
+    });
     return parseAIResponse(data.content[0].text, profileData);
   } catch (error) {
     console.error('Anthropic API error:', error);
-    throw error;
+    
+    // If it's already a categorized error, pass it through
+    if (error.message.startsWith('{')) {
+      throw error;
+    }
+    
+    // Network errors
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new Error(JSON.stringify({
+        type: 'NETWORK',
+        message: 'Network connection error. Please check your internet connection.',
+        status: 0
+      }));
+    }
+    
+    // Generic error
+    throw new Error(JSON.stringify({
+      type: 'GENERIC',
+      message: error.message || 'An unexpected error occurred',
+      status: 0
+    }));
   }
 }
 
@@ -1476,9 +1598,18 @@ Critical requirements:
 }
 
 function parseAIResponse(aiText, profileData) {
+  console.log('[AI] Parsing AI response, length:', aiText?.length);
+  console.log('[AI] First 500 chars of response:', aiText?.substring(0, 500));
+  
   try {
     // First try to parse as JSON (new format)
     const jsonResponse = JSON.parse(aiText);
+    console.log('[AI] Successfully parsed JSON response:', {
+      hasOverallScore: !!jsonResponse.overallScore,
+      hasRecommendations: !!jsonResponse.recommendations,
+      hasSectionScores: !!jsonResponse.sectionScores,
+      hasInsights: !!jsonResponse.insights
+    });
     
     // Validate required fields
     if (jsonResponse.overallScore && jsonResponse.recommendations) {
@@ -1512,6 +1643,15 @@ function parseAIResponse(aiText, profileData) {
         recommendations: jsonResponse.recommendations,
         insights: jsonResponse.insights
       };
+      
+      console.log('[AI] Parsed result:', {
+        contentScore: result.contentScore,
+        hasRecommendations: !!result.recommendations,
+        recommendationsKeys: result.recommendations ? Object.keys(result.recommendations) : [],
+        hasInsights: !!result.insights,
+        insightsKeys: result.insights ? Object.keys(result.insights) : [],
+        hasSectionScores: !!result.sectionScores
+      });
       
       // If we have profileData, merge with weighted scoring
       if (profileData && ProfileScoreCalculator) {
@@ -1652,22 +1792,52 @@ function generateDetailedAnalysis(profileName, profileData, contentScore, comple
 // Handle AI analysis from content script
 async function handleAIAnalysis(request, sender, sendResponse) {
   try {
-    const { profileId, profileData, sectionData } = request;
+    console.log('[AI] handleAIAnalysis called with:', { 
+      hasData: !!request.data, 
+      hasSettings: !!request.settings,
+      dataKeys: request.data ? Object.keys(request.data) : []
+    });
     
-    // Get settings
-    const settings = await chrome.storage.local.get([
+    // Extract data from the correct structure
+    const extractedData = request.data || request.profileData;
+    const requestSettings = request.settings || {};
+    
+    if (!extractedData) {
+      console.error('[AI] No profile data provided');
+      sendResponse({ 
+        success: false,
+        error: 'No profile data provided for analysis'
+      });
+      return;
+    }
+    
+    // Get stored settings
+    const storedSettings = await chrome.storage.local.get([
       'aiProvider', 
       'enableAI', 
       'targetRole', 
       'seniorityLevel',
-      'customInstructions'
+      'customInstructions',
+      'aiModel'
     ]);
+    
+    // Merge request settings with stored settings
+    const settings = {
+      ...storedSettings,
+      ...requestSettings
+    };
     
     // Get decrypted API key
     const apiKey = await getDecryptedApiKey();
     
     if (!settings.enableAI || !apiKey || !settings.aiProvider) {
+      console.error('[AI] AI not configured:', { 
+        enableAI: settings.enableAI, 
+        hasApiKey: !!apiKey, 
+        provider: settings.aiProvider 
+      });
       sendResponse({ 
+        success: false,
         error: 'AI not configured',
         aiState: 'not_configured'
       });
@@ -1678,6 +1848,7 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     const rateLimitCheck = await rateLimiter.checkLimit(settings.aiProvider);
     if (!rateLimitCheck.allowed) {
       sendResponse({
+        success: false,
         error: `Rate limit exceeded. Please wait ${rateLimitCheck.waitTime} seconds.`,
         rateLimited: true,
         waitTime: rateLimitCheck.waitTime
@@ -1685,54 +1856,93 @@ async function handleAIAnalysis(request, sender, sendResponse) {
       return;
     }
     
-    // Perform section-by-section analysis
-    const results = {};
-    const errors = [];
-    
-    // Analyze each section
-    for (const [sectionName, sectionContent] of Object.entries(sectionData)) {
-      try {
-        const sectionAnalysis = await analyzeSection(
-          sectionName,
-          sectionContent,
-          profileData,
-          settings,
-          apiKey
-        );
-        
-        results[sectionName] = sectionAnalysis;
-        
-        // Send progress update
-        chrome.tabs.sendMessage(sender.tab.id, {
-          action: 'aiAnalysisProgress',
-          section: sectionName,
-          completed: true
-        });
-      } catch (error) {
-        console.error(`Error analyzing ${sectionName}:`, error);
-        errors.push({ section: sectionName, error: error.message });
+    try {
+      // Add API key to settings for the analysis
+      settings.apiKey = apiKey;
+      
+      // Perform full profile analysis
+      console.log('[AI] Starting full profile analysis with provider:', settings.aiProvider);
+      let aiAnalysis;
+      
+      if (settings.aiProvider === 'openai' || settings.aiProvider === 'openai-gpt-3.5') {
+        aiAnalysis = await analyzeWithOpenAI(extractedData, settings);
+      } else if (settings.aiProvider === 'anthropic') {
+        aiAnalysis = await analyzeWithAnthropic(extractedData, settings);
+      } else {
+        throw new Error(`Unknown AI provider: ${settings.aiProvider}`);
       }
+      
+      console.log('[AI] Analysis complete:', {
+        score: aiAnalysis.contentScore,
+        hasRecommendations: !!aiAnalysis.recommendations,
+        recommendationsType: typeof aiAnalysis.recommendations,
+        recommendationsKeys: aiAnalysis.recommendations ? Object.keys(aiAnalysis.recommendations) : [],
+        hasInsights: !!aiAnalysis.insights,
+        insightsType: typeof aiAnalysis.insights,
+        insightsKeys: aiAnalysis.insights ? Object.keys(aiAnalysis.insights) : [],
+        hasSectionScores: !!aiAnalysis.sectionScores
+      });
+      
+      // Log section scores if available
+      if (aiAnalysis.sectionScores) {
+        console.log('[AI] Section scores:', Object.entries(aiAnalysis.sectionScores).map(([section, data]) => ({
+          section,
+          score: data.score,
+          exists: data.exists,
+          weight: data.weight
+        })));
+      }
+      
+      console.log('[AI] Analysis complete, sending response:', {
+        score: aiAnalysis.contentScore,
+        hasRecommendations: !!aiAnalysis.recommendations,
+        hasInsights: !!aiAnalysis.insights,
+        hasSectionScores: !!aiAnalysis.sectionScores,
+        recommendationsType: typeof aiAnalysis.recommendations,
+        insightsType: typeof aiAnalysis.insights
+      });
+      
+      sendResponse({
+        success: true,
+        score: aiAnalysis.contentScore,
+        recommendations: aiAnalysis.recommendations,
+        insights: aiAnalysis.insights,
+        summary: aiAnalysis.summary,
+        sectionScores: aiAnalysis.sectionScores
+      });
+      
+    } catch (error) {
+      console.error('[AI] Analysis error:', error);
+      
+      // Parse error if it's JSON
+      let errorInfo = { type: 'GENERIC', message: error.message };
+      try {
+        if (error.message.startsWith('{')) {
+          errorInfo = JSON.parse(error.message);
+        }
+      } catch (e) {
+        // Keep default errorInfo
+      }
+      
+      // If rate limited, set cooldown
+      if (errorInfo.type === 'RATE_LIMIT' && errorInfo.retryAfter) {
+        rateLimiter.setCooldown(settings.aiProvider, errorInfo.retryAfter);
+      }
+      
+      sendResponse({
+        success: false,
+        error: errorInfo.message,
+        errorType: errorInfo.type,
+        errorStatus: errorInfo.status,
+        retryAfter: errorInfo.retryAfter
+      });
     }
     
-    // Calculate overall content score
-    const contentScore = calculateContentScore(results);
-    
-    // Generate recommendations
-    const recommendations = generateRecommendations(results, profileData);
-    
-    sendResponse({
-      success: true,
-      contentScore,
-      sectionScores: results,
-      recommendations,
-      errors: errors.length > 0 ? errors : null
-    });
-    
   } catch (error) {
-    console.error('AI analysis error:', error);
+    console.error('[AI] handleAIAnalysis error:', error);
     sendResponse({
-      error: error.message,
-      success: false
+      success: false,
+      error: error.message
     });
   }
 }

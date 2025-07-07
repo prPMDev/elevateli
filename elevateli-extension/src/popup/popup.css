@@ -356,6 +356,60 @@ textarea {
   margin-bottom: 0;
 }
 
+/* Profile Section */
+.profile-section {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.profile-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #111827;
+}
+
+.profile-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-info .profile-status {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+  flex: 1;
+}
+
+.profile-info .profile-status.set {
+  color: #059669;
+  font-weight: 500;
+}
+
+.small-button {
+  padding: 4px 10px;
+  font-size: 12px;
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.small-button:hover {
+  background: #e5e7eb;
+}
+
+.small-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Action Buttons */
 .action-buttons {
   display: flex;

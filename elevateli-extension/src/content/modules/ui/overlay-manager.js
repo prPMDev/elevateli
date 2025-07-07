@@ -255,6 +255,7 @@ const OverlayManager = {
       },
       
       [this.states.CACHE_LOADED]: () => {
+        this.clearEmptyStateMessage();
         this.updateStatus('Analysis complete', '✓');
         this.hideSkeletons();
         this.populateScores(data);
@@ -269,6 +270,7 @@ const OverlayManager = {
       },
       
       [this.states.SCANNING]: () => {
+        this.clearEmptyStateMessage();
         this.updateStatus('Scanning profile sections...', '⣾');
         this.showScanProgress();
       },
@@ -303,6 +305,7 @@ const OverlayManager = {
       },
       
       [this.states.COMPLETE]: () => {
+        this.clearEmptyStateMessage();
         this.updateStatus('Analysis complete', '✓');
         this.hideSkeletons();
         this.populateScores(data);
@@ -318,13 +321,53 @@ const OverlayManager = {
       },
       
       [this.states.ERROR]: () => {
-        this.updateStatus(data.message || 'Analysis failed', '✗');
+        // Determine error icon and message based on type
+        let errorIcon = '❌';
+        let errorMessage = data.message || 'Analysis failed';
+        let showSettings = false;
+        
+        if (data.aiError) {
+          switch (data.aiError.type) {
+            case 'AUTH':
+              errorIcon = '🔑';
+              showSettings = true;
+              break;
+            case 'RATE_LIMIT':
+              errorIcon = '⏱️';
+              if (data.aiError.retryAfter) {
+                errorMessage = data.aiError.message;
+                // Start countdown timer
+                this.startRetryCountdown(data.aiError.retryAfter);
+              }
+              break;
+            case 'NETWORK':
+              errorIcon = '🌐';
+              break;
+            case 'SERVICE_UNAVAILABLE':
+              errorIcon = '🔧';
+              break;
+            default:
+              errorIcon = '⚠️';
+          }
+          errorMessage = data.aiError.message;
+        }
+        
+        this.updateStatus(errorMessage, errorIcon);
         this.hideSkeletons();
+        
+        // Show completeness if available (analysis partially succeeded)
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
         }
-        // Show analyze button to retry
-        this.showActionButtons({ showAnalyze: true });
+        
+        // Show appropriate action button
+        if (showSettings) {
+          // Show button to open settings
+          this.showActionButtons({ showSettings: true });
+        } else {
+          // Show analyze button to retry
+          this.showActionButtons({ showAnalyze: true });
+        }
       }
     };
     
@@ -380,6 +423,41 @@ const OverlayManager = {
   },
   
   /**
+   * Clear empty state message
+   */
+  clearEmptyStateMessage() {
+    const emptyMessage = this.overlayElement.querySelector('.empty-state-message');
+    if (emptyMessage) {
+      emptyMessage.remove();
+    }
+    
+    // Also restore scores container if it was cleared
+    const scoresContainer = this.overlayElement.querySelector('.scores-container');
+    if (scoresContainer && !scoresContainer.querySelector('.score-block')) {
+      // Restore the score blocks structure
+      scoresContainer.innerHTML = `
+        <div class="score-block completeness">
+          <label>Profile Completeness</label>
+          <div class="score-value skeleton">--</div>
+          <div class="score-bar">
+            <div class="score-bar-fill skeleton"></div>
+          </div>
+          <span class="score-unit">%</span>
+        </div>
+        
+        <div class="score-block quality">
+          <label>Content Quality (AI)</label>
+          <div class="score-value skeleton">--</div>
+          <div class="score-bar">
+            <div class="score-bar-fill skeleton"></div>
+          </div>
+          <span class="score-unit">/10</span>
+        </div>
+      `;
+    }
+  },
+  
+  /**
    * Update completeness score
    * @param {number} score - Completeness percentage
    */
@@ -408,6 +486,11 @@ const OverlayManager = {
    * @param {Object} data - Score data
    */
   populateScores(data) {
+    // Log section scores if available
+    if (data.sectionScores) {
+      console.log('[OverlayManager] Section scores:', data.sectionScores);
+    }
+    
     // Update completeness
     if (data.completeness !== undefined) {
       this.updateCompleteness(data.completeness);
@@ -540,6 +623,40 @@ const OverlayManager = {
   },
   
   /**
+   * Start retry countdown timer
+   * @param {number} seconds - Seconds to wait
+   */
+  startRetryCountdown(seconds) {
+    const analyzeBtn = this.overlayElement.querySelector('.analyze-button');
+    if (!analyzeBtn) return;
+    
+    // Clear any existing timer
+    if (this.countdownTimer) {
+      clearInterval(this.countdownTimer);
+    }
+    
+    let remaining = seconds;
+    analyzeBtn.classList.remove('hidden');
+    analyzeBtn.disabled = true;
+    
+    const updateButton = () => {
+      if (remaining > 0) {
+        analyzeBtn.innerHTML = `<span class="button-icon">⏱️</span>Retry in ${remaining}s`;
+        remaining--;
+      } else {
+        clearInterval(this.countdownTimer);
+        analyzeBtn.disabled = false;
+        analyzeBtn.innerHTML = '<span class="button-icon">🔄</span>Retry Analysis';
+        // Restore original click handler
+        analyzeBtn.onclick = () => this.handleAnalyze();
+      }
+    };
+    
+    updateButton();
+    this.countdownTimer = setInterval(updateButton, 1000);
+  },
+  
+  /**
    * Show action buttons based on current state
    * @param {Object} options - Button visibility options
    */
@@ -567,7 +684,17 @@ const OverlayManager = {
       refreshBtn.disabled = false;
       refreshBtn.innerHTML = '<span class="button-icon">🔄</span>Re-analyze';
     }
-    // Never show details button anymore
+    if (options.showSettings && analyzeBtn) {
+      // Repurpose analyze button for settings
+      analyzeBtn.classList.remove('hidden');
+      analyzeBtn.innerHTML = '<span class="button-icon">⚙️</span>Open Settings';
+      // Change click handler temporarily
+      analyzeBtn.onclick = (e) => {
+        e.preventDefault();
+        // Open extension popup/settings
+        chrome.runtime.sendMessage({ action: 'openPopup' });
+      };
+    }
   },
   
   /**

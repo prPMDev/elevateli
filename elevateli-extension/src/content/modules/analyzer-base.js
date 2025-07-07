@@ -46,6 +46,16 @@ class Analyzer {
     // Initialize cache manager
     this.cacheManager = new CacheManager(settings.cacheDuration || 7);
     
+    // Log initialization settings for debugging
+    Logger.info('[Analyzer] Initialized with settings:', {
+      profileId: this.profileId,
+      isOwn: this.isOwn,
+      enableAI: this.settings.enableAI,
+      hasApiKey: !!(this.settings.apiKey || this.settings.encryptedApiKey),
+      aiProvider: this.settings.aiProvider,
+      settingsKeys: Object.keys(this.settings)
+    });
+    
     // Log extractor status
     Logger.info('[Analyzer] Extractor load status:', {
       loaded: Object.keys(this.extractors).filter(key => this.extractors[key] !== null),
@@ -102,7 +112,27 @@ class Analyzer {
       };
       
       // Run AI analysis if enabled
-      if (this.settings.enableAI && this.settings.apiKey && this.settings.aiProvider) {
+      const hasApiKey = this.settings.apiKey || this.settings.encryptedApiKey;
+      
+      // Pre-check logging for debugging
+      Logger.info('[Analyzer] Pre-AI check:', {
+        enableAI: this.settings.enableAI,
+        enableAIType: typeof this.settings.enableAI,
+        apiKey: !!this.settings.apiKey,
+        encryptedApiKey: !!this.settings.encryptedApiKey,
+        hasApiKey: !!hasApiKey,
+        aiProvider: this.settings.aiProvider,
+        aiProviderType: typeof this.settings.aiProvider,
+        condition: !!(this.settings.enableAI && hasApiKey && this.settings.aiProvider)
+      });
+      
+      if (this.settings.enableAI && hasApiKey && this.settings.aiProvider) {
+        Logger.info('[Analyzer] Starting AI analysis', {
+          enableAI: this.settings.enableAI,
+          hasApiKey: !!hasApiKey,
+          aiProvider: this.settings.aiProvider
+        });
+        
         OverlayManager.setState(OverlayManager.states.AI_ANALYZING);
         
         const aiResult = await this.runAIAnalysis(extractedData);
@@ -110,14 +140,41 @@ class Analyzer {
           result.contentScore = aiResult.score;
           result.recommendations = aiResult.recommendations;
           result.insights = aiResult.insights;
+          result.sectionScores = aiResult.sectionScores;
+          
+          Logger.info('[Analyzer] AI analysis successful:', {
+            contentScore: result.contentScore,
+            hasRecommendations: !!result.recommendations,
+            hasInsights: !!result.insights,
+            hasSectionScores: !!result.sectionScores
+          });
+        } else {
+          Logger.error('[Analyzer] AI analysis failed:', aiResult.error);
+          // Don't fail the whole analysis, just note AI failed
+          result.aiError = {
+            message: aiResult.error,
+            type: aiResult.errorType,
+            retryAfter: aiResult.retryAfter
+          };
         }
+      } else {
+        Logger.info('[Analyzer] Skipping AI analysis', {
+          enableAI: this.settings.enableAI,
+          hasApiKey: !!hasApiKey,
+          aiProvider: this.settings.aiProvider
+        });
       }
       
       // Save to cache
       await this.cacheManager.save(this.profileId, result, extractedData);
       
       // Update overlay with final results
-      OverlayManager.setState(OverlayManager.states.COMPLETE, {
+      // If AI failed but we have completeness, show complete state with error
+      const finalState = result.aiError && this.settings.enableAI ? 
+        OverlayManager.states.ERROR : 
+        OverlayManager.states.COMPLETE;
+      
+      OverlayManager.setState(finalState, {
         ...result,
         aiDisabled: !this.settings.enableAI
       });
@@ -223,12 +280,25 @@ class Analyzer {
    * Run AI analysis
    */
   async runAIAnalysis(extractedData) {
+    Logger.info('[Analyzer] Sending AI analysis request', {
+      hasData: !!extractedData,
+      dataKeys: Object.keys(extractedData || {}),
+      settingsKeys: Object.keys(this.settings || {})
+    });
+    
     return new Promise((resolve) => {
       safeSendMessage({
         action: 'analyzeWithAI',
         data: extractedData,
         settings: this.settings
       }, (response) => {
+        Logger.info('[Analyzer] AI analysis response received', {
+          success: response?.success,
+          hasScore: !!response?.score,
+          error: response?.error,
+          errorType: response?.errorType
+        });
+        
         if (response && response.success) {
           resolve({
             success: true,
@@ -239,7 +309,9 @@ class Analyzer {
         } else {
           resolve({
             success: false,
-            error: response?.error || 'AI analysis failed'
+            error: response?.error || 'AI analysis failed',
+            errorType: response?.errorType,
+            retryAfter: response?.retryAfter
           });
         }
       });
