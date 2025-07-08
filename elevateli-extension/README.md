@@ -2,7 +2,7 @@
 
 Optimize your LinkedIn profile with AI-powered analysis and actionable insights.
 
-[![Version](https://img.shields.io/badge/version-0.4.4-blue.svg)](https://github.com/yourusername/elevateli)
+[![Version](https://img.shields.io/badge/version-0.4.4-blue.svg)](https://github.com/prPMDev/elevateli)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Alpha Testing](https://img.shields.io/badge/status-Alpha%20Testing-orange.svg)](#)
 
@@ -28,13 +28,21 @@ ElevateLI is a browser extension (works with Chrome, Edge, Brave, and other Chro
 ### Manual Installation (Alpha Testing)
 
 **Step 1: Download the Extension**
-1. Go to [GitHub Releases Page](https://github.com/yourusername/elevateli/releases)
-2. Look for the latest release (usually at the top)
-3. Click on `elevateli-extension.zip` to download
+
+**Option A: Download Source Code** (Until releases are available)
+1. Go to [https://github.com/prPMDev/elevateli](https://github.com/prPMDev/elevateli)
+2. Click the green "Code" button
+3. Click "Download ZIP"
 4. The file will download to your Downloads folder
 
+**Option B: From Releases** (Coming soon)
+1. Go to [GitHub Releases Page](https://github.com/prPMDev/elevateli/releases)
+2. Download `elevateli-extension.zip` when available
+
 **Step 2: Prepare the Extension**
-1. Find the downloaded `elevateli-extension.zip` in your Downloads folder
+1. Find the downloaded ZIP file in your Downloads folder
+   - If using Option A: File will be named `elevateli-main.zip` or `elevateli-master.zip`
+   - If using Option B: File will be named `elevateli-extension.zip`
 2. Right-click the file and select "Extract All" (Windows) or double-click (Mac)
 3. Choose where to extract (Desktop is recommended for easy access)
 4. Remember this location - you'll need it in the next step
@@ -46,7 +54,10 @@ ElevateLI is a browser extension (works with Chrome, Edge, Brave, and other Chro
 3. Turn on "Developer mode" using the toggle in the top-right corner
 4. Click the "Load unpacked" button that appears
 5. Navigate to the folder you extracted in Step 2
-6. Select the `elevateli-extension` folder and click "Select Folder"
+6. Select the folder:
+   - If using Option A: Navigate to `elevateli-main` (or `elevateli-master`) → then select `elevateli-extension` folder inside
+   - If using Option B: Select the `elevateli-extension` folder directly
+7. Click "Select Folder"
 
 **Step 4: Pin the Extension**
 1. Click the puzzle piece icon (Extensions) in your browser's toolbar
@@ -184,7 +195,7 @@ See our full [Privacy Policy](PRIVACY.md) for details.
 
 ## Support
 
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/yourusername/elevateli/issues)
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/prPMDev/elevateli/issues)
 - 💬 **Feedback**: Use the feedback link in the extension
 - 📖 **Updates**: Watch the GitHub repository for new releases
 
