@@ -109,6 +109,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       
+      // Check if we need to inject or reinject the content script
+      if (tab.url && tab.url.includes('linkedin.com/in/')) {
+        try {
+          // Try to send a ping message to check if content script is alive
+          const response = await chrome.tabs.sendMessage(tab.id, { action: 'ping' });
+        } catch (error) {
+          // Content script is not responding, show refresh message
+          profileStatusDiv.innerHTML = `
+            <div style="text-align: center; padding: 20px; background: #fef3c7; border-radius: 8px; margin: 10px 0;">
+              <p style="color: #92400e; font-weight: 500; margin-bottom: 8px;">🔄 Extension Updated</p>
+              <p style="color: #78350f; font-size: 14px; margin-bottom: 12px;">Please refresh your LinkedIn tab to use the latest version</p>
+              <button id="refreshTab" class="primary-button" style="background: #f59e0b;">Refresh LinkedIn Tab</button>
+            </div>
+          `;
+          
+          hideAllControls(roleSection, actionButtons, toggleRows, advanced, actions);
+          
+          document.getElementById('refreshTab')?.addEventListener('click', () => {
+            chrome.tabs.reload(tab.id);
+            window.close(); // Close popup after refreshing
+          });
+          return;
+        }
+      }
+      
       if (!tab.url || !tab.url.includes('linkedin.com/in/')) {
         profileStatusDiv.innerHTML = `
           <div style="text-align: center; padding: 20px;">

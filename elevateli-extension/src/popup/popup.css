@@ -536,6 +536,12 @@ textarea {
   text-decoration: underline;
 }
 
+.footer-links .separator {
+  color: #dadce0;
+  margin: 0 8px;
+  font-size: 12px;
+}
+
 /* Utility Classes */
 .hint {
   font-size: 12px;

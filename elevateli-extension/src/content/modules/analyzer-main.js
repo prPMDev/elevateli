@@ -234,6 +234,11 @@
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.log('[INFO] Received message:', request);
       
+      if (request.action === 'ping') {
+        sendResponse({ success: true, alive: true });
+        return true;
+      }
+      
       if (request.action === 'analyzeProfile') {
         startAnalysis(request.forceRefresh).then(() => {
           sendResponse({ success: true });
