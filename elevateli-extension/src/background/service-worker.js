@@ -242,6 +242,18 @@ class ProfileScoreCalculator {
     let weightedSum = 0;
     let maxPossibleScore = 10;
     
+    // Add defensive check for sectionScores
+    if (!sectionScores || typeof sectionScores !== 'object') {
+      console.log('[ProfileScoreCalculator] Invalid sectionScores:', sectionScores);
+      return {
+        overallScore: 5, // Default middle score
+        baseScore: 5,
+        maxPossibleScore: 10,
+        sectionScores: {},
+        missingCritical: []
+      };
+    }
+    
     // Check critical sections and apply caps
     for (const [section, rules] of Object.entries(this.CRITICAL_SECTIONS)) {
       if (!sectionScores[section]?.exists) {
@@ -709,7 +721,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   // Handle synthesis of section scores
   if (action === 'synthesizeAnalysis') {
-    handleSynthesisAnalysis(request, sender, sendResponse);
+    handleSynthesisAnalysis(request, sendResponse);
     return true;
   }
   
@@ -800,6 +812,19 @@ async function handleSectionAnalysis(request, sendResponse) {
       
       switch(section) {
         case 'profile_intro':
+          // Log enhanced context data being passed
+          console.log('[AI] Profile intro enhanced context:', {
+            hasYearsOfExperience: data.yearsOfExperience !== undefined,
+            yearsOfExperience: data.yearsOfExperience,
+            hasCareerProgression: !!data.careerProgression,
+            careerProgression: data.careerProgression,
+            hasProfileSections: !!data.profileSections,
+            profileSectionKeys: data.profileSections ? Object.keys(data.profileSections) : [],
+            hasCurrentRole: !!data.currentRole,
+            currentRoleTitle: data.currentRole?.title,
+            totalSkillsCount: data.totalSkillsCount,
+            skillsWithEndorsements: data.skillsWithEndorsements
+          });
           sectionPrompt = buildProfileIntroPrompt(data, config);
           modelOverride = 'gpt-3.5-turbo'; // Simple analysis
           break;
@@ -853,10 +878,24 @@ async function handleSectionAnalysis(request, sendResponse) {
         overallScore: overallResult
       });
       
-      sendResponse({
+      // Add logging to debug section response
+      console.log('[AI] Section analysis result:', {
         section,
         score: result.contentScore,
-        recommendations: result.summary,
+        hasRecommendations: !!result.recommendations,
+        recommendationType: typeof result.recommendations,
+        hasSummary: !!result.summary,
+        hasFullAnalysis: !!result.fullAnalysis
+      });
+      
+      sendResponse({
+        success: true,
+        section,
+        score: result.contentScore,
+        analysis: result.fullAnalysis,
+        recommendations: result.recommendations || [],
+        insights: result.insights || {},
+        summary: result.summary,
         overallScore: overallResult.overallScore,
         missingCritical: overallResult.missingCritical
       });
@@ -1514,20 +1553,59 @@ async function analyzeWithAnthropic(profileData, settings) {
 // Section-specific prompt builders for distributed analysis
 
 function buildProfileIntroPrompt(data, config) {
-  const { headline, about, photo, topSkills } = data;
-  const targetRole = config.targetRole || 'Professional';
-  const seniorityLevel = config.seniorityLevel || 'mid';
+  // Extract all the rich context we built in analyzer-base.js
+  const { 
+    headline, 
+    about, 
+    photo, 
+    topSkills,
+    totalExperience,
+    currentRole,
+    yearsOfExperience,
+    careerProgression,
+    profileSections,
+    totalSkillsCount,
+    skillsWithEndorsements,
+    targetRole: contextTargetRole,
+    seniorityLevel: contextSeniorityLevel
+  } = data;
+  
+  // Use context-provided role/level or fallback to config
+  const targetRole = contextTargetRole || config.targetRole || 'Professional';
+  const seniorityLevel = contextSeniorityLevel || config.seniorityLevel || 'mid';
   
   return `Analyze this LinkedIn profile introduction for a ${targetRole} at ${seniorityLevel} level.
 
-Profile Data:
-- Photo: ${photo?.exists ? 'Present' : 'Missing'}
+Profile Overview:
+- Years of Experience: ${yearsOfExperience || 'Unknown'}
+- Career Progression: ${careerProgression || 'Unknown'}
+- Current Role: ${currentRole?.title || 'Not specified'} at ${currentRole?.company || 'Unknown'}
+- Total Experience Entries: ${totalExperience || 0}
+
+Profile Completeness:
+- Photo: ${profileSections?.hasPhoto ? 'Present' : 'Missing'}
+- Headline: ${profileSections?.hasHeadline ? 'Present' : 'Missing'}
+- About: ${profileSections?.hasAbout ? 'Present' : 'Missing'} 
+- Experience: ${profileSections?.hasExperience ? 'Present' : 'Missing'}
+- Education: ${profileSections?.hasEducation ? 'Present' : 'Missing'}
+- Skills: ${profileSections?.hasSkills ? `Present (${totalSkillsCount} total, ${skillsWithEndorsements} endorsed)` : 'Missing'}
+- Certifications: ${profileSections?.hasCertifications ? 'Present' : 'Missing'}
+- Recommendations: ${profileSections?.hasRecommendations ? 'Present' : 'Missing'}
+
+Core Introduction Data:
 - Headline: "${headline?.text || 'Missing'}" (${headline?.charCount || 0}/220 chars)
 - About Section: ${about?.charCount || 0}/2600 chars
 ${about?.text ? `Content: "${about.text}"` : 'No about section'}
-- Top Skills Listed: ${topSkills?.join(', ') || 'None visible'}
+- Top Skills: ${topSkills?.join(', ') || 'None visible'}
 
-Evaluate and respond with ONLY valid JSON (no markdown):
+Given this career context and completeness data, evaluate the profile introduction quality.
+Consider how well the headline and about section:
+1. Reflect the ${yearsOfExperience} years of experience
+2. Support the ${careerProgression} career trajectory
+3. Align with ${targetRole} at ${seniorityLevel} level
+4. Leverage the ${totalSkillsCount} skills in the profile
+
+Respond with ONLY valid JSON (no markdown):
 {
   "score": [0-10],
   "analysis": {
@@ -1535,18 +1613,24 @@ Evaluate and respond with ONLY valid JSON (no markdown):
       "score": [0-10],
       "strengths": ["specific strength"],
       "issues": ["specific issue"],
-      "roleAlignment": [0-10]
+      "roleAlignment": [0-10],
+      "leveragesExperience": "How well it uses ${yearsOfExperience} years of experience",
+      "careerProgressionReflection": "Does it show ${careerProgression} trajectory"
     },
     "about": {
       "score": [0-10],
       "narrativeQuality": [0-10],
       "keywordDensity": [0-10],
       "uniqueness": [0-10],
-      "missingElements": ["what's missing"]
+      "missingElements": ["what's missing"],
+      "careerStoryAlignment": "How well it tells the ${careerProgression} story",
+      "skillsIntegration": "How well it integrates the ${totalSkillsCount} skills"
     },
     "firstImpression": {
       "score": [0-10],
-      "professionalismScore": [0-10]
+      "professionalismScore": [0-10],
+      "seniorityAlignment": "Does it match ${seniorityLevel} level expectations",
+      "completenessImpact": "How missing sections (${Object.values(profileSections || {}).filter(v => !v).length} missing) affect impression"
     }
   },
   "recommendations": [
@@ -1560,14 +1644,17 @@ Evaluate and respond with ONLY valid JSON (no markdown):
         "example": "Before → After example"
       },
       "timeInvestment": "5min|15min|30min",
-      "impactScore": [0-10]
+      "impactScore": [0-10],
+      "contextualReasoning": "Why this matters for ${targetRole} with ${yearsOfExperience} years experience"
     }
   ],
   "insights": {
     "profileHook": "What makes this profile memorable",
-    "marketPositioning": "How well positioned for target role",
-    "differentiators": ["unique aspects"],
-    "redFlags": ["concerns for recruiters"]
+    "marketPositioning": "How well positioned for ${targetRole} at ${seniorityLevel} level",
+    "differentiators": ["unique aspects based on ${careerProgression} progression"],
+    "redFlags": ["concerns for recruiters given ${yearsOfExperience} years experience"],
+    "leveragedStrengths": ["How well current content uses the ${totalExperience} experiences"],
+    "missedOpportunities": ["What's not being leveraged from their background"]
   }
 }`;
 }
@@ -1715,7 +1802,22 @@ Respond with ONLY valid JSON:
 async function handleSynthesisAnalysis(request, sendResponse) {
   const { sectionScores, sectionRecommendations } = request;
   
-  console.log('[AI] Synthesis requested for sections:', Object.keys(sectionScores));
+  console.log('[AI] Synthesis requested for sections:', Object.keys(sectionScores || {}));
+  console.log('[AI] Section scores received:', sectionScores);
+  console.log('[AI] Section recommendations received:', sectionRecommendations);
+  
+  // Handle empty synthesis case
+  if (!sectionScores || Object.keys(sectionScores).length === 0) {
+    console.log('[AI] No section scores to synthesize');
+    sendResponse({
+      success: true,
+      finalScore: 5,
+      synthesis: { message: 'No sections analyzed' },
+      overallRecommendations: [],
+      careerNarrative: { message: 'Unable to synthesize - no section data' }
+    });
+    return;
+  }
   
   chrome.storage.local.get(['aiProvider', 'aiModel', 'targetRole', 'seniorityLevel'], async (config) => {
     const apiKey = await getDecryptedApiKey();
@@ -1738,9 +1840,23 @@ async function handleSynthesisAnalysis(request, sendResponse) {
         result = await analyzeWithAnthropic({}, {...config, sectionPrompt: synthesisPrompt});
       }
       
+      // Add logging to debug synthesis result
+      console.log('[AI] Synthesis result structure:', {
+        hasContentScore: result.contentScore !== undefined,
+        contentScore: result.contentScore,
+        hasOverallScore: result.overallScore !== undefined,
+        overallScore: result.overallScore,
+        hasScore: result.score !== undefined,
+        score: result.score,
+        resultKeys: Object.keys(result)
+      });
+      
+      // Handle different possible score field names
+      const finalScore = result.overallScore || result.contentScore || result.score || 5;
+      
       sendResponse({
         success: true,
-        finalScore: result.contentScore,
+        finalScore: finalScore,
         synthesis: result.fullAnalysis || JSON.parse(result.summary),
         overallRecommendations: result.recommendations,
         careerNarrative: result.insights
@@ -1763,17 +1879,21 @@ function buildSynthesisPrompt(sectionScores, sectionRecommendations, config) {
   return `Synthesize the LinkedIn profile analysis for a ${targetRole} at ${seniorityLevel} level.
 
 Section Analysis Results:
-${Object.entries(sectionScores).map(([section, data]) => `
+${Object.entries(sectionScores || {}).map(([section, data]) => {
+  // Handle both old format (data.score) and new format (just the result object)
+  const score = data.score !== undefined ? data.score : (data.success ? 6 : 0);
+  return `
 ${section}:
-- Score: ${data.score}/10
-- Key Issues: ${data.analysis?.issues?.join(', ') || 'None identified'}
-- Strengths: ${data.analysis?.strengths?.join(', ') || 'None identified'}
-`).join('\n')}
+- Score: ${score}/10
+- Analysis: ${data.analysis ? 'Completed' : 'Pending'}
+- Has Recommendations: ${data.recommendations ? 'Yes' : 'No'}`;
+}).join('\n')}
 
 Top Recommendations by Section:
-${Object.entries(sectionRecommendations).map(([section, recs]) => `
-${section}: ${recs.slice(0, 2).map(r => r.action?.what || r).join('; ')}
-`).join('\n')}
+${Object.entries(sectionRecommendations || {}).map(([section, recs]) => {
+  if (!recs || !Array.isArray(recs)) return `${section}: No recommendations`;
+  return `${section}: ${recs.slice(0, 2).map(r => r.action?.what || r).join('; ')}`;
+}).join('\n')}
 
 Provide a holistic analysis with ONLY valid JSON:
 {
@@ -2092,7 +2212,21 @@ function parseAIResponse(aiText, profileData) {
     } catch (parseError) {
       console.log('[AI] JSON.parse failed:', parseError.message);
       console.log('[AI] Failed at character position:', parseError.message.match(/position (\d+)/)?.[1]);
-      throw parseError;
+      
+      // Try to extract score from the beginning of the response even if JSON is malformed
+      const scoreMatch = cleanedText.match(/"score"\s*:\s*(\d+)/);
+      if (scoreMatch) {
+        console.log('[AI] Extracted score from malformed JSON:', scoreMatch[1]);
+        // Create a minimal valid response
+        jsonResponse = {
+          score: parseInt(scoreMatch[1]),
+          analysis: {},
+          recommendations: [],
+          insights: {}
+        };
+      } else {
+        throw parseError;
+      }
     }
     console.log('[AI] Successfully parsed JSON response:', {
       hasOverallScore: !!jsonResponse.overallScore,
@@ -2114,10 +2248,24 @@ function parseAIResponse(aiText, profileData) {
       insightKeys: jsonResponse.insights ? Object.keys(jsonResponse.insights) : []
     });
     
-    // Validate required fields - only require overallScore
-    if (jsonResponse.overallScore) {
+    // Validate required fields - check for score at root, overallScore, or overallScore.score
+    const hasScore = jsonResponse.score !== undefined || 
+                     jsonResponse.overallScore !== undefined ||
+                     jsonResponse.overallScore?.score !== undefined;
+    
+    if (hasScore) {
       // Convert JSON response to expected format
-      const contentScore = jsonResponse.overallScore.score;
+      // For section analysis: score is at root level
+      // For synthesis: overallScore is a number directly
+      // For full analysis: score is in overallScore.score
+      let contentScore;
+      if (jsonResponse.score !== undefined) {
+        contentScore = jsonResponse.score;
+      } else if (typeof jsonResponse.overallScore === 'number') {
+        contentScore = jsonResponse.overallScore;
+      } else if (jsonResponse.overallScore?.score !== undefined) {
+        contentScore = jsonResponse.overallScore.score;
+      }
       
       // Build summary from insights and top recommendations
       let summary = `**Summary**\n`;
@@ -2130,6 +2278,20 @@ function parseAIResponse(aiText, profileData) {
       if (jsonResponse.insights?.gaps?.[0]) {
         summary += `Key gaps: ${jsonResponse.insights.gaps[0]}.\n\n`;
       }
+      
+      // Add focused logging for recommendations structure
+      console.log('[AI] Parsed recommendations structure:', {
+        hasRecommendations: !!jsonResponse.recommendations,
+        recommendationType: typeof jsonResponse.recommendations,
+        isArray: Array.isArray(jsonResponse.recommendations),
+        hasCritical: !!jsonResponse.recommendations?.critical,
+        criticalCount: jsonResponse.recommendations?.critical?.length || 0,
+        hasImportant: !!jsonResponse.recommendations?.important,
+        importantCount: jsonResponse.recommendations?.important?.length || 0,
+        hasNiceToHave: !!jsonResponse.recommendations?.niceToHave,
+        niceToHaveCount: jsonResponse.recommendations?.niceToHave?.length || 0,
+        firstCritical: jsonResponse.recommendations?.critical?.[0]
+      });
       
       // Add recommendations if available
       if (jsonResponse.recommendations?.critical?.length > 0) {
@@ -2149,13 +2311,91 @@ function parseAIResponse(aiText, profileData) {
       }
       
       // Store full JSON response for detailed analysis
+      // Handle different recommendation formats
+      let recommendations = jsonResponse.recommendations || jsonResponse.prioritizedRecommendations || [];
+      
+      // If prioritizedRecommendations is an array, convert to categorized format
+      if (Array.isArray(recommendations) && recommendations.length > 0) {
+        const categorized = { critical: [], important: [], niceToHave: [] };
+        
+        // Log the structure we're transforming
+        console.log('[AI] Transforming prioritizedRecommendations:', {
+          count: recommendations.length,
+          firstItem: recommendations[0],
+          hasActions: recommendations[0]?.actions !== undefined
+        });
+        
+        recommendations.forEach(rec => {
+          // If this recommendation has an actions array, we need to extract each action
+          if (rec.actions && Array.isArray(rec.actions)) {
+            rec.actions.forEach(action => {
+              // Transform synthesis format to UI format
+              const transformedRec = {
+                priority: rec.category === 'quick_wins' || rec.rank <= 2 ? 'critical' :
+                         rec.category === 'high_impact' || rec.rank <= 4 ? 'high' : 'medium',
+                section: action.section,
+                action: {
+                  what: action.what,
+                  why: action.expectedImpact || rec.combinedImpact,
+                  how: action.how || 'Review and update your profile',
+                  example: action.example
+                },
+                timeInvestment: rec.timeframe,
+                impactScore: rec.rank
+              };
+              
+              // Add to appropriate category
+              if (rec.category === 'quick_wins' || rec.rank <= 2) {
+                categorized.critical.push(transformedRec);
+              } else if (rec.category === 'high_impact' || rec.rank <= 4) {
+                categorized.important.push(transformedRec);
+              } else {
+                categorized.niceToHave.push(transformedRec);
+              }
+            });
+          } else {
+            // Fallback for recommendations without actions array
+            const transformedRec = {
+              priority: rec.priority || (rec.rank <= 2 ? 'critical' : rec.rank <= 4 ? 'high' : 'medium'),
+              action: rec.action || {
+                what: rec.what || rec.message || 'Improve profile section',
+                why: rec.why || rec.impact || 'Enhance profile visibility',
+                how: rec.how || 'Update profile information'
+              },
+              timeInvestment: rec.timeInvestment || rec.timeframe,
+              impactScore: rec.impactScore || rec.rank
+            };
+            
+            if (rec.category === 'quick_wins' || rec.rank <= 2) {
+              categorized.critical.push(transformedRec);
+            } else if (rec.category === 'high_impact' || rec.rank <= 4) {
+              categorized.important.push(transformedRec);
+            } else {
+              categorized.niceToHave.push(transformedRec);
+            }
+          }
+        });
+        
+        console.log('[AI] Transformed recommendations:', {
+          criticalCount: categorized.critical.length,
+          importantCount: categorized.important.length,
+          niceToHaveCount: categorized.niceToHave.length,
+          sampleCritical: categorized.critical[0]
+        });
+        
+        recommendations = categorized;
+      } else if (!recommendations.critical) {
+        // Ensure we have the expected structure
+        recommendations = { critical: [], important: [], niceToHave: [] };
+      }
+      
       const result = {
         contentScore: contentScore,
         summary: summary,
         fullAnalysis: jsonResponse,
         sectionScores: jsonResponse.sectionScores || {},
-        recommendations: jsonResponse.recommendations || { critical: [], important: [], niceToHave: [] },
-        insights: jsonResponse.insights || { strengths: [], gaps: [], opportunities: [] }
+        recommendations: recommendations,
+        insights: jsonResponse.insights || jsonResponse.careerNarrative || { strengths: [], gaps: [], opportunities: [] }
       };
       
       console.log('[AI] Parsed result:', {
@@ -2167,11 +2407,25 @@ function parseAIResponse(aiText, profileData) {
         hasSectionScores: !!result.sectionScores
       });
       
+      // Add detailed logging before returning
+      console.log('[AI] Final recommendations being returned:', {
+        structure: result.recommendations,
+        criticalCount: result.recommendations?.critical?.length || 0,
+        importantCount: result.recommendations?.important?.length || 0,
+        niceToHaveCount: result.recommendations?.niceToHave?.length || 0,
+        sampleCritical: result.recommendations?.critical?.[0]
+      });
+      
       // If we have profileData, merge with weighted scoring
-      if (profileData && ProfileScoreCalculator) {
-        const weightedResult = ProfileScoreCalculator.calculateOverallScore(jsonResponse.sectionScores);
-        result.weightedScore = weightedResult.overallScore;
-        result.missingCritical = weightedResult.missingCritical;
+      if (profileData && ProfileScoreCalculator && jsonResponse.sectionScores) {
+        try {
+          const weightedResult = ProfileScoreCalculator.calculateOverallScore(jsonResponse.sectionScores);
+          result.weightedScore = weightedResult.overallScore;
+          result.missingCritical = weightedResult.missingCritical;
+        } catch (e) {
+          console.log('[AI] Error calculating weighted score:', e.message);
+          // Continue without weighted scoring
+        }
       }
       
       return result;
@@ -2416,6 +2670,19 @@ async function handleAIAnalysis(request, sender, sendResponse) {
         hasSectionScores: !!aiAnalysis.sectionScores,
         recommendationsType: typeof aiAnalysis.recommendations,
         insightsType: typeof aiAnalysis.insights
+      });
+      
+      // Add focused logging before sending response back
+      console.log('[AI] Sending response back to content script:', {
+        success: true,
+        score: aiAnalysis.contentScore,
+        hasRecommendations: !!aiAnalysis.recommendations,
+        recommendationsType: typeof aiAnalysis.recommendations,
+        recommendationKeys: aiAnalysis.recommendations ? Object.keys(aiAnalysis.recommendations) : [],
+        criticalCount: aiAnalysis.recommendations?.critical?.length || 0,
+        importantCount: aiAnalysis.recommendations?.important?.length || 0,
+        hasInsights: !!aiAnalysis.insights,
+        hasSectionScores: !!aiAnalysis.sectionScores
       });
       
       sendResponse({

@@ -69,6 +69,25 @@ class Analyzer {
    * @param {boolean} forceRefresh - Force refresh even if cached
    */
   async analyze(forceRefresh = false) {
+    // Development mode configuration
+    const TIMEOUTS = {
+      ANALYSIS_TOTAL: 180000,  // 3 minutes for development
+      SECTION_TIMEOUT: 30000,  // 30 seconds per section
+      SYNTHESIS_TIMEOUT: 45000, // 45 seconds for synthesis
+      DEVELOPMENT_MODE: true   // Enable extended timeouts
+    };
+    
+    // Log timeout configuration
+    Logger.info('[Analyzer] Timeout configuration:', TIMEOUTS);
+    
+    // Set analysis timeout (3 minutes for development)
+    const analysisStartTime = Date.now();
+    const analysisTimeout = setTimeout(() => {
+      const elapsed = Math.round((Date.now() - analysisStartTime) / 1000);
+      Logger.warn(`[Analyzer] Analysis timeout after ${elapsed} seconds - falling back to cache`);
+      this.handleAnalysisTimeout();
+    }, TIMEOUTS.ANALYSIS_TOTAL);
+    
     try {
       Logger.info('[Analyzer] Starting analysis', { 
         profileId: this.profileId, 
@@ -79,12 +98,16 @@ class Analyzer {
       // Update overlay state
       OverlayManager.setState(OverlayManager.states.SCANNING);
       
+      // Store cached data for fallback
+      let cachedData = null;
+      
       // Check cache first (unless forced refresh)
       if (!forceRefresh) {
-        const cachedData = await this.cacheManager.get(this.profileId);
+        cachedData = await this.cacheManager.get(this.profileId);
         if (cachedData && cachedData.completeness !== undefined) {
           Logger.info('[Analyzer] Using cached data');
           
+          clearTimeout(analysisTimeout);
           OverlayManager.setState(OverlayManager.states.CACHE_LOADED, {
             ...cachedData,
             fromCache: true,
@@ -93,6 +116,9 @@ class Analyzer {
           
           return { success: true, fromCache: true, data: cachedData };
         }
+      } else {
+        // Even on force refresh, get cached data for fallback
+        cachedData = await this.cacheManager.get(this.profileId);
       }
       
       // Run extractors
@@ -149,6 +175,18 @@ class Analyzer {
             fullResult: aiResult
           });
           
+          // Added focused logging for AI recommendations structure
+          Logger.info('[Analyzer] AI Result Structure Check:', {
+            hasRecommendations: !!aiResult.recommendations,
+            recommendationType: Array.isArray(aiResult.recommendations) ? 'array' : 'object',
+            recommendationKeys: aiResult.recommendations ? Object.keys(aiResult.recommendations) : [],
+            firstRecommendation: aiResult.recommendations?.[0] || aiResult.recommendations?.critical?.[0],
+            recommendationCount: Array.isArray(aiResult.recommendations) ? aiResult.recommendations.length : 
+                               (aiResult.recommendations?.critical?.length || 0) + 
+                               (aiResult.recommendations?.important?.length || 0) + 
+                               (aiResult.recommendations?.niceToHave?.length || 0)
+          });
+          
           Logger.info('[Analyzer] AI analysis successful:', {
             contentScore: result.contentScore,
             hasRecommendations: !!result.recommendations,
@@ -175,6 +213,9 @@ class Analyzer {
       // Save to cache
       await this.cacheManager.save(this.profileId, result, extractedData);
       
+      // Clear timeout on success
+      clearTimeout(analysisTimeout);
+      
       // Update overlay with final results
       // If AI failed but we have completeness, show complete state with error
       const finalState = result.aiError && this.settings.enableAI ? 
@@ -190,10 +231,120 @@ class Analyzer {
       
     } catch (error) {
       Logger.error('[Analyzer] Analysis failed:', error);
+      clearTimeout(analysisTimeout);
+      
+      // If we have cached data, fall back to it
+      if (cachedData && cachedData.completeness !== undefined) {
+        Logger.info('[Analyzer] Falling back to cached data after error');
+        
+        OverlayManager.setState(OverlayManager.states.ANALYSIS_FAILED_CACHE_FALLBACK, {
+          ...cachedData,
+          fromCache: true,
+          analysisError: error.message,
+          message: 'Analysis couldn\'t complete. Showing cached results. Please try again in a few minutes.'
+        });
+        
+        return { success: true, fromCache: true, fallback: true, data: cachedData };
+      } else {
+        // No cache available, show error
+        OverlayManager.setState(OverlayManager.states.ERROR, {
+          message: error.message
+        });
+        return { success: false, error: error.message };
+      }
+    } finally {
+      // Always ensure buttons are re-enabled
+      OverlayManager.resetButtons();
+    }
+  }
+  
+  /**
+   * Calculate total years of experience
+   * @param {Object} experienceData - Experience data from extractor
+   * @returns {number} Years of experience
+   */
+  calculateYearsOfExperience(experienceData) {
+    if (!experienceData?.experiences?.length) return 0;
+    
+    // Find earliest start date
+    let earliestStart = new Date();
+    experienceData.experiences.forEach(exp => {
+      if (exp.startDate) {
+        const startDate = new Date(exp.startDate);
+        if (startDate < earliestStart) {
+          earliestStart = startDate;
+        }
+      }
+    });
+    
+    const now = new Date();
+    const years = (now - earliestStart) / (1000 * 60 * 60 * 24 * 365.25);
+    return Math.round(years * 10) / 10; // Round to 1 decimal
+  }
+  
+  /**
+   * Extract career progression pattern
+   * @param {Object} experienceData - Experience data from extractor
+   * @returns {string} Career progression type
+   */
+  extractCareerProgression(experienceData) {
+    if (!experienceData?.experiences?.length) return 'unknown';
+    
+    const titles = experienceData.experiences.map(exp => exp.title?.toLowerCase() || '');
+    
+    // Check for management progression
+    const hasManagementProgression = titles.some((title, idx) => {
+      const prevTitles = titles.slice(idx + 1);
+      return (title.includes('manager') || title.includes('director') || title.includes('vp')) &&
+             prevTitles.some(t => !t.includes('manager') && !t.includes('director'));
+    });
+    
+    if (hasManagementProgression) return 'ic_to_management';
+    
+    // Check for senior progression
+    const hasSeniorProgression = titles.some((title, idx) => {
+      const prevTitles = titles.slice(idx + 1);
+      return (title.includes('senior') || title.includes('lead') || title.includes('principal')) &&
+             prevTitles.some(t => !t.includes('senior') && !t.includes('lead'));
+    });
+    
+    if (hasSeniorProgression) return 'junior_to_senior';
+    
+    // Check if lateral moves
+    const uniqueRoles = new Set(titles.map(t => t.replace(/(senior|lead|jr|junior|principal)/g, '').trim()));
+    if (uniqueRoles.size > 2) return 'diverse_lateral';
+    
+    return 'specialized';
+  }
+
+  /**
+   * Handle analysis timeout
+   */
+  async handleAnalysisTimeout() {
+    try {
+      // Try to get cached data
+      const cachedData = await this.cacheManager.get(this.profileId);
+      
+      if (cachedData && cachedData.completeness !== undefined) {
+        Logger.info('[Analyzer] Analysis timeout - returning to cached data');
+        
+        OverlayManager.setState(OverlayManager.states.ANALYSIS_FAILED_CACHE_FALLBACK, {
+          ...cachedData,
+          fromCache: true,
+          analysisError: 'Analysis timeout',
+          message: 'Analysis is taking longer than expected. Showing cached results. Please try again later.'
+        });
+      } else {
+        // No cache available
+        OverlayManager.setState(OverlayManager.states.ERROR, {
+          message: 'Analysis timeout. Please try again.'
+        });
+      }
+    } catch (error) {
+      Logger.error('[Analyzer] Error handling timeout:', error);
       OverlayManager.setState(OverlayManager.states.ERROR, {
-        message: error.message
+        message: 'Analysis timeout. Please try again.'
       });
-      return { success: false, error: error.message };
     }
   }
   
@@ -287,69 +438,173 @@ class Analyzer {
    * Run distributed AI analysis (section by section)
    */
   async runDistributedAIAnalysis(extractedData) {
-    Logger.info('[Analyzer] Starting distributed AI analysis');
+    const startTime = Date.now();
+    Logger.info('[Analyzer] Starting distributed AI analysis (Sequential Mode)');
     
-    const sectionPromises = [];
     const sectionResults = {};
     const sectionRecommendations = {};
+    const sections = [];
     
-    // 1. Analyze Profile Intro (About + Headline + Photo)
+    // Build list of sections to analyze
+    // 1. Profile Intro
     if (extractedData.headline || extractedData.about) {
-      sectionPromises.push(
-        this.analyzeSection('profile_intro', {
-          headline: extractedData.headline,
-          about: extractedData.about,
-          photo: extractedData.photo,
-          topSkills: extractedData.skills?.skills?.slice(0, 10).map(s => s.name || s.skill)
-        })
-      );
-    }
-    
-    // 2. Analyze Each Experience Role
-    if (extractedData.experience?.experiences?.length > 0) {
-      extractedData.experience.experiences.forEach((exp, index) => {
-        sectionPromises.push(
-          this.analyzeSection('experience_role', exp, {
-            position: index,
-            totalRoles: extractedData.experience.experiences.length,
-            previousRole: extractedData.experience.experiences[index - 1],
-            nextRole: extractedData.experience.experiences[index + 1]
-          })
-        );
+      // Build rich context for profile intro
+      const profileContext = {
+        // Core data
+        headline: extractedData.headline,
+        about: extractedData.about,
+        photo: extractedData.photo,
+        topSkills: extractedData.skills?.skills?.slice(0, 10).map(s => s.name || s.skill),
+        
+        // Career context
+        totalExperience: extractedData.experience?.experiences?.length || 0,
+        currentRole: extractedData.experience?.experiences?.[0] || null,
+        yearsOfExperience: this.calculateYearsOfExperience(extractedData.experience),
+        careerProgression: this.extractCareerProgression(extractedData.experience),
+        
+        // Profile completeness context
+        profileSections: {
+          hasPhoto: extractedData.photo?.exists || false,
+          hasHeadline: extractedData.headline?.exists || false,
+          hasAbout: extractedData.about?.exists || false,
+          hasExperience: (extractedData.experience?.count || 0) > 0,
+          hasEducation: (extractedData.education?.count || 0) > 0,
+          hasSkills: (extractedData.skills?.count || 0) > 0,
+          hasCertifications: (extractedData.certifications?.count || 0) > 0,
+          hasRecommendations: (extractedData.recommendations?.count || 0) > 0
+        },
+        
+        // Skills context
+        totalSkillsCount: extractedData.skills?.totalCount || extractedData.skills?.count || 0,
+        skillsWithEndorsements: extractedData.skills?.skills?.filter(s => (s.endorsementCount || 0) > 0).length || 0,
+        
+        // Additional metadata
+        targetRole: this.settings.targetRole || 'Product Manager',
+        seniorityLevel: this.settings.seniorityLevel || 'mid'
+      };
+      
+      sections.push({
+        type: 'profile_intro',
+        name: 'Profile Introduction',
+        data: profileContext
       });
     }
     
-    // 3. Analyze Skills
-    if (extractedData.skills) {
-      sectionPromises.push(
-        this.analyzeSection('skills', extractedData.skills)
-      );
-    }
-    
-    // 4. Analyze Recommendations
-    if (extractedData.recommendations) {
-      sectionPromises.push(
-        this.analyzeSection('recommendations', extractedData.recommendations)
-      );
-    }
-    
-    // Execute all section analyses in parallel
-    const results = await Promise.allSettled(sectionPromises);
-    
-    // Process results
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled' && result.value.success) {
-        const section = result.value.section;
-        sectionResults[section] = result.value;
-        sectionRecommendations[section] = result.value.recommendations || [];
-        
-        // Update UI progressively
-        OverlayManager.updateSectionScore(section, result.value.score);
+    // 2. Experience Roles
+    // Check if experience exists and has count > 0
+    if (extractedData.experience?.exists && extractedData.experience?.count > 0) {
+      // Need to run extractDeep to get individual experiences for AI analysis
+      Logger.info('[Analyzer] Running deep extraction for experience section');
+      
+      try {
+        // Run deep extraction to get detailed experiences
+        const experienceExtractor = this.extractors.experience;
+        if (experienceExtractor) {
+          const deepExperienceData = await experienceExtractor.extractDeep();
+          
+          if (deepExperienceData.experiences && deepExperienceData.experiences.length > 0) {
+            // Add each experience role as a separate section for analysis
+            deepExperienceData.experiences.forEach((exp, index) => {
+              sections.push({
+                type: 'experience_role',
+                name: `Experience Role ${index + 1} of ${deepExperienceData.experiences.length}`,
+                data: exp,
+                context: {
+                  position: index,
+                  totalRoles: deepExperienceData.experiences.length,
+                  previousRole: deepExperienceData.experiences[index - 1],
+                  nextRole: deepExperienceData.experiences[index + 1]
+                }
+              });
+            });
+            
+            Logger.info('[Analyzer] Added experience roles for AI analysis:', {
+              count: deepExperienceData.experiences.length,
+              firstRole: deepExperienceData.experiences[0]?.title
+            });
+          }
+        }
+      } catch (error) {
+        Logger.error('[Analyzer] Failed to extract deep experience data:', error);
+        // Fallback: analyze experience as a single section
+        sections.push({
+          type: 'experience',
+          name: `Experience (${extractedData.experience.count} roles)`,
+          data: extractedData.experience
+        });
       }
-    });
+    }
+    
+    // 3. Skills
+    if (extractedData.skills) {
+      sections.push({
+        type: 'skills',
+        name: `Skills (${extractedData.skills.totalCount || extractedData.skills.count || 0} total)`,
+        data: extractedData.skills
+      });
+    }
+    
+    // 4. Recommendations
+    if (extractedData.recommendations) {
+      sections.push({
+        type: 'recommendations',
+        name: `Recommendations (${extractedData.recommendations.count || 0} total)`,
+        data: extractedData.recommendations
+      });
+    }
+    
+    const totalSections = sections.length;
+    Logger.info(`[Analyzer] Will analyze ${totalSections} sections sequentially`);
+    
+    // Analyze sections sequentially
+    for (let i = 0; i < sections.length; i++) {
+      const section = sections[i];
+      const stepNumber = i + 1;
+      const sectionStartTime = Date.now();
+      
+      try {
+        // Update UI with current section
+        Logger.info(`[AI Analysis] Starting section ${stepNumber}/${totalSections}: ${section.name}`);
+        OverlayManager.updateAIProgress('analyzing', `${section.name} (Step ${stepNumber} of ${totalSections})`);
+        
+        // Log data size being sent
+        const dataSize = JSON.stringify(section.data).length;
+        Logger.info(`[AI Analysis] Data size for ${section.name}: ${dataSize} bytes`);
+        
+        // Analyze the section
+        const result = await this.analyzeSection(section.type, section.data, section.context);
+        
+        // Log completion
+        const sectionElapsed = Date.now() - sectionStartTime;
+        Logger.info(`[AI Analysis] Completed ${section.name} in ${sectionElapsed}ms - Score: ${result.score || 'N/A'}`);
+        
+        if (result.success) {
+          sectionResults[section.type] = result;
+          sectionRecommendations[section.type] = result.recommendations || [];
+          
+          // Update UI with section score
+          OverlayManager.updateSectionScore(section.type, result.score);
+        } else {
+          Logger.warn(`[AI Analysis] Failed to analyze ${section.name}: ${result.error}`);
+        }
+        
+      } catch (error) {
+        Logger.error(`[AI Analysis] Error analyzing ${section.name}:`, error);
+      }
+    }
     
     // 5. Synthesize all results
+    Logger.info('[AI Analysis] Starting synthesis of all sections');
+    OverlayManager.updateAIProgress('synthesizing', 'Synthesizing results...');
+    
+    const synthesisStartTime = Date.now();
     const synthesis = await this.synthesizeResults(sectionResults, sectionRecommendations);
+    
+    const synthesisElapsed = Date.now() - synthesisStartTime;
+    const totalElapsed = Date.now() - startTime;
+    
+    Logger.info(`[AI Analysis] Synthesis completed in ${synthesisElapsed}ms`);
+    Logger.info(`[AI Analysis] Total distributed analysis time: ${totalElapsed}ms (${Math.round(totalElapsed / 1000)}s)`);
     
     return synthesis;
   }
@@ -360,7 +615,7 @@ class Analyzer {
   async analyzeSection(sectionType, data, context = {}) {
     return new Promise((resolve) => {
       safeSendMessage({
-        action: 'analyzeSectionAI',
+        action: 'analyzeSection',
         section: sectionType,
         data: data,
         context: context,
@@ -396,14 +651,34 @@ class Analyzer {
         sectionScores: sectionResults,
         sectionRecommendations: sectionRecommendations
       }, (response) => {
+        Logger.info('[Analyzer] Synthesis response received:', {
+          success: response?.success,
+          hasFinalScore: response?.finalScore !== undefined,
+          finalScore: response?.finalScore,
+          hasOverallRecommendations: !!response?.overallRecommendations,
+          overallRecommendationsType: typeof response?.overallRecommendations,
+          hasRecommendations: !!response?.recommendations,
+          recommendationsType: typeof response?.recommendations,
+          responseKeys: response ? Object.keys(response) : []
+        });
+        
         if (response && response.success) {
-          resolve({
+          const result = {
             success: true,
             score: response.finalScore,
             synthesis: response.synthesis,
-            recommendations: response.overallRecommendations,
+            recommendations: response.overallRecommendations || response.recommendations || [],
             insights: response.careerNarrative
+          };
+          
+          Logger.info('[Analyzer] Synthesis result to return:', {
+            score: result.score,
+            hasRecommendations: !!result.recommendations,
+            recommendationsLength: Array.isArray(result.recommendations) ? result.recommendations.length : 0,
+            recommendationsType: typeof result.recommendations
           });
+          
+          resolve(result);
         } else {
           // Fallback: calculate weighted average
           const weights = {

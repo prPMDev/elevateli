@@ -223,15 +223,7 @@ async function saveUserProfileId() {
   }
 }
 
-/**
- * Extract text content safely
- */
-function extractTextContent(element, maxLength = null) {
-  if (!element) return '';
-  
-  const text = element.textContent?.trim() || '';
-  return maxLength ? text.substring(0, maxLength) : text;
-}
+// REMOVED: extractTextContent - duplicate function, use BaseExtractor.extractTextContent instead
 
 /**
  * Find element by multiple selectors

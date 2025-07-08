@@ -2,6 +2,30 @@
 
 All notable changes to ElevateLI will be documented in this file.
 
+## [0.4.4] - January 7, 2025
+
+### New Features
+- **Enhanced Profile Context for AI**: AI now receives rich metadata including years of experience, career progression, and profile completeness
+- **Experience Section Analysis**: Each experience role is now individually analyzed by AI for targeted feedback
+- **Improved Recommendation Display**: Fixed transformation of AI recommendations to prevent "[object Object]" display
+
+### Improved
+- Profile intro AI prompt now considers career trajectory and experience level
+- Better handling of synthesis recommendations with actions array format
+- Enhanced error logging for recommendation display issues
+- Clearer warning messages when extension context is invalidated
+
+### Fixed
+- Syntax error from trailing commas in class methods
+- Experience section not being included in AI analysis
+- Recommendations displaying as "[object Object]" instead of actionable text
+- Extension context validation messages now guide users to refresh the page
+
+### Technical Improvements
+- Added helper methods: `calculateYearsOfExperience()` and `extractCareerProgression()`
+- Experience deep extraction now runs before AI analysis for detailed role data
+- Recommendation transformation handles both cached and fresh AI response formats
+
 ## [0.4.3] - January 7, 2025
 
 ### New Features

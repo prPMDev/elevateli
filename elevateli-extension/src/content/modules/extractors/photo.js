@@ -83,7 +83,5 @@ const PhotoExtractor = {
    * Deep extraction is same as basic for photo
    * @returns {Object} Photo data
    */
-  async extractDeep() {
-    return this.extract();
-  }
+  // REMOVED: extractDeep - duplicate method that just calls extract(), not used by analyzer
 };

@@ -16,7 +16,8 @@ const OverlayManager = {
     ANALYZING: 'analyzing',
     AI_ANALYZING: 'ai_analyzing',
     COMPLETE: 'complete',
-    ERROR: 'error'
+    ERROR: 'error',
+    ANALYSIS_FAILED_CACHE_FALLBACK: 'analysis_failed_cache_fallback'
   },
   
   // Current state tracking
@@ -368,12 +369,20 @@ const OverlayManager = {
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
         }
+        
+        // Show development mode indicator - comment out before git push
+        // TODO: Remove or control with flag before production
+        this.showDevelopmentModeIndicator();
+        
+        // Start elapsed time display
+        this.startElapsedTimeDisplay();
       },
       
       [this.states.COMPLETE]: () => {
         this.clearEmptyStateMessage();
         this.updateStatus('Analysis complete', '✓');
         this.hideSkeletons();
+        this.stopElapsedTimeDisplay();
         this.populateScores(data);
         this.showMissingItems(data.completenessData);
         this.showRecommendations(data.recommendations);
@@ -387,6 +396,9 @@ const OverlayManager = {
       },
       
       [this.states.ERROR]: () => {
+        // Stop elapsed time display if running
+        this.stopElapsedTimeDisplay();
+        
         // Determine error icon and message based on type
         let errorIcon = '❌';
         let errorMessage = data.message || 'Analysis failed';
@@ -431,9 +443,59 @@ const OverlayManager = {
           // Show button to open settings
           this.showActionButtons({ showSettings: true });
         } else {
-          // Show analyze button to retry
-          this.showActionButtons({ showAnalyze: true });
+          // Show refresh button to retry
+          this.showActionButtons({ showRefresh: true });
         }
+      },
+      
+      [this.states.ANALYSIS_FAILED_CACHE_FALLBACK]: () => {
+        // Stop elapsed time display if running
+        this.stopElapsedTimeDisplay();
+        
+        this.clearEmptyStateMessage();
+        this.hideSkeletons();
+        
+        // Show cached data
+        this.populateScores(data);
+        this.showMissingItems(data.completenessData);
+        this.showRecommendations(data.recommendations);
+        
+        // Show timestamp
+        if (data.timestamp) {
+          this.showTimestamp(data.timestamp);
+        }
+        
+        // Show warning banner about failed analysis
+        const warningBanner = document.createElement('div');
+        warningBanner.className = 'analysis-warning-banner';
+        warningBanner.style.cssText = `
+          background: #fef3c7;
+          border: 1px solid #f59e0b;
+          border-radius: 6px;
+          padding: 12px;
+          margin: 12px 0;
+          font-size: 14px;
+          color: #92400e;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        `;
+        warningBanner.innerHTML = `
+          <span style="font-size: 16px;">⚠️</span>
+          <span>${data.message || 'Analysis couldn\'t complete. Showing cached results. Please try again in a few minutes.'}</span>
+        `;
+        
+        // Insert after status indicator
+        const statusIndicator = this.overlayElement.querySelector('.status-indicator');
+        if (statusIndicator) {
+          statusIndicator.insertAdjacentElement('afterend', warningBanner);
+        }
+        
+        // Update status
+        this.updateStatus('Showing cached results', 'ℹ️');
+        
+        // Show refresh button
+        this.showActionButtons({ showRefresh: true });
       }
     };
     
@@ -630,6 +692,21 @@ const OverlayManager = {
   showRecommendations(recommendations) {
     console.log('[OverlayManager] showRecommendations called with:', recommendations);
     
+    // Add detailed logging for recommendations structure
+    console.log('[OverlayManager] Recommendations structure:', {
+      recommendations,
+      type: typeof recommendations,
+      isArray: Array.isArray(recommendations),
+      hasCritical: recommendations?.critical !== undefined,
+      hasImportant: recommendations?.important !== undefined,
+      hasNiceToHave: recommendations?.niceToHave !== undefined,
+      criticalCount: recommendations?.critical?.length || 0,
+      importantCount: recommendations?.important?.length || 0,
+      niceToHaveCount: recommendations?.niceToHave?.length || 0,
+      arrayLength: Array.isArray(recommendations) ? recommendations.length : 0,
+      firstItem: Array.isArray(recommendations) ? recommendations[0] : recommendations?.critical?.[0]
+    });
+    
     if (!recommendations) {
       console.log('[OverlayManager] No recommendations provided');
       return;
@@ -658,9 +735,79 @@ const OverlayManager = {
     if (Array.isArray(recommendations)) {
       allRecs = recommendations;
     } else {
-      if (recommendations.critical) allRecs = allRecs.concat(recommendations.critical.map(r => ({...r, priority: 'critical'})));
-      if (recommendations.important) allRecs = allRecs.concat(recommendations.important.map(r => ({...r, priority: 'high'})));
-      if (recommendations.niceToHave) allRecs = allRecs.concat(recommendations.niceToHave.map(r => ({...r, priority: 'medium'})));
+      // Handle categorized format from cache or synthesis
+      if (recommendations.critical) {
+        recommendations.critical.forEach(r => {
+          // If this has actions array (synthesis format), extract each action
+          if (r.actions && Array.isArray(r.actions)) {
+            r.actions.forEach(action => {
+              allRecs.push({
+                priority: 'critical',
+                action: {
+                  what: action.what,
+                  why: action.expectedImpact || r.combinedImpact,
+                  how: action.how || 'Review and update your profile',
+                  example: action.example
+                },
+                section: action.section,
+                timeInvestment: r.timeframe,
+                impactScore: r.rank
+              });
+            });
+          } else {
+            // Already in expected format or needs priority added
+            allRecs.push({...r, priority: 'critical'});
+          }
+        });
+      }
+      
+      if (recommendations.important) {
+        recommendations.important.forEach(r => {
+          // If this has actions array (synthesis format), extract each action
+          if (r.actions && Array.isArray(r.actions)) {
+            r.actions.forEach(action => {
+              allRecs.push({
+                priority: 'high',
+                action: {
+                  what: action.what,
+                  why: action.expectedImpact || r.combinedImpact,
+                  how: action.how || 'Review and update your profile',
+                  example: action.example
+                },
+                section: action.section,
+                timeInvestment: r.timeframe,
+                impactScore: r.rank
+              });
+            });
+          } else {
+            allRecs.push({...r, priority: 'high'});
+          }
+        });
+      }
+      
+      if (recommendations.niceToHave) {
+        recommendations.niceToHave.forEach(r => {
+          // If this has actions array (synthesis format), extract each action
+          if (r.actions && Array.isArray(r.actions)) {
+            r.actions.forEach(action => {
+              allRecs.push({
+                priority: 'medium',
+                action: {
+                  what: action.what,
+                  why: action.expectedImpact || r.combinedImpact,
+                  how: action.how || 'Review and update your profile',
+                  example: action.example
+                },
+                section: action.section,
+                timeInvestment: r.timeframe,
+                impactScore: r.rank
+              });
+            });
+          } else {
+            allRecs.push({...r, priority: 'medium'});
+          }
+        });
+      }
     }
     
     // Sort into categories
@@ -699,7 +846,29 @@ const OverlayManager = {
         
         // Extract recommendation details
         const action = rec.action || {};
-        const what = action.what || rec.what || rec.message || rec;
+        
+        // Ensure we have a valid 'what' string, not an object
+        let what = action.what || rec.what || rec.message;
+        if (!what || typeof what === 'object') {
+          console.warn('[OverlayManager] Invalid recommendation format:', {
+            rec: rec,
+            recType: typeof rec,
+            recKeys: rec ? Object.keys(rec) : 'null',
+            hasAction: !!rec.action,
+            hasActions: !!rec.actions,
+            actionWhat: action.what,
+            recWhat: rec.what,
+            recMessage: rec.message
+          });
+          
+          // Try to extract from actions array if present (synthesis format)
+          if (rec.actions && Array.isArray(rec.actions) && rec.actions.length > 0) {
+            what = rec.actions[0].what || 'Review and improve this section';
+          } else {
+            what = 'Review and improve this section';
+          }
+        }
+        
         const why = action.why || rec.why;
         const example = action.example || rec.example;
         const impact = rec.impactScore || rec.impact;
@@ -1233,6 +1402,224 @@ const OverlayManager = {
       const dateOptions = { month: 'short', day: 'numeric' };
       const dateStr = date.toLocaleDateString('en-US', dateOptions);
       return `${dateStr} at ${timeStr}`;
+    }
+  },
+  
+  /**
+   * Reset all action buttons to enabled state
+   * This is called after analysis completes, fails, or times out
+   */
+  resetButtons() {
+    console.log('[OverlayManager] Resetting all buttons');
+    
+    if (!this.overlayElement) return;
+    
+    // Re-enable all action buttons
+    const buttons = this.overlayElement.querySelectorAll('.action-button');
+    buttons.forEach(btn => {
+      btn.disabled = false;
+      
+      // Reset button text to original
+      if (btn.classList.contains('analyze-button')) {
+        btn.innerHTML = '<span class="button-icon">🚀</span>Analyze Profile';
+      } else if (btn.classList.contains('refresh-button')) {
+        btn.innerHTML = '<span class="button-icon">🔄</span>Re-analyze';
+      } else if (btn.classList.contains('details-button')) {
+        btn.innerHTML = '<span class="button-icon">📊</span>View Details';
+      }
+    });
+    
+    // Clear any failsafe timer if it exists
+    if (this.buttonResetTimer) {
+      clearTimeout(this.buttonResetTimer);
+      this.buttonResetTimer = null;
+    }
+  },
+  
+  /**
+   * Handle analyze button click
+   */
+  handleAnalyze() {
+    console.log('[OverlayManager] Analyze requested');
+    const btn = this.overlayElement.querySelector('.analyze-button');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="button-icon">⏳</span>Analyzing...';
+    }
+    
+    // Set failsafe timer to re-enable button after 60 seconds
+    this.setButtonFailsafeTimer();
+    
+    // Send message to trigger analysis
+    window.postMessage({ type: 'ELEVATE_REFRESH' }, '*');
+  },
+  
+  /**
+   * Handle refresh button click (re-analysis)
+   */
+  handleRefresh() {
+    console.log('[OverlayManager] Refresh requested');
+    const btn = this.overlayElement.querySelector('.refresh-button');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="button-icon">⏳</span>Re-analyzing...';
+    }
+    
+    // Set failsafe timer to re-enable button after 60 seconds
+    this.setButtonFailsafeTimer();
+    
+    // Send message to trigger re-analysis
+    window.postMessage({ type: 'ELEVATE_REFRESH' }, '*');
+  },
+  
+  /**
+   * Set failsafe timer to re-enable buttons after 60 seconds
+   */
+  setButtonFailsafeTimer() {
+    // Clear any existing timer
+    if (this.buttonResetTimer) {
+      clearTimeout(this.buttonResetTimer);
+    }
+    
+    // Set new timer
+    this.buttonResetTimer = setTimeout(() => {
+      console.log('[OverlayManager] Failsafe timer triggered - resetting buttons');
+      this.resetButtons();
+      
+      // Show error message if still in analyzing state
+      if (this.currentState === this.states.SCANNING || 
+          this.currentState === this.states.EXTRACTING || 
+          this.currentState === this.states.CALCULATING || 
+          this.currentState === this.states.ANALYZING || 
+          this.currentState === this.states.AI_ANALYZING) {
+        this.updateStatus('Analysis took too long. Please try again.', '⚠️');
+      }
+    }, 60000); // 60 seconds
+  },
+  
+  /**
+   * Show development mode indicator
+   */
+  showDevelopmentModeIndicator() {
+    if (!this.overlayElement) return;
+    
+    // Create or update development mode indicator
+    let devIndicator = this.overlayElement.querySelector('.dev-mode-indicator');
+    if (!devIndicator) {
+      devIndicator = document.createElement('div');
+      devIndicator.className = 'dev-mode-indicator';
+      devIndicator.style.cssText = `
+        background: #e3f2fd;
+        border: 1px solid #1976d2;
+        border-radius: 4px;
+        padding: 8px 12px;
+        margin: 12px 0;
+        font-size: 12px;
+        color: #1976d2;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      `;
+      devIndicator.innerHTML = `
+        <span>🔧</span>
+        <span>Development Mode: Extended timeouts enabled (3 min)</span>
+      `;
+      
+      const statusIndicator = this.overlayElement.querySelector('.status-indicator');
+      if (statusIndicator) {
+        statusIndicator.insertAdjacentElement('afterend', devIndicator);
+      }
+    }
+  },
+  
+  /**
+   * Start elapsed time display
+   */
+  startElapsedTimeDisplay() {
+    if (!this.overlayElement) return;
+    
+    // Clear any existing timer
+    if (this.elapsedTimeInterval) {
+      clearInterval(this.elapsedTimeInterval);
+    }
+    
+    const startTime = Date.now();
+    
+    // Create elapsed time display
+    let elapsedDisplay = this.overlayElement.querySelector('.elapsed-time-display');
+    if (!elapsedDisplay) {
+      elapsedDisplay = document.createElement('div');
+      elapsedDisplay.className = 'elapsed-time-display';
+      elapsedDisplay.style.cssText = `
+        font-size: 13px;
+        color: #666;
+        margin-top: 8px;
+        text-align: center;
+      `;
+      
+      const statusIndicator = this.overlayElement.querySelector('.status-indicator');
+      if (statusIndicator) {
+        statusIndicator.appendChild(elapsedDisplay);
+      }
+    }
+    
+    // Update elapsed time every second
+    const updateElapsed = () => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const minutes = Math.floor(elapsed / 60);
+      const seconds = elapsed % 60;
+      
+      if (minutes > 0) {
+        elapsedDisplay.textContent = `Elapsed: ${minutes}m ${seconds}s`;
+      } else {
+        elapsedDisplay.textContent = `Elapsed: ${seconds}s`;
+      }
+      
+      // Add warning color if taking too long
+      if (elapsed > 60) {
+        elapsedDisplay.innerHTML += ' <span style="color: #f59e0b;">(This may take 1-2 minutes)</span>';
+      }
+    };
+    
+    updateElapsed();
+    this.elapsedTimeInterval = setInterval(updateElapsed, 1000);
+  },
+  
+  /**
+   * Stop elapsed time display
+   */
+  stopElapsedTimeDisplay() {
+    if (this.elapsedTimeInterval) {
+      clearInterval(this.elapsedTimeInterval);
+      this.elapsedTimeInterval = null;
+    }
+    
+    // Remove elapsed time display
+    const elapsedDisplay = this.overlayElement?.querySelector('.elapsed-time-display');
+    if (elapsedDisplay) {
+      elapsedDisplay.remove();
+    }
+  },
+  
+  /**
+   * Close overlay
+   */
+  close() {
+    const wrapper = document.querySelector('.elevateli-overlay-wrapper');
+    if (wrapper) {
+      wrapper.remove();
+    }
+    this.overlayElement = null;
+    
+    // Clear any timers
+    if (this.buttonResetTimer) {
+      clearTimeout(this.buttonResetTimer);
+      this.buttonResetTimer = null;
+    }
+    
+    if (this.elapsedTimeInterval) {
+      clearInterval(this.elapsedTimeInterval);
+      this.elapsedTimeInterval = null;
     }
   }
 };

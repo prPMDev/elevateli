@@ -23,7 +23,7 @@
     
     // Check if extension context is still valid
     if (!isExtensionContextValid()) {
-      console.warn('[WARN] Extension context invalidated - old content script instance');
+      console.warn('[WARN] Extension context invalidated - old content script instance. This page was loaded before the extension was updated. Refresh the page to use the latest version.');
       return;
     }
     
@@ -126,7 +126,15 @@
     
     // Check if extension context is still valid
     if (!isExtensionContextValid()) {
-      console.warn('[WARN] Extension context invalidated - cannot start analysis');
+      console.warn('[WARN] Extension context invalidated - cannot start analysis. Please refresh the page to reload the extension.');
+      
+      // Try to show a user-friendly message if overlay exists
+      if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
+        OverlayManager.setState(OverlayManager.states.ERROR, {
+          message: 'Extension was updated. Please refresh the page to continue.'
+        });
+      }
+      
       return;
     }
     
@@ -146,7 +154,7 @@
           resolve({});
           return;
         }
-        chrome.storage.local.get(['enableAI', 'apiKey', 'encryptedApiKey', 'aiProvider', 'cacheDuration'], (data) => {
+        chrome.storage.local.get(['enableAI', 'apiKey', 'encryptedApiKey', 'aiProvider', 'aiModel', 'targetRole', 'seniorityLevel', 'cacheDuration'], (data) => {
           if (chrome.runtime.lastError) {
             console.warn('[WARN] Failed to get settings:', chrome.runtime.lastError);
             resolve({});

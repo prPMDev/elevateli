@@ -97,3 +97,30 @@ This concatenates all modules into `src/content/analyzer.js`.
 2. Include test results
 3. Update CHANGELOG.md
 4. Ensure build passes
+
+## Alpha Testing (v0.4.4)
+
+### Current Focus Areas
+- Experience section analysis accuracy
+- AI recommendation quality
+- Performance on various profile types
+- Cache reliability
+
+### How to Report Issues
+1. Check console for errors (F12)
+2. Note the profile structure (sections present)
+3. Include AI provider used (OpenAI/Anthropic)
+4. Screenshots help!
+
+### Known Issues
+- Extension context invalidated after reload (refresh page)
+- Some JSON parsing errors (handled gracefully)
+- Recommendations may need 2-3 seconds to display
+
+### Testing Checklist
+- [ ] Test on your own profile
+- [ ] Test on a connection's profile
+- [ ] Test with incomplete profiles
+- [ ] Test cache behavior (7-day expiry)
+- [ ] Test both AI providers
+- [ ] Test error recovery
