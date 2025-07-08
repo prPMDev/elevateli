@@ -2,7 +2,7 @@
 
 All notable changes to ElevateLI will be documented in this file.
 
-## [0.4.4] - January 7, 2025
+## [0.4.4] - July 7, 2025
 
 ### New Features
 - **Enhanced Profile Context for AI**: AI now receives rich metadata including years of experience, career progression, and profile completeness
@@ -26,7 +26,7 @@ All notable changes to ElevateLI will be documented in this file.
 - Experience deep extraction now runs before AI analysis for detailed role data
 - Recommendation transformation handles both cached and fresh AI response formats
 
-## [0.4.3] - January 7, 2025
+## [0.4.3] - July 7, 2025
 
 ### New Features
 - **Distributed AI Analysis**: Analyzes profile sections individually to avoid token limits
@@ -48,7 +48,7 @@ All notable changes to ElevateLI will be documented in this file.
 - Extension context validation prevents runtime errors
 - Message format mismatch between content script and service worker
 
-## [0.4.2] - January 7, 2025
+## [0.4.2] - July 6, 2025
 
 ### Fixed
 - AI analysis now properly communicates between content script and service worker
@@ -61,7 +61,7 @@ All notable changes to ElevateLI will be documented in this file.
 - Profile detection now checks for edit buttons and analytics access
 - Faster loading when returning to own profile
 
-## [0.4.1] - January 7, 2025
+## [0.4.1] - July 5, 2025
 
 ### New Features
 - Redesigned popup UI with 340px width for better readability
@@ -81,7 +81,7 @@ All notable changes to ElevateLI will be documented in this file.
 - API key persistence issues
 - Proper validation for AI settings
 
-## [0.4.0] - January 2025
+## [0.4.0] - July 2025
 
 ### Major Architecture Refactor
 - Complete modular redesign with separate source files
@@ -108,7 +108,7 @@ All notable changes to ElevateLI will be documented in this file.
 - Recommendations are now properly counted and analyzed
 - Certifications display correctly in the analysis
 
-## [0.3.3] - January 2025
+## [0.3.3] - June 2025
 
 ### New Features
 - Beautiful new visual design with progress gauges
@@ -127,7 +127,7 @@ All notable changes to ElevateLI will be documented in this file.
 - Better error messages when something goes wrong
 - Improved compatibility with different LinkedIn profile layouts
 
-## [0.3.2] - December 2024
+## [0.3.2] - June 2025
 
 ### Initial Release
 - Completeness score (0-100%) - works without API key

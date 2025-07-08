@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ElevateLI",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Optimize your LinkedIn profile with AI-powered suggestions",
   
   "permissions": [
