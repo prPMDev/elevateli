@@ -14,7 +14,12 @@
   
   // Check if extension context is still valid
   function isExtensionContextValid() {
-    return !!(chrome?.runtime?.id);
+    try {
+      return !!(chrome?.runtime?.id);
+    } catch (error) {
+      console.warn('[WARN] Chrome runtime not accessible:', error);
+      return false;
+    }
   }
   
   // Initialize the extension
@@ -82,15 +87,18 @@
           const hasApiKey = settings.apiKey || settings.encryptedApiKey;
           const enableAI = settings.enableAI && hasApiKey && settings.aiProvider;
           
-          // Check cache first
-          const cacheManager = new CacheManager(settings.cacheDuration || 7);
+          // Check cache first (no expiration)
+          const cacheManager = new CacheManager(null);
           const cachedData = await cacheManager.get(cacheProfileId);
           
           if (cachedData && cachedData.completeness !== undefined) {
             console.log('[INFO] Found cached data', { 
               completeness: cachedData.completeness,
               contentScore: cachedData.contentScore,
-              fromCache: true
+              fromCache: true,
+              hasSectionScores: !!cachedData.sectionScores,
+              sectionScoreKeys: cachedData.sectionScores ? Object.keys(cachedData.sectionScores) : [],
+              cachedDataKeys: Object.keys(cachedData)
             });
             
             // Show cached results
@@ -99,6 +107,7 @@
               contentScore: cachedData.contentScore,
               completenessData: cachedData.completenessData,
               recommendations: cachedData.recommendations,
+              sectionScores: cachedData.sectionScores,
               timestamp: cachedData.timestamp,
               fromCache: true,
               aiDisabled: !enableAI
@@ -123,6 +132,10 @@
   // Start analysis when requested
   async function startAnalysis(forceRefresh = false) {
     console.log('[INFO] Starting analysis', { forceRefresh });
+    
+    // Set analysis in progress
+    analysisInProgress = true;
+    analysisAborted = false;
     
     // Check if extension context is still valid
     if (!isExtensionContextValid()) {
@@ -192,12 +205,23 @@
   }
   
   // Listen for messages from popup/background
+  // Track if analysis is in progress
+  let analysisInProgress = false;
+  let analysisAborted = false;
+  
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     
     if (event.data.type === 'ELEVATE_REFRESH') {
       console.log('[INFO] Refresh requested via overlay');
+      analysisAborted = false;
       startAnalysis(true);
+    }
+    
+    if (event.data.type === 'ELEVATE_CANCEL_ANALYSIS') {
+      console.log('[INFO] Cancel analysis requested');
+      analysisAborted = true;
+      analysisInProgress = false;
     }
   });
   
@@ -236,6 +260,16 @@
       
       if (request.action === 'ping') {
         sendResponse({ success: true, alive: true });
+        return true;
+      }
+      
+      if (request.action === 'toggleOverlay') {
+        if (request.show) {
+          OverlayManager.show();
+        } else {
+          OverlayManager.hide();
+        }
+        sendResponse({ success: true });
         return true;
       }
       

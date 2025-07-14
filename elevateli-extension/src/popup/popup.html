@@ -9,7 +9,7 @@
   <div class="popup-container">
     <header>
       <h3>ElevateLI</h3>
-      <span class="version">v0.4.0</span>
+      <span class="version">v0.5.0</span>
     </header>
     
     <!-- First Time Setup -->
@@ -31,26 +31,38 @@
       <h4>AI Provider Setup (Optional)</h4>
       <p class="setup-note">Enable AI for content quality analysis</p>
       <select id="aiProvider">
-        <option value="">Select AI Model</option>
-        <option value="openai">OpenAI GPT-4</option>
-        <option value="openai-gpt-3.5">OpenAI GPT-3.5 Turbo</option>
+        <option value="">Select Provider & Model</option>
+        <option value="openai:gpt-4o-mini">OpenAI | GPT-4o mini | Fast & Affordable</option>
+        <option value="openai:gpt-4o">OpenAI | GPT-4o | Best Quality + Vision</option>
       </select>
       <input type="password" id="apiKey" placeholder="Enter OpenAI API key">
-      <div style="display: flex; gap: 8px; margin-top: 12px;">
-        <button id="saveSetup" style="flex: 1;">Save & Continue</button>
-        <button id="testApiKey" class="secondary-button" style="flex: 0 0 auto;">Test Key</button>
-      </div>
+      <p id="apiKeyHelp" style="margin: 4px 0 0 0; font-size: 12px; display: none;">
+        <a href="https://platform.openai.com/api-keys" target="_blank" style="color: #0a66c2;">Get your API key →</a>
+      </p>
+      <button id="saveSetup" class="primary-button" style="margin-top: 16px;">Save & Continue</button>
       <button id="skipSetup" class="secondary-button" style="margin-top: 8px;">Skip for Now</button>
     </div>
     
     <!-- Main Controls -->
     <div id="controls" class="hidden">
       <div id="profileStatus" class="profile-status">
-        <p>Checking profile...</p>
+        <div class="profile-status-content">
+          <p>Checking profile...</p>
+        </div>
+        <div class="profile-info" id="profileInfo" style="display: none;">
+          <p class="profile-name">Not set</p>
+          <button id="setProfile" class="small-button">Update</button>
+        </div>
       </div>
       
       <section class="settings-section">
         <h4>Settings</h4>
+        
+        <!-- Show Analysis Toggle -->
+        <div class="toggle-row">
+          <label for="showAnalysis">Show Analysis on Profile</label>
+          <input type="checkbox" id="showAnalysis" class="toggle-switch" checked>
+        </div>
         
         <!-- AI Toggle -->
         <div class="toggle-row">
@@ -60,23 +72,11 @@
         
         <!-- AI Configuration Box -->
         <div id="aiConfig" class="ai-config disabled">
-          <div class="ai-provider-row">
-            <select id="aiProviderMain">
-              <option value="">Select AI Model...</option>
-              <option value="openai">OpenAI GPT-4</option>
-              <option value="openai-gpt-3.5">OpenAI GPT-3.5 Turbo</option>
-            </select>
-          </div>
-          
-          <div class="api-key-row">
-            <input type="password" id="apiKeyMain" placeholder="Enter API key">
-            <button id="testApiKeyMain" class="test-button">Test</button>
-          </div>
-          
-          <div class="separator"></div>
+          <!-- Target Role Settings -->
+          <div class="section-header">Target Role Settings</div>
           
           <div class="form-group">
-            <label for="targetRole">Target Role</label>
+            <label for="targetRole">Role</label>
             <select id="targetRole">
               <option value="">Select your role...</option>
               <option value="product-manager">Product Manager</option>
@@ -109,21 +109,39 @@
                       placeholder="e.g., Focus on leadership experience, highlight international work..."
                       rows="2"></textarea>
           </div>
-        </div>
-      </section>
-      
-      <!-- Profile Setting -->
-      <section class="profile-section">
-        <h3>My Profile</h3>
-        <div class="profile-info" id="profileInfo">
-          <p class="profile-status">Not set</p>
-          <button id="setProfile" class="small-button">Set Current Profile as Mine</button>
+          
+          <div class="separator"></div>
+          
+          <!-- AI Provider Settings -->
+          <div class="section-header">AI Provider Settings</div>
+          <p class="section-subtext">Select provider and model</p>
+          
+          <div class="provider-model-row">
+            <select id="aiProviderModel" class="provider-model-select">
+              <option value="">Provider | Model | Value</option>
+              <option value="openai:gpt-4o-mini">OpenAI | GPT-4o mini | Fast & Affordable</option>
+              <option value="openai:gpt-4o">OpenAI | GPT-4o | Best Quality + Vision</option>
+            </select>
+          </div>
+          
+          <div class="api-key-section">
+            <label for="apiKeyMain" class="api-key-label">API Key</label>
+            <div class="api-key-input-row">
+              <input type="password" id="apiKeyMain" placeholder="Enter API key">
+              <a href="https://platform.openai.com/api-keys" target="_blank" class="api-key-link">Get API key →</a>
+            </div>
+          </div>
+          
+          <div id="apiKeyTestStatus" class="test-status hidden"></div>
         </div>
       </section>
       
       <!-- Action Buttons -->
       <div class="action-buttons">
         <button id="saveSettings" class="primary-button">Save Settings</button>
+        <p class="hint" style="margin: 8px 0 12px 0; font-size: 12px; color: #666; text-align: center;">
+          After saving, click "Analyze" in the blue ElevateLI banner on LinkedIn
+        </p>
         <button id="resetAnalysis" class="secondary-button">Reset Analysis</button>
         <a href="#" id="resetExtension" class="reset-link">Reset Extension</a>
       </div>
@@ -158,6 +176,10 @@
          rel="noopener">
         💬 Send Feedback
       </a>
+    </div>
+    
+    <div class="footer-message">
+      Built with ❤️ for job seekers everywhere
     </div>
   </div>
   

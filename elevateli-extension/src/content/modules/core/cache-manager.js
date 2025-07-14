@@ -5,8 +5,8 @@
  */
 
 class CacheManager {
-  constructor(cacheDurationDays = 7) {
-    this.cacheDurationDays = cacheDurationDays;
+  constructor(cacheDurationDays = null) {
+    this.cacheDurationDays = cacheDurationDays; // null means no expiration
     this.AI_CACHE_PREFIX = 'aiCache_';
     this.COMPLETENESS_CACHE_PREFIX = 'completeness_';
   }
@@ -64,14 +64,16 @@ class CacheManager {
           return;
         }
         
-        // Check if cache is expired
-        const cacheAge = Date.now() - new Date(cachedData.timestamp).getTime();
-        const maxAge = this.cacheDurationDays * 24 * 60 * 60 * 1000;
-        
-        if (cacheAge > maxAge) {
-          Logger.info('[CacheManager] Cache expired for profile:', profileId);
-          resolve(null);
-          return;
+        // Check if cache is expired (only if duration is set)
+        if (this.cacheDurationDays !== null) {
+          const cacheAge = Date.now() - new Date(cachedData.timestamp).getTime();
+          const maxAge = this.cacheDurationDays * 24 * 60 * 60 * 1000;
+          
+          if (cacheAge > maxAge) {
+            Logger.info('[CacheManager] Cache expired for profile:', profileId);
+            resolve(null);
+            return;
+          }
         }
         
         Logger.info('[CacheManager] Found valid cache for profile:', profileId);

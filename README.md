@@ -8,14 +8,43 @@ ElevateLI aims to provide professionals with immediate, actionable feedback to e
 
 ## 🚀 Current Implementation
 
-### Chrome Extension (v0.4.2)
-Our first implementation is a Chrome extension that provides:
-- **Completeness Score**: Instant feedback on profile completeness
-- **AI-Powered Quality Analysis**: Content quality assessment using your own OpenAI/Anthropic API key
-- **Actionable Recommendations**: Specific suggestions for improvement
+### Chrome Extension (v0.5.0) - Major Update!
+Our Chrome extension has evolved significantly with enhanced AI capabilities and improved user experience:
+
+#### Core Features
+- **Completeness Score (0-100%)**: Instant feedback on profile completeness
+- **AI-Powered Content Quality (1-10)**: Deep analysis using OpenAI GPT-4o or GPT-4o-mini
+- **Progressive Recommendations**: Gamified improvement system that reduces overwhelm
+- **Star Rating System**: Visual feedback for each profile section (1-5 stars)
 - **Privacy-First**: All analysis happens locally or with your own API keys
 
-👉 **[Get the Chrome Extension](./elevateli-extension/)**
+#### What's New in v0.5.0
+- **Enhanced AI Analysis**: 
+  - Holistic career coaching feedback with positive reinforcement
+  - Section-by-section insights with actionable improvements
+  - Line-by-line suggestions for experience descriptions
+- **Improved User Interface**:
+  - Simplified popup with clear Target Role and AI Provider sections
+  - Compact overlay design with reduced whitespace
+  - Single-line status updates with elapsed time tracking
+  - Intuitive hourglass loading indicator
+- **Better Performance**:
+  - Persistent caching (no expiration)
+  - State synchronization for accurate progress display
+  - Optimized for both desktop and tablet viewing
+
+#### Technical Excellence
+- Manifest V3 compliant for Chrome Web Store
+- Modular architecture for maintainability
+- Comprehensive error handling and recovery
+- Secure API key encryption
+
+👉 **[Get Started with the Chrome Extension](./elevateli-extension/)**
+
+For detailed documentation, see:
+- [Installation Guide](./elevateli-extension/README.md)
+- [Changelog](./elevateli-extension/CHANGELOG.md)
+- [Development Guide](./elevateli-extension/CONTRIBUTING.md)
 
 ## 🔮 Future Possibilities
 

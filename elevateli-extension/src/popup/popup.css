@@ -96,12 +96,12 @@ header h3 {
 /* Form Elements */
 select, input[type="password"], textarea {
   width: 100%;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid #dadce0;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 13px;
   background: white;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   transition: all 0.2s ease;
 }
 
@@ -163,39 +163,7 @@ textarea {
   border-color: #5f6368;
 }
 
-.test-button {
-  background: white;
-  color: #0856a0;
-  border: 1px solid #0856a0;
-  border-radius: 4px;
-  padding: 6px 12px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-}
-
-.test-button:hover:not(:disabled) {
-  background: #0856a0;
-  color: white;
-}
-
-.test-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.test-button.success {
-  background: #0a7c4a;
-  color: white;
-  border-color: #0a7c4a;
-}
-
-.test-button.error {
-  background: #d93025;
-  color: white;
-  border-color: #d93025;
-}
+/* Test button styles removed - API validation now happens on save */
 
 /* Profile Status */
 .profile-status {
@@ -203,7 +171,7 @@ textarea {
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 20px;
-  text-align: center;
+  text-align: left;
 }
 
 .profile-status p {
@@ -235,8 +203,8 @@ textarea {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
-  padding: 8px 0;
+  margin-bottom: 8px;
+  padding: 6px 0;
 }
 
 .toggle-row label {
@@ -284,8 +252,8 @@ textarea {
   background: #f8f9fa;
   border: 1px solid #dadce0;
   border-radius: 8px;
-  padding: 16px;
-  margin-top: 8px;
+  padding: 14px;
+  margin-top: 6px;
   transition: all 0.3s ease;
 }
 
@@ -332,11 +300,11 @@ textarea {
 .separator {
   height: 1px;
   background: #dadce0;
-  margin: 16px -16px 16px;
+  margin: 14px -14px 14px;
 }
 
 .form-group {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .form-group:last-child {
@@ -345,10 +313,10 @@ textarea {
 
 .form-group label {
   display: block;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: #5f6368;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .form-group select,
@@ -375,18 +343,17 @@ textarea {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
 }
 
-.profile-info .profile-status {
+.profile-info .profile-name {
   margin: 0;
-  font-size: 13px;
-  color: #6b7280;
-  flex: 1;
-}
-
-.profile-info .profile-status.set {
+  font-size: 14px;
   color: #059669;
   font-weight: 500;
+  flex: 1;
 }
 
 .small-button {
@@ -518,12 +485,122 @@ textarea {
   border-color: #5f6368;
 }
 
+/* Test Status */
+.test-status {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.3s ease;
+}
+
+.test-status.success {
+  background: #e8f5e9;
+  color: #057642;
+  border: 1px solid #057642;
+}
+
+.test-status.error {
+  background: #fee;
+  color: #dc2626;
+  border: 1px solid #dc2626;
+  word-wrap: break-word;
+  line-height: 1.4;
+}
+
+.test-status.error a {
+  color: #0a66c2;
+  margin-left: 4px;
+}
+
+.test-status.testing {
+  background: #e7f3ff;
+  color: #0a66c2;
+  border: 1px solid #0a66c2;
+}
+
+/* Section Headers */
+.section-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.section-subtext {
+  font-size: 11px;
+  color: #5f6368;
+  margin: -6px 0 6px 0;
+}
+
+/* Provider Model Row */
+.provider-model-row {
+  margin-bottom: 10px;
+}
+
+.provider-model-select {
+  width: 100%;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+/* API Key Section */
+.api-key-section {
+  margin-bottom: 10px;
+}
+
+.api-key-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #5f6368;
+  margin-bottom: 4px;
+}
+
+.api-key-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.api-key-input-row input {
+  flex: 1;
+  margin-bottom: 0;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.api-key-link {
+  font-size: 11px;
+  color: #0a66c2;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.api-key-link:hover {
+  text-decoration: underline;
+}
+
 /* Footer */
 .footer-links {
   text-align: center;
-  margin-top: 20px;
-  padding-top: 16px;
+  margin-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid #dadce0;
+}
+
+.footer-message {
+  text-align: center;
+  font-size: 11px;
+  color: #5f6368;
+  margin-top: 8px;
+  padding-bottom: 4px;
 }
 
 .footer-links a {
@@ -553,6 +630,12 @@ textarea {
   color: #d93025;
   font-size: 13px;
   margin-top: 4px;
+  word-wrap: break-word;
+  line-height: 1.4;
+}
+
+.error-message a {
+  margin-left: 4px;
 }
 
 .success-message {

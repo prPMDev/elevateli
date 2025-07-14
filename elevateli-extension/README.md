@@ -2,7 +2,7 @@
 
 Optimize your LinkedIn profile with AI-powered analysis and actionable insights.
 
-[![Version](https://img.shields.io/badge/version-0.4.4-blue.svg)](https://github.com/prPMDev/elevateli)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/prPMDev/elevateli)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Alpha Testing](https://img.shields.io/badge/status-Alpha%20Testing-orange.svg)](#)
 
@@ -19,9 +19,10 @@ ElevateLI is a browser extension (works with Chrome, Edge, Brave, and other Chro
 - **Completeness Score** - Free analysis that checks if all important sections are filled
 - **AI Quality Score** - Optional deep analysis of your content quality (requires OpenAI API key)
 - **Section-by-Section Breakdown** - See exactly what needs improvement
-- **7-Day Smart Caching** - Saves your results to reduce API costs
+- **Smart Caching** - Saves your results to reduce API costs
 - **Privacy First** - Your data stays between you and your AI provider only (OpenAI)
 - **Clean Interface** - Seamlessly integrates with LinkedIn's design
+- **Persistent Results** - Analysis results are saved indefinitely (no expiration)
 
 ## Installation
 
@@ -85,15 +86,19 @@ The extension is currently in alpha testing. Chrome Web Store release coming soo
 
 ### Enable AI Analysis (Optional)
 1. **Click the extension icon** in your browser toolbar (the blue "E" icon)
-2. **Add your API key**:
-   - Select "OpenAI" as provider (Anthropic coming soon)
-   - Enter your OpenAI API key
-   - Click "Test Key" to verify it works
-3. **Configure Settings**:
+2. **Enable AI Analysis**:
+   - Toggle "Enable AI Analysis" to ON
+3. **Configure Target Role Settings**:
    - Select your target role (e.g., Product Manager, Software Engineer)
    - Choose your experience level (Entry, Mid, Senior, etc.)
-   - Save settings
-4. **Run AI Analysis**:
+   - Add any additional context (optional)
+4. **Configure AI Provider Settings**:
+   - Select your provider and model from the dropdown:
+     - OpenAI | GPT-4o | Best Quality + Vision
+     - OpenAI | GPT-4o mini | Fast & Affordable
+   - Enter your OpenAI API key
+   - Click "Save Settings" to verify and save
+5. **Run AI Analysis**:
    - Return to your LinkedIn profile
    - Click "Analyze" in the blue banner
    - Wait for the AI to analyze your content (takes 10-30 seconds)
@@ -154,6 +159,7 @@ The extension checks these key profile sections:
 - AI evaluates how well your content is written
 - Looks for keywords relevant to your target role
 - Provides specific suggestions for improvement
+- Currently analyzes text content only (photo quality analysis coming soon)
 
 ### Performance & Privacy
 - **Completeness analysis**: Takes ~2 seconds

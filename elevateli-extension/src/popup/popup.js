@@ -6,23 +6,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   const controlsDiv = document.getElementById('controls');
   const profileSetupDiv = document.getElementById('profileSetup');
   const aiProviderSelect = document.getElementById('aiProvider');
+  const aiModelSelect = document.getElementById('aiModel');
   const apiKeyInput = document.getElementById('apiKey');
   const saveSetupBtn = document.getElementById('saveSetup');
+  const showAnalysisToggle = document.getElementById('showAnalysis');
   const aiEnabledToggle = document.getElementById('aiEnabled');
   const customInstructionsTextarea = document.getElementById('customInstructions');
   // const updateInstructionsBtn = document.getElementById('updateInstructions'); // Removed in new design
   const targetRoleSelect = document.getElementById('targetRole');
   const seniorityLevelSelect = document.getElementById('seniorityLevel');
   const resetAnalysisBtn = document.getElementById('resetAnalysis');
-  const testApiKeyBtn = document.getElementById('testApiKey');
   
   // New elements for redesigned UI
   const saveSettingsBtn = document.getElementById('saveSettings');
   const resetExtensionLink = document.getElementById('resetExtension');
   const aiConfigBox = document.getElementById('aiConfig');
-  const aiProviderMain = document.getElementById('aiProviderMain');
+  const aiProviderModelSelect = document.getElementById('aiProviderModel');
   const apiKeyMain = document.getElementById('apiKeyMain');
-  const testApiKeyMainBtn = document.getElementById('testApiKeyMain');
+  const apiKeyHelp = document.getElementById('apiKeyHelp');
   const confirmDialog = document.getElementById('confirmDialog');
   const confirmMessage = confirmDialog?.querySelector('.confirm-message');
   const confirmYesBtn = confirmDialog?.querySelector('.confirm-yes');
@@ -31,9 +32,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load current settings
   const settings = await chrome.storage.local.get([
     'aiProvider',
+    'aiModel',
     'apiKey',
     'encryptedApiKey',
     'enableAI',
+    'showAnalysis',
     'customInstructions',
     'targetRole',
     'seniorityLevel',
@@ -76,14 +79,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     controlsDiv.classList.remove('hidden');
     
     // Set control states
+    showAnalysisToggle.checked = settings.showAnalysis !== false;  // Default to true
     aiEnabledToggle.checked = settings.enableAI === true;
     customInstructionsTextarea.value = settings.customInstructions || '';
     targetRoleSelect.value = settings.targetRole || '';
     seniorityLevelSelect.value = settings.seniorityLevel || '';
     
-    // Set AI provider and key in main controls
-    if (aiProviderMain) {
-      aiProviderMain.value = settings.aiProvider || '';
+    // Set AI provider and model in main controls
+    if (aiProviderModelSelect && settings.aiProvider) {
+      const modelValue = settings.aiModel || 'gpt-4o-mini';
+      aiProviderModelSelect.value = `${settings.aiProvider}:${modelValue}`;
     }
     if (apiKeyMain && (settings.apiKey || settings.encryptedApiKey)) {
       apiKeyMain.value = '••••••••••••';
@@ -105,6 +110,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const toggleRows = document.querySelectorAll('.toggle-row');
     const advanced = document.querySelector('.advanced');
     const actions = document.querySelector('.actions');
+    
+    // Show loading state with proper structure
+    profileStatusDiv.innerHTML = `
+      <div class="profile-status-content">
+        <p style="color: #666; font-size: 14px;">⟳ Checking your profile...</p>
+      </div>
+      <div class="profile-info" style="display: none;">
+        <p class="profile-name">Not set</p>
+        <button id="setProfile" class="small-button">Update</button>
+      </div>
+    `;
     
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -151,18 +167,65 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       
-      // Check if it's the user's profile
-      const userProfile = settings.userProfile;
+      // Check if it's the user's profile - get fresh data from storage
+      const profileData = await chrome.storage.local.get(['userProfile']);
+      const userProfile = profileData.userProfile;
       const currentProfileMatch = tab.url.match(/\/in\/([^\/]+)/);
       const currentProfileId = currentProfileMatch ? currentProfileMatch[1] : null;
       const isOwnProfile = (userProfile?.profileId && currentProfileId === userProfile.profileId) || 
                           tab.url.includes('/in/me');
       
       if (isOwnProfile) {
-        profileStatusDiv.innerHTML = `
-          <p>✅ Ready to analyze your profile</p>
-          ${userProfile?.profileName ? `<p class="profile-url">${userProfile.profileName}</p>` : ''}
-        `;
+        // Update the profile status content
+        const statusContent = profileStatusDiv.querySelector('.profile-status-content');
+        const profileInfoDiv = profileStatusDiv.querySelector('.profile-info');
+        
+        if (statusContent) {
+          statusContent.innerHTML = `
+            <p style="margin: 0 0 4px 0; font-size: 12px; color: #0a66c2; font-weight: 500;">
+              👉 Click "Analyze" in the blue banner on your LinkedIn profile
+            </p>
+          `;
+        }
+        
+        // Show and update profile info
+        if (profileInfoDiv) {
+          profileInfoDiv.style.display = 'flex';
+          const profileNameEl = profileInfoDiv.querySelector('.profile-name');
+          if (profileNameEl) {
+            profileNameEl.textContent = `${userProfile?.profileName || userProfile?.profileId || 'Your Profile'} ${userProfile?.verifiedOwnership ? '✓' : ''}`;
+          }
+          
+          // Add event listener to the update button
+          const setProfileBtn = profileInfoDiv.querySelector('#setProfile');
+          if (setProfileBtn) {
+            setProfileBtn.addEventListener('click', async () => {
+              // Send message to content script to save current profile
+              try {
+                await chrome.tabs.sendMessage(tab.id, { 
+                  action: 'saveProfile'
+                });
+                
+                // Show success and update UI
+                const profileData = await chrome.storage.local.get(['userProfile']);
+                if (profileData.userProfile) {
+                  profileNameEl.textContent = `${profileData.userProfile.profileName || profileData.userProfile.profileId} ✓`;
+                  
+                  // Show temporary success message
+                  const originalContent = statusContent.innerHTML;
+                  statusContent.innerHTML = `<p style="color: #059669; font-weight: 500;">✓ Profile updated successfully!</p>`;
+                  
+                  setTimeout(() => {
+                    statusContent.innerHTML = originalContent;
+                  }, 2000);
+                }
+              } catch (error) {
+                console.error('Error saving profile:', error);
+                statusContent.innerHTML = `<p style="color: #dc2626;">Failed to update profile</p>`;
+              }
+            });
+          }
+        }
         
         // Show all controls for own profile
         showAllControls(roleSection, actionButtons, toggleRows, advanced, actions);
@@ -185,7 +248,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (error) {
       console.error('Error checking profile status:', error);
       profileStatusDiv.innerHTML = `<p>Error checking profile status</p>`;
-      hideAllControls(roleSection, actionButtons, toggleRows, advanced, actions);
+      hideAllControls(roleSection, actionButtons, toggleRows, advanced, actions, profileSection);
     }
   }
   
@@ -249,6 +312,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
   
+  // Handle provider dropdown - show help link when provider selected
+  aiProviderSelect?.addEventListener('change', () => {
+    if (aiProviderSelect.value) {
+      apiKeyHelp.style.display = 'block';
+    } else {
+      apiKeyHelp.style.display = 'none';
+    }
+  });
+  
   // Handle compliance checkbox
   complianceCheck?.addEventListener('change', () => {
     acknowledgeComplianceBtn.disabled = !complianceCheck.checked;
@@ -288,81 +360,142 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkProfileStatus();
   });
   
-  // Handle test API key
-  testApiKeyBtn?.addEventListener('click', async () => {
-    const provider = aiProviderSelect.value;
-    const apiKey = apiKeyInput.value.trim();
-    
-    if (!provider || !apiKey) {
-      alert('Please select a provider and enter an API key to test');
-      return;
-    }
-    
-    // Update button state
-    testApiKeyBtn.textContent = 'Testing...';
-    testApiKeyBtn.disabled = true;
-    
-    try {
-      // Send test request to service worker
-      const response = await chrome.runtime.sendMessage({
-        action: 'testApiKey',
-        provider,
-        apiKey
-      });
-      
-      if (response.success) {
-        testApiKeyBtn.textContent = '✓ Valid';
-        testApiKeyBtn.style.background = '#057642';
-        testApiKeyBtn.style.color = 'white';
-        
-        // Enable save button
-        saveSetupBtn.disabled = false;
-        saveSetupBtn.style.opacity = '1';
-      } else {
-        testApiKeyBtn.textContent = '✗ Invalid';
-        testApiKeyBtn.style.background = '#dc2626';
-        testApiKeyBtn.style.color = 'white';
-        
-        // Show error message
-        alert(response.error || 'API key validation failed. Please check your key and try again.');
-      }
-    } catch (error) {
-      testApiKeyBtn.textContent = 'Error';
-      testApiKeyBtn.style.background = '#dc2626';
-      testApiKeyBtn.style.color = 'white';
-      alert('Failed to test API key. Please try again.');
-    }
-    
-    // Reset button after 3 seconds
-    setTimeout(() => {
-      testApiKeyBtn.textContent = 'Test Key';
-      testApiKeyBtn.disabled = false;
-      testApiKeyBtn.style.background = '';
-      testApiKeyBtn.style.color = '';
-    }, 3000);
-  });
+  // Removed test button handler - API validation now happens on save
   
   // Handle setup save
   saveSetupBtn.addEventListener('click', async () => {
-    const provider = aiProviderSelect.value;
-    const apiKey = apiKeyInput.value.trim();
-    
-    if (!provider || !apiKey) {
-      alert('Please select a provider and enter an API key');
+    const providerModel = aiProviderSelect.value;
+    if (!providerModel) {
+      // Show inline error
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'error-message';
+      errorDiv.style.cssText = 'color: #dc2626; font-size: 13px; margin-top: 8px; text-align: center;';
+      errorDiv.textContent = '✗ Please select a provider and model';
+      saveSetupBtn.parentElement.insertBefore(errorDiv, saveSetupBtn.nextSibling);
+      setTimeout(() => errorDiv.remove(), 3000);
       return;
     }
     
+    const [provider, model] = providerModel.split(':');
+    let apiKey = apiKeyInput.value.trim();
+    
+    // Clean the API key - remove zero-width spaces and other invisible characters
+    apiKey = apiKey.replace(/[\u200B-\u200D\uFEFF]/g, '');
+    
+    // Check for non-ASCII characters
+    if (apiKey && !/^[\x20-\x7E]+$/.test(apiKey)) {
+      // Show inline error
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'error-message';
+      errorDiv.style.cssText = 'color: #dc2626; font-size: 13px; margin-top: 8px; text-align: center;';
+      errorDiv.textContent = '✗ API key contains invalid characters. Please re-copy it from your provider.';
+      
+      // Insert error after save button
+      saveSetupBtn.parentElement.insertBefore(errorDiv, saveSetupBtn.nextSibling);
+      
+      // Remove error after 5 seconds
+      setTimeout(() => errorDiv.remove(), 5000);
+      return;
+    }
+    
+    if (!provider || !apiKey) {
+      // Show inline error
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'error-message';
+      errorDiv.style.cssText = 'color: #dc2626; font-size: 13px; margin-top: 8px; text-align: center;';
+      errorDiv.textContent = '✗ Please select a provider and enter an API key';
+      
+      // Insert error after save button
+      saveSetupBtn.parentElement.insertBefore(errorDiv, saveSetupBtn.nextSibling);
+      
+      // Remove error after 3 seconds
+      setTimeout(() => errorDiv.remove(), 3000);
+      return;
+    }
+    
+    // Show validating state
+    saveSetupBtn.textContent = 'Validating...';
+    saveSetupBtn.disabled = true;
+    
+    // Validate API key first
+    try {
+      const testResponse = await chrome.runtime.sendMessage({
+        action: 'testApiKey',
+        provider,
+        apiKey,
+        model
+      });
+      
+      if (!testResponse || !testResponse.success) {
+        // Show inline error
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message';
+        errorDiv.style.cssText = 'color: #dc2626; font-size: 13px; margin-top: 8px;';
+        errorDiv.innerHTML = '✗ ' + (testResponse?.error || 'Key invalid, please check') + 
+          ' <a href="https://platform.openai.com/api-keys" target="_blank" style="color: #0a66c2; font-size: 12px;">Get key →</a>';
+        
+        // Insert error after API key input
+        const apiKeyRow = apiKeyInput.parentElement;
+        apiKeyRow.parentElement.insertBefore(errorDiv, apiKeyRow.nextSibling);
+        
+        // Reset button
+        saveSetupBtn.textContent = 'Save & Continue';
+        saveSetupBtn.disabled = false;
+        
+        // Remove error after 5 seconds
+        setTimeout(() => errorDiv.remove(), 5000);
+        return;
+      }
+      
+      // API key is valid, proceed with encryption
+      saveSetupBtn.textContent = 'Saving...';
+    } catch (error) {
+      console.error('Error validating API key:', error);
+      // Show error message
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'error-message';
+      errorDiv.style.cssText = 'color: #dc2626; font-size: 13px; margin-top: 8px;';
+      
+      // Check if it's a Chrome runtime error
+      if (chrome.runtime.lastError) {
+        errorDiv.textContent = '✗ Extension error: ' + chrome.runtime.lastError.message;
+      } else if (error.message && error.message.includes('Extension context invalidated')) {
+        errorDiv.textContent = '✗ Extension reloaded. Please refresh the page.';
+      } else {
+        errorDiv.textContent = '✗ Connection error, try again';
+      }
+      
+      // Insert error after API key input
+      const apiKeyRow = apiKeyInput.parentElement;
+      apiKeyRow.parentElement.insertBefore(errorDiv, apiKeyRow.nextSibling);
+      
+      // Reset button
+      saveSetupBtn.textContent = 'Save & Continue';
+      saveSetupBtn.disabled = false;
+      
+      // Remove error after 5 seconds
+      setTimeout(() => errorDiv.remove(), 5000);
+      return;
+    }
+    
+    // Clear any existing encrypted key and installation ID first to ensure clean state
+    await chrome.storage.local.remove(['encryptedApiKey', 'installationId']);
+    
     // Encrypt the API key before saving
     try {
+      console.log('Encrypting API key for provider:', provider);
       const encryptResponse = await chrome.runtime.sendMessage({
         action: 'encryptApiKey',
         apiKey: apiKey
       });
       
-      if (encryptResponse.success) {
+      console.log('Encryption response:', encryptResponse);
+      
+      if (encryptResponse && encryptResponse.success && encryptResponse.encryptedApiKey) {
         // Save settings with encrypted key
         await chrome.storage.local.set({
           aiProvider: provider,
+          aiModel: model,
           encryptedApiKey: encryptResponse.encryptedApiKey,
           enableAI: true,
           hasSeenAISetup: true
@@ -370,30 +503,112 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // Remove any plain text key
         await chrome.storage.local.remove('apiKey');
+        
+        console.log('API key encrypted and saved successfully');
+        
+        // Show success briefly then switch
+        setupDiv.innerHTML = `
+          <div style="text-align: center; padding: 40px;">
+            <h3 style="color: #057642; margin-bottom: 8px;">✓ Setup Complete!</h3>
+            <p style="color: #666;">Loading your settings...</p>
+          </div>
+        `;
+        
+        // Smooth transition after 1 second
+        setTimeout(() => {
+          setupDiv.classList.add('hidden');
+          controlsDiv.classList.remove('hidden');
+          aiEnabledToggle.checked = true;
+          
+          // Set values in main controls
+          if (aiProviderMain) aiProviderMain.value = provider;
+          if (aiModelMain) {
+            aiModelMain.value = model || 'gpt-4o-mini';
+            if (provider === 'openai') {
+              aiModelMain.classList.remove('hidden');
+            }
+          }
+          if (apiKeyMain) apiKeyMain.value = '••••••••••••';
+          
+          // Update state and check profile
+          updateAIConfigState();
+          checkProfileStatus();
+        }, 1000);
       } else {
-        // Fallback to plain text storage (not recommended)
-        await chrome.storage.local.set({
-          aiProvider: provider,
-          apiKey: apiKey,
-          enableAI: true,
-          hasSeenAISetup: true
-        });
+        console.error('Encryption failed:', encryptResponse?.error || 'Unknown error');
+        throw new Error('Failed to encrypt API key');
       }
     } catch (error) {
       console.error('Error encrypting API key:', error);
-      // Fallback to plain text storage
-      await chrome.storage.local.set({
-        aiProvider: provider,
-        apiKey: apiKey,
-        enableAI: true,
-        hasSeenAISetup: true
+      
+      // Show error to user with troubleshooting options
+      let troubleshootingSteps = '';
+      if (error.message && (error.message.includes('Web Crypto API') || error.message.includes('browser'))) {
+        troubleshootingSteps = `
+          <div style="text-align: left; margin-top: 16px; padding: 16px; background: #f3f4f6; border-radius: 6px;">
+            <h4 style="margin: 0 0 8px 0; font-size: 14px;">Troubleshooting Steps:</h4>
+            <ol style="margin: 8px 0; padding-left: 20px; font-size: 13px; color: #666;">
+              <li>Try using a different browser (Chrome or Edge recommended)</li>
+              <li>Ensure you're not in Incognito/Private mode</li>
+              <li>Clear browser cache and cookies for this extension</li>
+              <li>Disable any security extensions that might block encryption</li>
+            </ol>
+          </div>
+        `;
+      } else if (error.message && error.message.includes('encrypt')) {
+        troubleshootingSteps = `
+          <button id="reset-encryption" class="secondary-btn" style="margin-top: 8px;">Reset Encryption Settings</button>
+        `;
+      }
+      
+      setupDiv.innerHTML = `
+        <div style="text-align: center; padding: 40px;">
+          <h3 style="color: #dc2626; margin-bottom: 8px;">❌ Setup Failed</h3>
+          <p style="color: #666;">Failed to securely store API key.</p>
+          <p style="color: #999; font-size: 12px; margin-top: 8px;">${error.message}</p>
+          ${troubleshootingSteps}
+          <button id="retry-setup" class="primary-btn" style="margin-top: 16px;">Try Again</button>
+        </div>
+      `;
+      
+      // Handle retry
+      document.getElementById('retry-setup')?.addEventListener('click', () => {
+        showAISetup(settings);
+      });
+      
+      // Handle reset encryption if available
+      document.getElementById('reset-encryption')?.addEventListener('click', async () => {
+        await chrome.storage.local.remove(['installationId', 'encryptedApiKey']);
+        setupDiv.innerHTML = `
+          <div style="text-align: center; padding: 40px;">
+            <h3 style="color: #059669; margin-bottom: 8px;">✓ Encryption Reset</h3>
+            <p style="color: #666;">Encryption settings have been reset.</p>
+            <button id="continue-setup" class="primary-btn" style="margin-top: 16px;">Continue Setup</button>
+          </div>
+        `;
+        
+        document.getElementById('continue-setup')?.addEventListener('click', () => {
+          showAISetup(settings);
+        });
+      });
+      
+      return; // Don't continue with setup
+    }
+  });
+  
+  // Handle show analysis toggle
+  showAnalysisToggle?.addEventListener('change', async (e) => {
+    const showAnalysis = e.target.checked;
+    await chrome.storage.local.set({ showAnalysis });
+    
+    // Send message to current tab to show/hide overlay
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab.url?.includes('linkedin.com/in/')) {
+      chrome.tabs.sendMessage(tab.id, { 
+        action: 'toggleOverlay', 
+        show: showAnalysis 
       });
     }
-    
-    // Switch to controls view
-    setupDiv.classList.add('hidden');
-    controlsDiv.classList.remove('hidden');
-    aiEnabledToggle.checked = true;
   });
   
   // Handle AI toggle
@@ -421,20 +636,41 @@ document.addEventListener('DOMContentLoaded', async () => {
   saveSettingsBtn?.addEventListener('click', async () => {
     // Validate if AI is enabled
     if (aiEnabledToggle.checked) {
-      const provider = aiProviderMain.value;
-      const apiKey = apiKeyMain.value.trim();
+      const providerModel = aiProviderModelSelect.value;
+      let apiKey = apiKeyMain.value.trim();
+      
+      // Clean the API key - remove zero-width spaces and other invisible characters
+      apiKey = apiKey.replace(/[\u200B-\u200D\uFEFF]/g, '');
       
       // Check if it's a placeholder or real key
       const isPlaceholder = apiKey === '••••••••••••';
       
-      if (!provider || (!apiKey || isPlaceholder)) {
+      // Check for non-ASCII characters if not placeholder
+      if (!isPlaceholder && apiKey && !/^[\x20-\x7E]+$/.test(apiKey)) {
+        const profileStatusDiv = document.getElementById('profileStatus');
+        const originalContent = profileStatusDiv.innerHTML;
+        profileStatusDiv.innerHTML = `
+          <div style="background: #fee; border: 1px solid #fcc; border-radius: 6px; padding: 12px;">
+            <p style="color: #d93025; font-weight: 500; margin: 0;">Invalid API Key Format</p>
+            <p style="color: #d93025; font-size: 13px; margin: 4px 0 0 0;">Key contains invalid characters. Please re-copy from your provider.</p>
+          </div>
+        `;
+        
+        setTimeout(() => {
+          profileStatusDiv.innerHTML = originalContent;
+          checkProfileStatus();
+        }, 5000);
+        return;
+      }
+      
+      if (!providerModel) {
         // Show error in profile status
         const profileStatusDiv = document.getElementById('profileStatus');
         const originalContent = profileStatusDiv.innerHTML;
         profileStatusDiv.innerHTML = `
           <div style="background: #fee; border: 1px solid #fcc; border-radius: 6px; padding: 12px;">
-            <p style="color: #d93025; font-weight: 500; margin: 0;">Missing Configuration</p>
-            <p style="color: #d93025; font-size: 13px; margin: 4px 0 0 0;">Please select an AI provider and enter your API key.</p>
+            <p style="color: #d93025; font-weight: 500; margin: 0;">AI Setup Required</p>
+            <p style="color: #d93025; font-size: 13px; margin: 4px 0 0 0;">Select provider & model</p>
           </div>
         `;
         
@@ -445,36 +681,145 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       
-      // Save new API key if changed
-      if (!isPlaceholder) {
+      // Extract provider and model from combined value
+      const [provider, model] = providerModel.split(':');
+      
+      // Only validate if user entered a new key (not placeholder)
+      if (!isPlaceholder && apiKey) {
+        // Show validating state
+        saveSettingsBtn.textContent = '⟳ Validating...';
+        saveSettingsBtn.disabled = true;
+        
+        // Validate API key first
         try {
+          const testResponse = await chrome.runtime.sendMessage({
+            action: 'testApiKey',
+            provider,
+            apiKey
+          });
+          
+          if (!testResponse || !testResponse.success) {
+            // Show error in status area
+            const statusDiv = document.getElementById('apiKeyTestStatus');
+            const isOpenAI = provider === 'openai' || provider === 'openai-gpt-3.5';
+            const helpLink = isOpenAI ? 
+              ' <a href="https://platform.openai.com/api-keys" target="_blank" style="color: #0a66c2; font-size: 12px;">Get key →</a>' : 
+              '';
+            statusDiv.innerHTML = '✗ ' + (testResponse?.error || 'Key invalid') + helpLink;
+            statusDiv.className = 'test-status error';
+            statusDiv.classList.remove('hidden');
+            
+            // Reset button
+            saveSettingsBtn.textContent = 'Save Settings';
+            saveSettingsBtn.disabled = false;
+            
+            // Hide error after 5 seconds
+            setTimeout(() => statusDiv.classList.add('hidden'), 5000);
+            return;
+          }
+          
+          // Valid key, proceed with encryption
+          saveSettingsBtn.textContent = '⟳ Saving...';
+          
+          // Clear any existing encrypted key first
+          await chrome.storage.local.remove(['encryptedApiKey', 'installationId']);
+          
           const encryptResponse = await chrome.runtime.sendMessage({
             action: 'encryptApiKey',
             apiKey: apiKey
           });
           
-          if (encryptResponse.success) {
+          if (encryptResponse && encryptResponse.success && encryptResponse.encryptedApiKey) {
             await chrome.storage.local.set({
               encryptedApiKey: encryptResponse.encryptedApiKey,
-              aiProvider: provider
+              aiProvider: provider,
+              aiModel: model || 'gpt-4o-mini'
             });
             await chrome.storage.local.remove('apiKey');
+            console.log('API key encrypted and saved successfully');
           } else {
-            await chrome.storage.local.set({
-              apiKey: apiKey,
-              aiProvider: provider
-            });
+            console.error('Encryption failed:', encryptResponse?.error || 'Unknown error');
+            throw new Error('Failed to encrypt API key');
           }
         } catch (error) {
-          console.error('Error encrypting API key:', error);
-          await chrome.storage.local.set({
-            apiKey: apiKey,
-            aiProvider: provider
-          });
+          console.error('Error during validation/encryption:', error);
+          
+          // Show error message
+          const statusDiv = document.getElementById('apiKeyTestStatus');
+          if (statusDiv) {
+            let errorMessage = '✗ Failed to save API key securely. Please try again.';
+            let showTroubleshoot = false;
+            
+            // Check if it's a Chrome runtime error
+            if (chrome.runtime.lastError) {
+              errorMessage = '✗ Extension error: ' + chrome.runtime.lastError.message;
+            } else if (error.message && error.message.includes('Extension context invalidated')) {
+              errorMessage = '✗ Extension reloaded. Please refresh the page.';
+            } else if (error.message && (error.message.includes('Web Crypto API') || error.message.includes('browser'))) {
+              errorMessage = '✗ ' + error.message;
+              showTroubleshoot = true;
+            } else if (error.message && error.message.includes('encrypt')) {
+              errorMessage = '✗ Encryption failed. Click here to reset encryption settings.';
+              showTroubleshoot = true;
+            }
+            
+            statusDiv.innerHTML = errorMessage;
+            statusDiv.className = 'test-status error';
+            statusDiv.classList.remove('hidden');
+            
+            // Add troubleshooting link if needed
+            if (showTroubleshoot) {
+              statusDiv.innerHTML += ' <a href="#" id="troubleshoot-encryption" style="color: #0a66c2; text-decoration: underline; font-size: 12px;">Troubleshoot</a>';
+              
+              // Handle troubleshoot click
+              setTimeout(() => {
+                document.getElementById('troubleshoot-encryption')?.addEventListener('click', async (e) => {
+                  e.preventDefault();
+                  
+                  // Clear installation ID and encrypted key to force reset
+                  await chrome.storage.local.remove(['installationId', 'encryptedApiKey']);
+                  
+                  statusDiv.innerHTML = '✓ Encryption settings reset. Please try saving again.';
+                  statusDiv.className = 'test-status success';
+                  
+                  // Hide after 3 seconds
+                  setTimeout(() => statusDiv.classList.add('hidden'), 3000);
+                });
+              }, 100);
+            }
+            
+            // Hide error after 8 seconds (longer for troubleshooting)
+            setTimeout(() => statusDiv.classList.add('hidden'), showTroubleshoot ? 8000 : 5000);
+          }
+          
+          // Reset button
+          saveSettingsBtn.textContent = 'Save Settings';
+          saveSettingsBtn.disabled = false;
+          
+          return; // Don't continue with saving
         }
+      } else if (!isPlaceholder && !apiKey) {
+        // User cleared the API key field - this is an error
+        const profileStatusDiv = document.getElementById('profileStatus');
+        const originalContent = profileStatusDiv.innerHTML;
+        profileStatusDiv.innerHTML = `
+          <div style="background: #fee; border: 1px solid #fcc; border-radius: 6px; padding: 12px;">
+            <p style="color: #d93025; font-weight: 500; margin: 0;">AI Setup Required</p>
+            <p style="color: #d93025; font-size: 13px; margin: 4px 0 0 0;">Enter API key to enable AI analysis</p>
+          </div>
+        `;
+        
+        setTimeout(() => {
+          profileStatusDiv.innerHTML = originalContent;
+          checkProfileStatus();
+        }, 3000);
+        return;
       } else {
-        // Just save the provider if key wasn't changed
-        await chrome.storage.local.set({ aiProvider: provider });
+        // Just save the provider and model if key wasn't changed (placeholder shown)
+        await chrome.storage.local.set({ 
+          aiProvider: provider,
+          aiModel: model || 'gpt-4o-mini'
+        });
       }
     }
     
@@ -486,66 +831,35 @@ document.addEventListener('DOMContentLoaded', async () => {
       customInstructions: customInstructionsTextarea.value.trim()
     });
     
-    // Visual feedback
+    // Enhanced visual feedback with guidance
     saveSettingsBtn.textContent = '✓ Settings Saved';
     saveSettingsBtn.classList.add('success');
+    
+    // Show guidance message
+    const profileStatusDiv = document.getElementById('profileStatus');
+    const originalContent = profileStatusDiv.innerHTML;
+    profileStatusDiv.innerHTML = `
+      <div style="background: #e8f5e9; border: 1px solid #4caf50; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+        <p style="color: #2e7d32; font-weight: 500; margin: 0;">✓ Settings Saved Successfully!</p>
+        <p style="color: #2e7d32; font-size: 13px; margin: 4px 0 0 0;">
+          → Look for the blue ElevateLI banner on your LinkedIn profile<br>
+          → Click "Analyze" to see your updated analysis
+        </p>
+      </div>
+    ` + originalContent;
     
     setTimeout(() => {
       saveSettingsBtn.textContent = 'Save Settings';
       saveSettingsBtn.classList.remove('success');
+      // Restore original profile status after 5 seconds
+      setTimeout(() => {
+        profileStatusDiv.innerHTML = originalContent;
+        checkProfileStatus(); // Refresh the profile status
+      }, 3000);
     }, 2000);
   });
   
-  // Handle test API key in main controls
-  testApiKeyMainBtn?.addEventListener('click', async () => {
-    const provider = aiProviderMain.value;
-    const apiKey = apiKeyMain.value.trim();
-    
-    // Check if it's a placeholder
-    if (apiKey === '••••••••••••') {
-      alert('Please enter a new API key to test');
-      return;
-    }
-    
-    if (!provider || !apiKey) {
-      alert('Please select a provider and enter an API key to test');
-      return;
-    }
-    
-    // Update button state
-    testApiKeyMainBtn.textContent = 'Testing...';
-    testApiKeyMainBtn.disabled = true;
-    
-    try {
-      const response = await chrome.runtime.sendMessage({
-        action: 'testApiKey',
-        provider,
-        apiKey
-      });
-      
-      if (response.success) {
-        testApiKeyMainBtn.textContent = '✓ Valid';
-        testApiKeyMainBtn.classList.add('success');
-        testApiKeyMainBtn.classList.remove('error');
-      } else {
-        testApiKeyMainBtn.textContent = '✗ Invalid';
-        testApiKeyMainBtn.classList.add('error');
-        testApiKeyMainBtn.classList.remove('success');
-        alert(response.error || 'API key validation failed. Please check your key and try again.');
-      }
-    } catch (error) {
-      testApiKeyMainBtn.textContent = 'Error';
-      testApiKeyMainBtn.classList.add('error');
-      alert('Failed to test API key. Please try again.');
-    }
-    
-    // Reset button after 3 seconds
-    setTimeout(() => {
-      testApiKeyMainBtn.textContent = 'Test';
-      testApiKeyMainBtn.disabled = false;
-      testApiKeyMainBtn.classList.remove('success', 'error');
-    }, 3000);
-  });
+  // Removed test button handler - API validation now happens on save
   
   
   
@@ -581,7 +895,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (profileId) {
           // Clear cache for this profile
           const keysToRemove = [
-            `aiCache_${profileId}`,
+            `cache_${profileId}`,  // Fixed: Match the actual cache key prefix used by CacheManager
+            `aiCache_${profileId}`,  // Legacy key (just in case)
             `completeness_${profileId}`
           ];
           
@@ -599,9 +914,29 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       // Visual feedback
       resetAnalysisBtn.textContent = 'Cache Cleared!';
+      
+      // Show helpful message about re-analysis
+      const profileStatusDiv = document.getElementById('profileStatus');
+      const originalContent = profileStatusDiv.innerHTML;
+      profileStatusDiv.innerHTML = `
+        <div style="background: #e3f2fd; border: 1px solid #64b5f6; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+          <p style="color: #1565c0; font-weight: 500; margin: 0;">✓ Cache Cleared Successfully!</p>
+          <p style="color: #1565c0; font-size: 13px; margin: 4px 0 0 0;">
+            → Go to your LinkedIn profile<br>
+            → Click "Analyze" to run fresh analysis<br>
+            → If AI fails, try updating your API key in settings
+          </p>
+        </div>
+      `;
+      
       setTimeout(() => {
         resetAnalysisBtn.textContent = 'Reset Analysis';
         resetAnalysisBtn.disabled = false;
+        // Restore original status after 5 seconds
+        setTimeout(() => {
+          profileStatusDiv.innerHTML = originalContent;
+          checkProfileStatus();
+        }, 5000);
       }, 2000);
       
       
@@ -616,32 +951,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   
   // Profile Management
-  const profileStatusEl = document.querySelector('.profile-info .profile-status');
   const setProfileBtn = document.getElementById('setProfile');
-  
-  // Update profile display
-  async function updateProfileDisplay() {
-    const data = await chrome.storage.local.get(['userProfile']);
-    if (data.userProfile) {
-      let displayText = data.userProfile.profileName || data.userProfile.profileId;
-      if (data.userProfile.verifiedOwnership) {
-        displayText += ' ✓';
-      }
-      profileStatusEl.textContent = displayText;
-      profileStatusEl.classList.add('set');
-      setProfileBtn.textContent = 'Update';
-      setProfileBtn.title = data.userProfile.verifiedOwnership ? 
-        'Profile ownership verified' : 'Profile set manually';
-    } else {
-      profileStatusEl.textContent = 'Not set';
-      profileStatusEl.classList.remove('set');
-      setProfileBtn.textContent = 'Set Current Profile as Mine';
-      setProfileBtn.title = 'Click to set your LinkedIn profile';
-    }
-  }
-  
-  // Initial profile display
-  updateProfileDisplay();
   
   // Handle set profile button
   setProfileBtn?.addEventListener('click', async () => {
@@ -751,9 +1061,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       await chrome.storage.local.set({ userProfile });
       
-      // Update display
-      await updateProfileDisplay();
-      
       // Try to notify content script to initialize overlay
       try {
         await chrome.tabs.sendMessage(tab.id, { 
@@ -841,7 +1148,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       
     } catch (error) {
       console.error('Error resetting extension:', error);
-      alert('Failed to reset extension. Please try again.');
+      
+      // Show error in profile status
+      const profileStatusDiv = document.getElementById('profileStatus');
+      if (profileStatusDiv) {
+        profileStatusDiv.innerHTML = `
+          <div style="background: #fee; border: 1px solid #fcc; border-radius: 6px; padding: 12px;">
+            <p style="color: #d93025; font-weight: 500; margin: 0;">Reset Failed</p>
+            <p style="color: #d93025; font-size: 13px; margin: 4px 0 0 0;">Please try again or manually clear extension data</p>
+          </div>
+        `;
+      }
     }
   });
 });

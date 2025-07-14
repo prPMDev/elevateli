@@ -28,10 +28,10 @@ class ProfileCompletenessCalculator {
       },
       
       headline: {
-        check: (data) => data.charCount >= 50,
+        check: (data) => data && data.charCount >= 50,
         points: 10,
         getMessage: (data) => {
-          if (!data.exists) return "Add a professional headline";
+          if (!data || !data.exists) return "Add a professional headline";
           if (data.charCount < 30) return "Expand your headline (minimum 50 characters)";
           if (data.isGeneric) return "Make your headline more specific and value-focused";
           return "Optimize your headline with keywords";
@@ -39,10 +39,10 @@ class ProfileCompletenessCalculator {
       },
       
       about: {
-        check: (data) => data.charCount >= 800,
+        check: (data) => data && data.charCount >= 800,
         points: 20,
         getMessage: (data) => {
-          if (!data.exists || data.charCount === 0) return "Add an About section";
+          if (!data || !data.exists || data.charCount === 0) return "Add an About section";
           if (data.charCount < 400) return "Expand your About section (aim for 800+ characters)";
           if (data.charCount < 800) return "Add more detail to your About section";
           return "Enhance your About section";
@@ -50,10 +50,10 @@ class ProfileCompletenessCalculator {
       },
       
       experience: {
-        check: (data) => data.count >= 2,
+        check: (data) => data && data.count >= 2,
         points: 25,
         getMessage: (data) => {
-          if (!data.exists || data.count === 0) return "Add your work experience";
+          if (!data || !data.exists || data.count === 0) return "Add your work experience";
           if (data.count === 1) return "Add more work experiences (at least 2)";
           if (!data.hasCurrentRole) return "Update with your current position";
           return "Enhance experience descriptions";
