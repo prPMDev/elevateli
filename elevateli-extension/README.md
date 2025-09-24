@@ -2,9 +2,10 @@
 
 Optimize your LinkedIn profile with AI-powered analysis and actionable insights.
 
-[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/prPMDev/elevateli)
+[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/prPMDev/elevateli)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Alpha Testing](https://img.shields.io/badge/status-Alpha%20Testing-orange.svg)](#)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
 
 ## What is ElevateLI?
 
@@ -15,14 +16,28 @@ ElevateLI is a browser extension (works with Chrome, Edge, Brave, and other Chro
 
 ## Features
 
+### Core Features
 - **Real-time Analysis** - Get instant feedback when viewing your LinkedIn profile
 - **Completeness Score** - Free analysis that checks if all important sections are filled
 - **AI Quality Score** - Optional deep analysis of your content quality (requires OpenAI API key)
-- **Section-by-Section Breakdown** - See exactly what needs improvement
+- **Section-by-Section Breakdown** - See exactly what needs improvement with star ratings
 - **Smart Caching** - Saves your results to reduce API costs
 - **Privacy First** - Your data stays between you and your AI provider only (OpenAI)
+
+### v1.0.1 Improvements (August 2025)
+- **AI-First Score Display** - Experience section now correctly shows AI-calculated scores
+- **Quality-Focused Recommendations** - Skills analysis focuses on impact, not position
+- **Reusability Architecture** - More stable codebase with fewer bugs
+- **Proven Migration Process** - Reliable DEV→PROD deployment pipeline
+- **Enhanced Error Handling** - Better recovery from API failures
+
+### User Experience
+- **Streamlined Setup** - Redesigned popup with intuitive two-screen interface
+- **Custom Instructions** - Personalize AI analysis for your specific career goals
 - **Clean Interface** - Seamlessly integrates with LinkedIn's design
 - **Persistent Results** - Analysis results are saved indefinitely (no expiration)
+- **Unified Messaging** - Clear, positive feedback combining all scores
+- **Smart AI Nudge** - Easy-to-follow setup instructions when AI not configured
 
 ## Installation
 
@@ -66,7 +81,7 @@ ElevateLI is a browser extension (works with Chrome, Edge, Brave, and other Chro
 3. Click the pin icon to keep it visible in your toolbar
 
 ### From Chrome Web Store (Coming Soon)
-The extension is currently in alpha testing. Chrome Web Store release coming soon!
+The extension is currently in alpha testing with production deployment (v1.0.1). Chrome Web Store release coming soon!
 
 ## How to Use
 
@@ -199,15 +214,47 @@ See our full [Privacy Policy](PRIVACY.md) for details.
 - Check that you're on your own profile
 - Try "Reset Analysis" in settings
 
+## Development
+
+### For Developers
+This extension uses a modular architecture with:
+- **Reusability-First Philosophy** - Check CLAUDE.md for development guidelines
+- **Proven Migration Process** - Automated DEV→PROD deployment with validation
+- **Comprehensive Documentation** - See `/documentation` folder for detailed guides
+
+### Key Documentation
+- `CLAUDE.md` - Development guidelines and architecture
+- `RELEASE_CHECKLIST_v1_0_0.md` - Release process and migration steps
+- `ALPHA_TESTING_GUIDE.txt` - Testing instructions and known issues
+- `CLAUDE_CODE_PROMPTING_GUIDE.md` - AI prompting best practices
+
 ## Support
 
 - 🐛 **Bug Reports**: [GitHub Issues](https://github.com/prPMDev/elevateli/issues)
 - 💬 **Feedback**: Use the feedback link in the extension
 - 📖 **Updates**: Watch the GitHub repository for new releases
+- 📚 **Documentation**: Check `/documentation` folder for detailed guides
 
 ## Video Demo
 
 Coming soon! We're working on a video walkthrough for easier setup.
+
+## Recent Updates
+
+### Version 1.0.1 (August 7, 2025)
+- Fixed Experience section showing 0 stars despite having AI scores
+- Fixed Skills section giving redundant position-based advice
+- Established proven DEV→PROD migration process
+- Removed 100+ console.log statements for production
+- Updated comprehensive documentation
+
+### Version 1.0.0 (July 28, 2025)
+- Adopted reusability-first architecture
+- Fixed 6 major bugs through code reuse
+- Improved state management consistency
+- Enhanced error handling and recovery
+
+See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
 ## License
 

@@ -2,6 +2,231 @@
 
 All notable changes to ElevateLI will be documented in this file.
 
+## [1.0.1] - 2025-08-07
+
+### 🚀 Critical Production Fixes & Migration Process
+
+This release addresses critical issues discovered during alpha testing and establishes a proven DEV→PROD migration process.
+
+### Fixed
+- **Experience Section 0 Stars**: UI now correctly displays AI-calculated scores
+  - Root cause: Logic checked completeness before AI scores
+  - Solution: Restructured to check AI scores FIRST (overlay-manager.js)
+  - Result: Score of 5 now correctly shows as 3 stars
+  
+- **Skills Redundant Positioning**: AI no longer suggests "Move skill from #1 to #1"
+  - Root cause: Position numbers in prompts led to mechanical advice
+  - Solution: Removed position numbers, focus on skill quality and prominence
+  - Result: AI provides quality-focused recommendations like "Consider making 'Data Analysis' more prominent"
+
+### Added
+- **Proven Migration Process**: Established standardized DEV→PROD deployment
+  - Automated backup creation with timestamps
+  - Script-based migration via sync-to-prod-v3.js
+  - Automatic console.log removal (100+ instances cleaned)
+  - Chrome Store compliance transformations
+  - Full rollback capability
+
+- **Reusability-First Philosophy**: Documented in CLAUDE.md
+  - Always check for existing code before creating new
+  - Parameterize existing methods instead of duplicating
+  - Result: Fixed 6 major bugs without creating new states
+
+### Improved
+- **AI Prompt Engineering**: Better feedback quality
+  - Instructions now always come BEFORE JSON request
+  - Direct feedback approach (scores 0-6 start with gaps, 7-10 start with strengths)
+  - Context-aware prompting based on completeness score
+  - Platform constraint awareness (LinkedIn UI limitations)
+
+- **Documentation**: Comprehensive updates
+  - CLAUDE.md: Added mandatory migration process
+  - ALPHA_TESTING_GUIDE.txt: Updated with production fixes
+  - CLAUDE_CODE_PROMPTING_GUIDE.md: Added Anthropic best practices
+  - Release checklist: Documented proven migration steps
+
+### Technical
+- Production build: 499KB, 27 modules
+- Zero console.log statements in production
+- All critical path markers preserved
+- Validated Chrome Store compliance (except innerHTML - separate task)
+
+## [1.0.0] - 2025-07-28
+
+### 🎯 Production-Ready State Management & UI Reusability
+
+This release represents a significant stability milestone, focusing on robust state management and maximizing code reusability across the extension.
+
+### Fixed
+- **Overlay Showing on Other Profiles**: Added ownership verification in showOverlay handler
+  - Overlay now correctly appears only on user's own LinkedIn profile
+  - Prevents confusion from seeing zero-state overlay on other profiles
+- **State Management Issues**: Eliminated references to undefined ZERO_STATE
+  - `resetToZeroState` now uses existing INITIALIZING state
+  - `resetOverlay` properly uses EMPTY_CACHE state
+  - `determineStateFromData` returns valid states only
+- **Analyze Button Not Clickable**: Fixed event listener attachment logic
+  - Button always has listener attached, compliance checked on click
+  - Resolves issue where button appeared active but wasn't clickable
+- **AI Settings Sync**: Added updateComplianceState message handler
+  - Fixes analyze button becoming unclickable after saving AI settings
+  - Proper state synchronization between popup and content script
+- **Reset Profile Analysis**: Now properly clears cache and updates UI
+  - Correctly removes `cache_${profileId}` and AI cache entries
+  - Sends triggerAnalysis message to update overlay
+
+### Added
+- **Reusable UI Components**: Enhanced showZeroState() with context awareness
+  - `showZeroState(isAfterReset)` parameter for different contexts
+  - Same UI layout with dynamic text based on usage
+  - Demonstrates reusability-first approach to development
+- **Compliance State Synchronization**: Real-time sync between popup and overlay
+  - Ensures analyze button state matches current settings
+  - Prevents UI inconsistencies across extension components
+
+### Improved
+- **Code Reusability**: Maximized use of existing components
+  - Reused INITIALIZING state for zero state instead of creating new state
+  - Modified existing showZeroState() instead of creating new method
+  - Reduced code complexity while fixing multiple issues
+- **Error Prevention**: Defensive programming for state management
+  - All state references validated before use
+  - Proper null checks throughout state handlers
+  - Graceful fallbacks for edge cases
+
+### Technical
+- Enhanced ownership detection with more specific selectors
+- Unified state machine without undefined states
+- Consistent message passing between extension components
+- Proper event listener management for dynamic UI elements
+
+## [0.9.2] - 2025-07-24
+
+### 🔧 Technical Improvements
+Fixed critical issues with skills data extraction and AI response formatting.
+
+### Fixed
+- **Skills Data Empty (248 bytes)**: Unified section finder ensures scan() and extract() find same DOM section
+  - Root cause: scan() was finding one section, extract() was finding another
+  - Solution: Created single `findSkillsSection()` method used by both phases
+- **AI Returning Markdown**: Restructured prompts to put instructions before JSON request
+  - AI was returning "### Critical Analysis..." instead of JSON
+  - Fixed by reordering prompt structure
+- **Low Skills Score**: Updated scoring to focus on quality of visible skills vs total quantity
+  - User with 55 skills getting 3 stars due to quantity-based scoring
+  - Now appreciates visible skills quality and relevance to target role
+- **Generic AI Advice**: Added completeness context to make advice more specific
+  - AI was suggesting adding skills it couldn't see
+  - Now provides conditional advice based on profile completeness
+
+### Added
+- **Unified Section Finding**: Single source of truth prevents phase mismatches
+- **Prompt Engineering Guide**: Enhanced CLAUDE.md with developer-focused documentation
+- **Debug Infrastructure**: Strategic logging for troubleshooting extraction issues
+- **Completeness Context**: Pass profile completeness score to AI for adaptive responses
+
+### Improved
+- **Scoring Philosophy**: Quality over quantity for visible content
+- **Context-Aware AI**: Advice adapts based on profile completeness (30% vs 100%)
+- **JSON Consistency**: AI responses now reliably return proper JSON format
+- **Developer Documentation**: CLAUDE.md now includes technical deep dive section
+
+### Technical
+- Added `findSkillsSection()` method to SkillsExtractor
+- Restructured all AI prompts to follow: instructions → JSON request → no extra content
+- Added completeness score to `careerContext` in service worker
+- Enhanced logging with data size and skill count tracking
+
+## [0.9.1] - 2025-07-22
+
+### 🎨 User Experience Overhaul
+Complete popup redesign based on user feedback for cleaner, more intuitive experience.
+
+### Added
+- **Two-Screen Design**: Clean main dashboard + organized settings page
+- **Custom Instructions Status**: Now tracked and displayed on main screen  
+- **Logical Settings Grouping**: Display → AI Enhancement → Advanced options
+- **Settings Persistence**: Data properly saves between screen navigation
+
+### Changed
+- **Settings Organization**: Reorganized to follow user mental model
+- **Reduced Whitespace**: Cleaner, more compact interface throughout
+- **AI Settings Grouping**: Role, level, and instructions grouped under AI
+- **Header Design**: Leaner headers with optimized spacing
+
+### Fixed
+- **Double Scrollbar**: Eliminated nested scrolling in settings page
+- **Missing Custom Instructions**: Textarea now properly displayed
+- **Settings Navigation**: Improved data persistence between screens
+- **Excessive Whitespace**: Reduced spacing in headers and sections
+
+## [0.9.0] - 2025-07-23
+
+### Added
+- **Unified Positive Messaging**: Single encouraging message combining completeness and content quality scores
+- **Clear AI Setup Instructions**: Numbered steps in AI nudge for easier configuration
+- **Blank Star Display**: Shows empty stars (☆☆☆☆☆) when AI not configured instead of "0/5"
+
+### Changed
+- **Popup Navigation Flow**: Stays on main screen after successful analysis instead of returning to AI setup
+- **UI Whitespace**: Reduced padding throughout interface for cleaner, more compact appearance
+- **Status Indicator**: Hidden after analysis completes to reduce visual clutter
+
+### Fixed
+- **Star Rating Display**: Fixed all sections to show blank stars when AI not configured
+- **Experience Section**: Removed hardcoded "3/5" stars, now shows dynamic ratings
+- **Duplicate Content**: Removed duplicate coaching summaries in expanded view
+- **Profile Photo Analysis**: Removed misleading quality analysis without vision API support
+
+### Improved
+- **User Experience**: Clearer messaging and smoother navigation flow
+- **Visual Consistency**: All star ratings now follow same display logic
+- **Performance**: Reduced redundant UI updates for faster rendering
+
+## [0.8.0] - 2025-07-19
+
+### Added
+- **Revolutionary Experience Analysis**:
+  - Separate overall career trajectory analysis from individual role analysis
+  - Experience section shows strategic career insights with 3 targeted recommendations
+  - Individual role sub-sections with specific improvements (max 1 per role)
+  - Smart limits prevent overwhelming users (3 total improvements across roles)
+- **Enhanced Recommendations Extraction**:
+  - Background fetching of all recommendations via /details/recommendations
+  - Pattern-based extraction resilient to LinkedIn DOM changes
+  - Deep extraction for AI analysis (not just visible 2-3)
+- **Advanced AI Context Engineering**:
+  - Current date awareness for recency-based analysis
+  - No acronyms policy (PM → Product Manager) for clarity
+  - Section-specific positive insights (headlinePositive, aboutPositive)
+  - Category/Action/Impact structure for all improvements
+
+### Changed
+- **Experience Feedback Structure**:
+  - Main experience section: Overall career feedback + strategic recommendations
+  - Sub-sections: Role-specific tactical improvements
+  - Recommendations reference actual companies and positions
+- **Recommendation Limits**:
+  - Experience section: 3 recommendations (except 5-star ratings get 1)
+  - Other sections maintain previous limits
+- **UI Improvements**:
+  - Sub-sections with visual hierarchy (indented, color-coded borders)
+  - Improved star rating display for sub-sections
+
+### Fixed
+- Recommendations showing generic advice despite quality content
+- Experience section mixing overall and role-specific feedback
+- "undefined" showing in UI for missing improvements
+- Inverted what/how display in recommendations
+- Content Quality showing as "x.x/10" instead of star format
+- Section ordering not matching LinkedIn's visual layout
+
+### Technical
+- Consolidated logging (18 → 5 essential UI.EXPERIENCE logs)
+- Replaced console.log with SmartLogger throughout
+- Optimized codebase size (458KB → 455KB)
+- Better separation of concerns in analyzer-base.js
+
 ## [0.5.0] - 2025-01-11
 
 ### Added

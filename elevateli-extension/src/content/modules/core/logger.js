@@ -33,19 +33,27 @@ const Logger = {
    */
   init() {
     // Set log level from storage if available
-    chrome.storage.local.get(['logLevel', 'moduleLevels', 'performanceEnabled'], (data) => {
-      if (data.logLevel && this.levels[data.logLevel]) {
-        this.currentLevel = data.logLevel;
-      }
-      if (data.moduleLevels) {
-        this.moduleLevels = data.moduleLevels;
-      }
-      if (data.performanceEnabled !== undefined) {
-        this.performanceEnabled = data.performanceEnabled;
-      }
-    });
+    try {
+      chrome.storage.local.get(['logLevel', 'moduleLevels', 'performanceEnabled'], (data) => {
+        if (chrome.runtime.lastError) {
+          // Silently ignore - use defaults
+          return;
+        }
+        if (data.logLevel && this.levels[data.logLevel]) {
+          this.currentLevel = data.logLevel;
+        }
+        if (data.moduleLevels) {
+          this.moduleLevels = data.moduleLevels;
+        }
+        if (data.performanceEnabled !== undefined) {
+          this.performanceEnabled = data.performanceEnabled;
+        }
+      });
+    } catch (error) {
+      // Silently ignore - use defaults
+    }
     
-    console.log('[Logger] Initialized with level:', this.currentLevel);
+    // console.log('[Logger] Initialized with level:', this.currentLevel);
   },
   
   /**
@@ -56,7 +64,11 @@ const Logger = {
   setModuleLevel(module, level) {
     if (this.levels[level]) {
       this.moduleLevels[module] = level;
-      chrome.storage.local.set({ moduleLevels: this.moduleLevels });
+      try {
+        chrome.storage.local.set({ moduleLevels: this.moduleLevels });
+      } catch (error) {
+        // Silently ignore storage errors
+      }
     }
   },
   
@@ -86,7 +98,7 @@ const Logger = {
     
     // Log to console
     const consoleMethod = level === 'ERROR' ? 'error' : level === 'WARN' ? 'warn' : 'log';
-    console[consoleMethod](`[${level}] ${message}`, data);
+    // console[consoleMethod](`[${level}] ${message}`, data);
     
     // Store in Chrome storage
     try {
@@ -103,7 +115,7 @@ const Logger = {
       
       await chrome.storage.local.set({ [this.LOG_KEY]: logs });
     } catch (error) {
-      console.error('[Logger] Failed to store log:', error);
+      // console.error('[Logger] Failed to store log:', error);
     }
   },
   
@@ -199,7 +211,7 @@ const Logger = {
       
       await chrome.storage.local.set({ [this.PERFORMANCE_KEY]: metrics });
     } catch (error) {
-      console.error('[Logger] Failed to store performance metric:', error);
+      // console.error('[Logger] Failed to store performance metric:', error);
     }
     
     // Clean up
@@ -251,7 +263,7 @@ const Logger = {
    */
   async clear() {
     await chrome.storage.local.remove(this.LOG_KEY);
-    console.log('[Logger] All logs cleared');
+    // console.log('[Logger] All logs cleared');
   },
   
   /**

@@ -53,7 +53,7 @@ const BaseExtractor = {
     const showAllButton = section.querySelector(buttonSelector);
     if (!showAllButton || showAllButton.disabled) return false;
     
-    console.log(`[Extractor] Clicking "Show all" button...`);
+    // console.log(`[Extractor] Clicking "Show all" button...`);
     showAllButton.click();
     
     // Wait for content to load

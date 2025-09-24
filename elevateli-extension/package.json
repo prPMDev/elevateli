@@ -1,0 +1,21 @@
+{
+  "name": "elevateli-extension",
+  "version": "1.0.0",
+  "description": "Optimize your LinkedIn profile with AI-powered analysis and actionable insights.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "node build/build-analyzer.js",
+    "build:safe": "node build/build-analyzer-safe.js",
+    "switch:safe": "node build/switch-to-safe.js --safe",
+    "switch:regular": "node build/switch-to-safe.js --regular",
+    "validate": "node build/validate-syntax.js",
+    "prepare:store": "npm run switch:safe && echo 'Ready for Chrome Web Store submission!'"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "prettier": "^3.6.2"
+  }
+}

@@ -55,29 +55,30 @@ async function isOwnProfile() {
   const currentProfileId = extractProfileIdFromUrl();
   if (!currentProfileId) return false;
   
-  // First, check saved profile
+  // First, check saved profile (URL-based, instant and reliable)
   const savedProfile = await getSavedProfile();
   if (savedProfile?.profileId === currentProfileId) {
-    console.log('[INFO] Matched saved profile:', savedProfile.profileId);
+    // console.log('[INFO] Matched saved profile:', savedProfile.profileId);
     return true;
   }
   
-  // Check if URL contains /in/me/ (LinkedIn's "view your own profile" URL)
-  if (window.location.pathname.includes('/in/me/')) {
-    console.log('[INFO] Detected /in/me/ URL, saving profile');
-    await saveUserProfileId();
-    return true;
-  }
-  
-  // If no saved profile yet, check for ownership indicators
-  if (!savedProfile) {
-    const hasIndicators = await detectOwnProfileIndicators();
-    if (hasIndicators) {
-      console.log('[INFO] Profile ownership indicators detected, saving profile');
+  // Second, check ownership indicators (for zero state/first-time users)
+  // Note: OwnershipDetector is loaded via analyzer.js build process
+  if (typeof OwnershipDetector !== 'undefined') {
+    // Wait for DOM to be ready before checking ownership indicators
+    // This prevents false positives on non-owned profiles during initial load
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    if (OwnershipDetector.hasOwnershipIndicators()) {
+      // console.log('[INFO] Detected ownership indicators - this is your profile');
+      // Save profile for future instant detection
       await saveUserProfileId();
       return true;
     }
   }
+  
+  // Note: Removed /in/me/ check as users don't typically visit this URL
+  // The above two checks are sufficient for reliable ownership detection
   
   return false;
 }
@@ -103,7 +104,7 @@ async function getSavedProfile() {
     
     // Check if extension context is still valid
     if (!chrome.runtime?.id) {
-      console.warn('[WARN] Extension context invalidated');
+      // console.warn('[WARN] Extension context invalidated');
       resolve(null);
       return;
     }
@@ -112,14 +113,14 @@ async function getSavedProfile() {
       chrome.storage.local.get(['userProfile'], (data) => {
         // Check for runtime errors
         if (chrome.runtime.lastError) {
-          console.warn('[WARN] Chrome storage error:', chrome.runtime.lastError);
+          // console.warn('[WARN] Chrome storage error:', chrome.runtime.lastError);
           resolve(null);
           return;
         }
         resolve(data.userProfile || null);
       });
     } catch (error) {
-      console.warn('[WARN] Error accessing chrome storage:', error);
+      // console.warn('[WARN] Error accessing chrome storage:', error);
       resolve(null);
     }
   });
@@ -159,12 +160,12 @@ async function detectOwnProfileIndicators() {
   const hasOwnershipIndicator = !!(editButton || addSectionButton || analyticsButton || resourcesButton);
   
   if (hasOwnershipIndicator) {
-    console.log('[INFO] Profile ownership indicators found:', {
-      editButton: !!editButton,
-      addSectionButton: !!addSectionButton,
-      analyticsButton: !!analyticsButton,
-      resourcesButton: !!resourcesButton
-    });
+    // console.log('[INFO] Profile ownership indicators found:', {
+    //   editButton: !!editButton,
+    //   addSectionButton: !!addSectionButton,
+    //   analyticsButton: !!analyticsButton,
+    //   resourcesButton: !!resourcesButton
+    // });
   }
   
   return hasOwnershipIndicator;
@@ -178,7 +179,7 @@ async function saveUserProfileId() {
   
   // If it's /in/me/, wait for redirect to actual profile
   if (profileId === 'me') {
-    console.log('[INFO] Detected /in/me/ URL, waiting for redirect...');
+    // console.log('[INFO] Detected /in/me/ URL, waiting for redirect...');
     
     // Wait up to 3 seconds for redirect
     let attempts = 0;
@@ -190,7 +191,7 @@ async function saveUserProfileId() {
     
     // If still 'me' after waiting, can't save
     if (profileId === 'me') {
-      console.log('[WARN] URL still shows /in/me/ after waiting, cannot save profile');
+      // console.log('[WARN] URL still shows /in/me/ after waiting, cannot save profile');
       return;
     }
   }
@@ -212,14 +213,14 @@ async function saveUserProfileId() {
   try {
     // Check if chrome storage is available
     if (!chrome?.storage?.local) {
-      console.warn('[WARN] Chrome storage not available, cannot save profile');
+      // console.warn('[WARN] Chrome storage not available, cannot save profile');
       return;
     }
     
     await chrome.storage.local.set({ userProfile });
-    console.log('[INFO] User profile saved:', userProfile);
+    // console.log('[INFO] User profile saved:', userProfile);
   } catch (error) {
-    console.error('[ERROR] Failed to save user profile:', error);
+    // console.error('[ERROR] Failed to save user profile:', error);
   }
 }
 
@@ -279,7 +280,7 @@ function safeQuerySelector(element, selector) {
   try {
     return element.querySelector(selector);
   } catch (e) {
-    console.error('Invalid selector:', selector, e);
+    // console.error('Invalid selector:', selector, e);
     return null;
   }
 }
@@ -291,7 +292,7 @@ function safeQuerySelectorAll(element, selector) {
   try {
     return element.querySelectorAll(selector);
   } catch (e) {
-    console.error('Invalid selector:', selector, e);
+    // console.error('Invalid selector:', selector, e);
     return [];
   }
 }

@@ -128,7 +128,7 @@ const QualityScorer = {
         title: exp.title || '',
         company: exp.company || '',
         duration: exp.duration || '',
-        description: this.truncateText(exp.description || '', 300),
+        description: exp.description || '', // Send full description - no truncation
         hasQuantifiedAchievements: exp.hasQuantifiedAchievements || false,
         hasTechStack: exp.hasTechStack || false
       })),

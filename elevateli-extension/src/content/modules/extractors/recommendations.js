@@ -284,9 +284,45 @@ const RecommendationsExtractor = {
       section = BaseExtractor.findSection(this.selectors, 'Recommendations');
     }
     
+    // Log section details
+    if (section) {
+      Logger.info('[RecommendationsExtractor] Section found for deep extraction:', {
+        tagName: section.tagName,
+        className: section.className,
+        hasShowAllLink: !!section.querySelector('a[href*="/details/recommendations"]'),
+        childElementCount: section.childElementCount
+      });
+    } else {
+      Logger.error('[RecommendationsExtractor] No section found for deep extraction!');
+      return basicData;
+    }
+    
     // Extract detailed recommendations
-    const received = await this.extractReceivedRecommendations(section);
+    let received = await this.extractReceivedRecommendations(section);
     const given = await this.extractGivenRecommendations(section);
+    
+    // Try to fetch all recommendations if "Show all" link exists
+    const showAllLink = section?.querySelector('a[href*="/details/recommendations"]');
+    if (showAllLink?.href && received.length < basicData.receivedCount) {
+      Logger.info('[RecommendationsExtractor] Found show all link, attempting to fetch all recommendations');
+      try {
+        const allRecommendations = await this.fetchAllRecommendations(showAllLink.href);
+        if (allRecommendations.length > received.length) {
+          Logger.info(`[RecommendationsExtractor] Fetched ${allRecommendations.length} recommendations vs ${received.length} visible`);
+          received = allRecommendations;
+        }
+      } catch (error) {
+        Logger.warn('[RecommendationsExtractor] Failed to fetch all recommendations:', error);
+      }
+    }
+    
+    // Get experience data from the page to match recommendations
+    const experienceData = await this.getExperienceDataForMatching();
+    
+    // Enhance recommendations with matched experience data
+    if (experienceData && experienceData.length > 0) {
+      received = this.matchRecommendationsToExperience(received, experienceData);
+    }
     
     const result = {
       ...basicData,
@@ -308,6 +344,18 @@ const RecommendationsExtractor = {
       // For AI processing
       recommendationChunks: this.prepareForAI(received)
     };
+    
+    // Log the final result structure
+    Logger.info('[RecommendationsExtractor] Final deep extraction result:', {
+      hasRecommendationChunks: !!result.recommendationChunks,
+      chunksLength: result.recommendationChunks?.length || 0,
+      receivedLength: result.received?.length || 0,
+      firstChunk: result.recommendationChunks?.[0] ? {
+        hasText: !!result.recommendationChunks[0].text,
+        textLength: result.recommendationChunks[0].text?.length || 0,
+        recommender: result.recommendationChunks[0].recommender
+      } : null
+    });
     
     Logger.info(`[RecommendationsExtractor] Deep extraction completed in ${Date.now() - startTime}ms`, {
       receivedDetails: received.length,
@@ -390,6 +438,11 @@ const RecommendationsExtractor = {
   async extractReceivedRecommendations(section) {
     const recommendations = [];
     
+    Logger.info('[RecommendationsExtractor] Starting extractReceivedRecommendations', {
+      sectionExists: !!section,
+      sectionTagName: section?.tagName
+    });
+    
     // Click on received tab if exists
     const buttons = section.querySelectorAll('button');
     const receivedTab = section.querySelector('[aria-label*="received"]') || 
@@ -404,16 +457,47 @@ const RecommendationsExtractor = {
       }
     }
     
-    // Extract recommendation items
-    const items = section.querySelectorAll('.pvs-list__paged-list-item, .artdeco-list__item');
+    // Extract recommendation items - try multiple selectors
+    const itemSelectors = [
+      '.pvs-list__paged-list-item',
+      '.artdeco-list__item', 
+      'li.artdeco-list__item',
+      '[data-view-name="profile-component-entity"]',
+      'li[class*="artdeco-list__item"]'
+    ];
+    
+    let items = [];
+    for (const selector of itemSelectors) {
+      items = section.querySelectorAll(selector);
+      if (items.length > 0) {
+        Logger.info(`[RecommendationsExtractor] Found ${items.length} items with selector: ${selector}`);
+        break;
+      }
+    }
+    
+    if (items.length === 0) {
+      Logger.warn('[RecommendationsExtractor] No recommendation items found with any selector');
+      // Try finding any li elements in the section
+      items = section.querySelectorAll('li');
+      Logger.info(`[RecommendationsExtractor] Found ${items.length} li elements as fallback`);
+    }
     
     for (const item of items) {
+      Logger.debug('[RecommendationsExtractor] Processing item:', {
+        className: item.className,
+        hasProfileLink: !!item.querySelector('a[href*="/in/"]'),
+        hasBoldText: !!item.querySelector('[class*="t-bold"]'),
+        innerTextLength: item.innerText?.length
+      });
+      
       const recommendation = await this.extractRecommendationItem(item);
+      Logger.debug('[RecommendationsExtractor] Extracted recommendation:', recommendation);
       if (recommendation.recommenderName) {
         recommendations.push(recommendation);
       }
     }
     
+    Logger.info(`[RecommendationsExtractor] Extracted ${recommendations.length} recommendations`);
     return recommendations;
   },
   
@@ -466,25 +550,157 @@ const RecommendationsExtractor = {
       date: ''
     };
     
-    // Extract recommender name
-    const nameEl = element.querySelector('.t-bold span[aria-hidden="true"], h3 span[aria-hidden="true"]');
-    recommendation.recommenderName = BaseExtractor.extractTextContent(nameEl);
+    // Pattern 1: Look for name in bold text with link
+    const namePatterns = [
+      // Look for any element with t-bold class containing a span with aria-hidden
+      () => {
+        const boldElements = element.querySelectorAll('[class*="t-bold"]');
+        for (const el of boldElements) {
+          const span = el.querySelector('span[aria-hidden="true"]');
+          if (span) {
+            const text = BaseExtractor.extractTextContent(span);
+            // Check if it looks like a name (not a title or other text)
+            if (text && text.length > 2 && text.length < 50 && !text.includes('·')) {
+              return text;
+            }
+          }
+        }
+        return null;
+      },
+      // Look in links that go to profiles
+      () => {
+        const profileLinks = element.querySelectorAll('a[href*="/in/"]');
+        for (const link of profileLinks) {
+          const span = link.querySelector('span[aria-hidden="true"]');
+          if (span) {
+            const text = BaseExtractor.extractTextContent(span);
+            if (text && !text.includes('·')) return text;
+          }
+        }
+        return null;
+      }
+    ];
     
-    // Extract recommender title and relationship
-    const subtitleEl = element.querySelector('.t-14:not(.t-bold) span[aria-hidden="true"]');
-    if (subtitleEl) {
-      const subtitleText = BaseExtractor.extractTextContent(subtitleEl);
-      // Parse "Title, Relationship, Date"
-      const parts = subtitleText.split(',').map(p => p.trim());
-      if (parts.length > 0) recommendation.recommenderTitle = parts[0];
-      if (parts.length > 1) recommendation.relationship = parts[1];
-      if (parts.length > 2) recommendation.date = parts[2];
+    for (const pattern of namePatterns) {
+      const name = pattern();
+      if (name) {
+        recommendation.recommenderName = name;
+        break;
+      }
     }
     
-    // Extract recommendation text
-    const textEl = element.querySelector('.pvs-list__outer-container span[aria-hidden="true"], .recommendation-text');
-    recommendation.text = BaseExtractor.extractTextContent(textEl);
+    // Pattern 2: Look for title in t-14 text that's not bold and not a caption
+    const titlePatterns = [
+      () => {
+        const textElements = element.querySelectorAll('[class*="t-14"]:not([class*="t-bold"]):not([class*="caption"])');
+        for (const el of textElements) {
+          const span = el.querySelector('span[aria-hidden="true"]');
+          if (span) {
+            const text = BaseExtractor.extractTextContent(span);
+            // Check if it looks like a job title
+            if (text && text.length > 5 && !text.includes(',') && 
+                (text.includes('Manager') || text.includes('Director') || 
+                 text.includes('Engineer') || text.includes('Analyst') ||
+                 text.includes('Lead') || text.includes('Senior') ||
+                 text.includes('Specialist') || text.includes('Coordinator') ||
+                 text.includes('Developer') || text.includes('Designer') ||
+                 text.includes('Consultant') || text.includes('VP') ||
+                 text.includes('President') || text.includes('Chief'))) {
+              return text;
+            }
+          }
+        }
+        // Fallback: any t-14 text that's not the name and doesn't look like a date
+        const allT14 = element.querySelectorAll('[class*="t-14"] span[aria-hidden="true"]');
+        for (const span of allT14) {
+          const text = BaseExtractor.extractTextContent(span);
+          if (text && text !== recommendation.recommenderName && 
+              !text.includes('·') && !text.match(/\d{4}/) &&
+              text.length > 5 && text.length < 100) {
+            return text;
+          }
+        }
+        return null;
+      }
+    ];
     
+    for (const pattern of titlePatterns) {
+      const title = pattern();
+      if (title) {
+        recommendation.recommenderTitle = title;
+        break;
+      }
+    }
+    
+    // Pattern 3: Look for date and relationship in caption wrapper
+    const captionElements = element.querySelectorAll('[class*="caption"]');
+    for (const caption of captionElements) {
+      const text = BaseExtractor.extractTextContent(caption);
+      if (text && text.includes(',')) {
+        // Parse date and relationship
+        const dateMatch = text.match(/(\w+\s+\d+,\s+\d{4})/);
+        if (dateMatch) {
+          recommendation.date = dateMatch[1];
+        }
+        
+        // Extract relationship
+        if (text.includes('worked with')) {
+          if (text.includes('different teams')) {
+            recommendation.relationship = 'worked together on different teams';
+          } else if (text.includes('same team')) {
+            recommendation.relationship = 'worked together on same team';
+          } else {
+            recommendation.relationship = 'worked together';
+          }
+        } else if (text.includes('managed')) {
+          recommendation.relationship = text.includes('was managed') ? 'was your manager' : 'you managed';
+        } else if (text.includes('reported')) {
+          recommendation.relationship = 'reported to you';
+        }
+      }
+    }
+    
+    // Pattern 4: Look for recommendation text in show-more containers or long text blocks
+    const textPatterns = [
+      // Look for inline-show-more-text containers
+      () => {
+        const showMoreContainers = element.querySelectorAll('[class*="inline-show-more-text"]');
+        for (const container of showMoreContainers) {
+          const span = container.querySelector('span[aria-hidden="true"]');
+          if (span) {
+            const text = BaseExtractor.extractTextContent(span);
+            // Recommendation text is usually longer than 100 chars
+            if (text && text.length > 100) return text;
+          }
+        }
+        return null;
+      },
+      // Look for any long text in nested structure
+      () => {
+        const allSpans = element.querySelectorAll('li span[aria-hidden="true"]');
+        for (const span of allSpans) {
+          const text = BaseExtractor.extractTextContent(span);
+          // Skip if it's name, title, or date
+          if (text && text.length > 100 && 
+              text !== recommendation.recommenderName && 
+              text !== recommendation.recommenderTitle &&
+              !text.match(/^\w+\s+\d+,\s+\d{4}/)) {
+            return text;
+          }
+        }
+        return null;
+      }
+    ];
+    
+    for (const pattern of textPatterns) {
+      const text = pattern();
+      if (text) {
+        recommendation.text = text;
+        break;
+      }
+    }
+    
+    Logger.debug('[RecommendationsExtractor] extractRecommendationItem result:', recommendation);
     return recommendation;
   },
   
@@ -656,15 +872,24 @@ const RecommendationsExtractor = {
    * @returns {boolean}
    */
   hasRecentRecommendations(recommendations) {
-    // Simplified check - would need proper date parsing
+    const currentYear = new Date().getFullYear();
+    const twoYearsAgo = currentYear - 2;
+    
     return recommendations.some(rec => {
       const date = rec.date || '';
-      return date.includes('2024') || date.includes('2023');
+      // Check if date contains any year within last 2 years
+      for (let year = currentYear; year >= twoYearsAgo; year--) {
+        if (date.includes(year.toString())) {
+          return true;
+        }
+      }
+      return false;
     });
   },
   
   /**
    * Prepare recommendations for AI processing
+   * [CRITICAL_PATH:RECOMMENDATIONS_PREPARE_AI] - P0: Must format recommendations correctly for AI
    * @param {Array<Object>} recommendations - Recommendations
    * @returns {Array<Object>} Chunked recommendations
    */
@@ -673,8 +898,207 @@ const RecommendationsExtractor = {
       index: index + 1,
       recommender: `${rec.recommenderName} (${rec.recommenderTitle})`,
       relationship: rec.relationship,
-      text: BaseExtractor.chunkText(rec.text, 500),
-      keywords: this.extractKeywords([rec])
+      date: rec.date || 'Date not available',
+      text: rec.text || '', // Keep original text, don't chunk here
+      keywords: this.extractKeywords([rec]),
+      company: rec.recommenderCompany || this.extractCompanyFromTitle(rec.recommenderTitle),
+      relatedRole: rec.relatedRole || 'Not specified'
     }));
+  },
+
+  /**
+   * Extract company from title string
+   * @param {string} title - Title like "Product Manager at CompanyName"
+   * @returns {string} Company name
+   */
+  extractCompanyFromTitle(title) {
+    if (!title) return 'Unknown';
+    
+    // Check if title contains "at Company"
+    const atMatch = title.match(/at\s+(.+?)$/i);
+    if (atMatch) return atMatch[1].trim();
+    
+    // Check if title is just the role (no company mentioned)
+    // In this case, we might need to look elsewhere for company
+    const rolePatterns = ['Manager', 'Director', 'Engineer', 'Developer', 'Analyst', 'Lead', 'Specialist'];
+    const hasRoleOnly = rolePatterns.some(pattern => title.includes(pattern));
+    
+    if (hasRoleOnly && !title.includes(' at ')) {
+      return 'Company not specified in title';
+    }
+    
+    return 'Unknown';
+  },
+
+  /**
+   * Fetch all recommendations from the details page
+   * @param {string} url - URL to recommendations page
+   * @returns {Array<Object>} All recommendations
+   */
+  async fetchAllRecommendations(url) {
+    Logger.info('[RecommendationsExtractor] Fetching all recommendations from:', url);
+    
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const html = await response.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      
+      // Extract all recommendation items from the fetched page
+      const recommendationItems = doc.querySelectorAll('.pvs-list__paged-list-item, .artdeco-list__item');
+      const recommendations = [];
+      
+      for (const item of recommendationItems) {
+        const rec = await this.extractRecommendationItemEnhanced(item, doc);
+        if (rec.recommenderName) {
+          recommendations.push(rec);
+        }
+      }
+      
+      Logger.info(`[RecommendationsExtractor] Successfully extracted ${recommendations.length} recommendations from details page`);
+      return recommendations;
+      
+    } catch (error) {
+      Logger.error('[RecommendationsExtractor] Error fetching all recommendations:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Enhanced extraction with more context
+   * @param {Element} element - Recommendation element
+   * @param {Document} doc - Document context
+   * @returns {Object} Recommendation data with enhanced context
+   */
+  async extractRecommendationItemEnhanced(element, doc) {
+    const recommendation = await this.extractRecommendationItem(element);
+    
+    // Try to extract company from the recommender's title
+    if (recommendation.recommenderTitle && !recommendation.recommenderCompany) {
+      recommendation.recommenderCompany = this.extractCompanyFromTitle(recommendation.recommenderTitle);
+    }
+    
+    // Try to determine which role this recommendation relates to
+    // by matching company names or time periods
+    if (recommendation.text) {
+      const textLower = recommendation.text.toLowerCase();
+      // Look for company names in the recommendation text
+      const companies = ['avalara', 'microsoft', 'google', 'amazon']; // Add known companies
+      for (const company of companies) {
+        if (textLower.includes(company.toLowerCase())) {
+          recommendation.relatedRole = `Related to role at ${company}`;
+          break;
+        }
+      }
+    }
+    
+    return recommendation;
+  },
+
+  /**
+   * Get experience data from the page for matching
+   * @returns {Array<Object>} Experience data
+   */
+  async getExperienceDataForMatching() {
+    try {
+      // Look for experience section on the page
+      const experienceSection = document.querySelector('section[data-section="experience"]') ||
+                               document.querySelector('#experience') ||
+                               document.querySelector('.experience-section');
+      
+      if (!experienceSection) {
+        Logger.warn('[RecommendationsExtractor] No experience section found for matching');
+        return [];
+      }
+      
+      const experiences = [];
+      const experienceItems = experienceSection.querySelectorAll('.pvs-list__paged-list-item, .artdeco-list__item');
+      
+      for (const item of experienceItems) {
+        const titleEl = item.querySelector('.t-bold span[aria-hidden="true"]');
+        const companyEl = item.querySelector('.t-14:not(.t-bold) span[aria-hidden="true"]');
+        const dateEl = item.querySelector('.pvs-entity__caption-wrapper');
+        
+        if (titleEl && companyEl) {
+          const title = BaseExtractor.extractTextContent(titleEl);
+          const companyText = BaseExtractor.extractTextContent(companyEl);
+          const dateText = BaseExtractor.extractTextContent(dateEl);
+          
+          // Parse company name (might be "Company · Full-time")
+          const company = companyText.split('·')[0].trim();
+          
+          experiences.push({
+            title,
+            company,
+            dateRange: dateText,
+            fullText: `${title} at ${company}`
+          });
+        }
+      }
+      
+      Logger.info(`[RecommendationsExtractor] Found ${experiences.length} experiences for matching`);
+      return experiences;
+      
+    } catch (error) {
+      Logger.error('[RecommendationsExtractor] Error getting experience data:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Match recommendations to user's experience timeline
+   * @param {Array<Object>} recommendations - Recommendations
+   * @param {Array<Object>} experiences - User's experiences
+   * @returns {Array<Object>} Enhanced recommendations
+   */
+  matchRecommendationsToExperience(recommendations, experiences) {
+    return recommendations.map(rec => {
+      const enhanced = { ...rec };
+      
+      // Try to match by company name
+      const recCompany = rec.recommenderCompany || this.extractCompanyFromTitle(rec.recommenderTitle);
+      
+      if (recCompany && recCompany !== 'Unknown') {
+        // Find matching experience by company
+        const matchedExp = experiences.find(exp => 
+          exp.company.toLowerCase().includes(recCompany.toLowerCase()) ||
+          recCompany.toLowerCase().includes(exp.company.toLowerCase())
+        );
+        
+        if (matchedExp) {
+          enhanced.relatedRole = `${matchedExp.title} at ${matchedExp.company}`;
+          enhanced.relatedCompany = matchedExp.company;
+          enhanced.experienceContext = matchedExp;
+          Logger.debug(`[RecommendationsExtractor] Matched recommendation from ${rec.recommenderName} to ${enhanced.relatedRole}`);
+        }
+      }
+      
+      // Also check recommendation text for company mentions
+      if (!enhanced.relatedRole && rec.text) {
+        const textLower = rec.text.toLowerCase();
+        for (const exp of experiences) {
+          if (textLower.includes(exp.company.toLowerCase())) {
+            enhanced.relatedRole = `${exp.title} at ${exp.company}`;
+            enhanced.relatedCompany = exp.company;
+            enhanced.experienceContext = exp;
+            break;
+          }
+        }
+      }
+      
+      return enhanced;
+    });
   }
 };

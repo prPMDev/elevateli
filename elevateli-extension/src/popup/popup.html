@@ -7,143 +7,171 @@
 </head>
 <body>
   <div class="popup-container">
-    <header>
-      <h3>ElevateLI</h3>
-      <span class="version">v0.5.0</span>
+    <header id="mainHeader" style="display: flex; align-items: center; justify-content: space-between;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <img src="../images/icon48.png" alt="ElevateLI" style="width: 24px; height: 24px;">
+        <h3 style="margin: 0; font-size: 18px;">ElevateLI</h3>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="version" style="font-size: 12px; color: #666;">v1.0.0</span>
+        <button id="reloadExtension" style="background: none; border: none; cursor: pointer; padding: 4px; color: #666; font-size: 16px;" title="Reload extension and page">↻</button>
+        <button id="settingsGear" class="hidden" style="background: none; border: none; cursor: pointer; padding: 4px; color: #666; font-size: 18px;" title="Settings">⚙️</button>
+      </div>
     </header>
     
-    <!-- First Time Setup -->
+    <!-- First Time Setup - Welcoming onboarding (v0.6.0) -->
     <div id="profileSetup" class="hidden">
-      <h4>First Time Setup</h4>
-      <div class="compliance-notice">
-        <p>⚠️ Important: Only analyze your own LinkedIn profile</p>
-        <p>Per LinkedIn's Terms of Service, this extension should only be used on your own profile.</p>
-        <label class="checkbox-label">
-          <input type="checkbox" id="complianceCheck">
-          <span>I understand and will only analyze my own profile</span>
-        </label>
+      <div class="welcome-container" style="text-align: center; padding: 0;">
+        <h2 style="margin: 0 0 6px 0; font-size: 18px; color: #0a66c2;">Welcome! 🚀</h2>
+        
+        <p style="margin: 0 0 12px 0; color: #666; font-size: 13px;">Elevate your LinkedIn profile with data-driven insights</p>
+        
+        <div class="value-props" style="display: flex; justify-content: space-around; margin: 12px 0; padding: 10px; background: #f3f7fa; border-radius: 8px;">
+          <div style="text-align: center; flex: 1;">
+            <span style="font-size: 18px;">📊</span>
+            <p style="margin: 2px 0 0 0; font-size: 11px; color: #444;">Instant completeness analysis</p>
+          </div>
+          <div style="text-align: center; flex: 1;">
+            <span style="font-size: 18px;">✨</span>
+            <p style="margin: 2px 0 0 0; font-size: 11px; color: #444;">Enhanced AI insights*</p>
+          </div>
+          <div style="text-align: center; flex: 1;">
+            <span style="font-size: 18px;">🎯</span>
+            <p style="margin: 2px 0 0 0; font-size: 11px; color: #444;">Personalized recommendations*</p>
+          </div>
+        </div>
+        
+        <p style="margin: 6px 0 0 0; font-size: 10px; color: #888; text-align: center;">* AI setup unlocks enhanced features</p>
+        
+        <div class="compliance-notice" style="background: white; border: 1px solid #e1e9ee; border-radius: 8px; padding: 12px; margin: 12px 0;">
+          <label class="checkbox-label" style="display: flex; align-items: flex-start; text-align: left; cursor: pointer;">
+            <input type="checkbox" id="complianceCheck" style="margin-right: 8px; margin-top: 2px;">
+            <div>
+              <strong style="color: #2e3338; font-size: 13px;">I'll analyze my own profile</strong>
+              <p style="margin: 2px 0 0 0; color: #666; font-size: 12px;">Get personalized insights for your career</p>
+            </div>
+          </label>
+        </div>
+        
+        <button id="acknowledgeCompliance" class="primary-button" disabled style="width: 100%; padding: 12px; font-size: 16px; font-weight: 600; background: #0a66c2; color: white; border: none; border-radius: 24px; cursor: not-allowed; position: relative; opacity: 0.6; transition: all 0.2s ease;">
+          Get Started
+        </button>
+        <p id="buttonHint" style="margin: 8px 0 0 0; font-size: 11px; color: #666; text-align: center;">Check the box above to continue</p>
       </div>
-      <button id="acknowledgeCompliance" class="primary-button" disabled>Continue</button>
     </div>
     
-    <!-- Initial AI Setup (Optional) -->
-    <div id="setup" class="hidden">
-      <h4>AI Provider Setup (Optional)</h4>
-      <p class="setup-note">Enable AI for content quality analysis</p>
-      <select id="aiProvider">
-        <option value="">Select Provider & Model</option>
-        <option value="openai:gpt-4o-mini">OpenAI | GPT-4o mini | Fast & Affordable</option>
-        <option value="openai:gpt-4o">OpenAI | GPT-4o | Best Quality + Vision</option>
-      </select>
-      <input type="password" id="apiKey" placeholder="Enter OpenAI API key">
-      <p id="apiKeyHelp" style="margin: 4px 0 0 0; font-size: 12px; display: none;">
-        <a href="https://platform.openai.com/api-keys" target="_blank" style="color: #0a66c2;">Get your API key →</a>
-      </p>
-      <button id="saveSetup" class="primary-button" style="margin-top: 16px;">Save & Continue</button>
-      <button id="skipSetup" class="secondary-button" style="margin-top: 8px;">Skip for Now</button>
-    </div>
-    
-    <!-- Main Controls -->
-    <div id="controls" class="hidden">
-      <div id="profileStatus" class="profile-status">
-        <div class="profile-status-content">
-          <p>Checking profile...</p>
-        </div>
-        <div class="profile-info" id="profileInfo" style="display: none;">
-          <p class="profile-name">Not set</p>
-          <button id="setProfile" class="small-button">Update</button>
-        </div>
+    <!-- Active State Main View -->
+    <div id="activeMain" class="hidden">
+      <div class="active-profile">
+        <span class="active-checkmark">✓</span>
+        <span class="active-text">Active: <span id="activeProfileName">Loading...</span></span>
       </div>
       
-      <section class="settings-section">
-        <h4>Settings</h4>
-        
-        <!-- Show Analysis Toggle -->
-        <div class="toggle-row">
-          <label for="showAnalysis">Show Analysis on Profile</label>
-          <input type="checkbox" id="showAnalysis" class="toggle-switch" checked>
+      <div class="linkedin-cta">
+        <p class="cta-icon">💡</p>
+        <p class="cta-text">Go to your LinkedIn profile<br>to see your analysis</p>
+      </div>
+      
+      <div class="current-settings">
+        <h4>Current Settings:</h4>
+        <ul class="settings-status">
+          <li>• Analysis on profile - <span id="analysisStatus">On</span></li>
+          <li>• Target role - <span id="targetRoleStatus">Not set</span></li>
+          <li>• AI analysis - <span id="aiAnalysisStatus">Not configured</span></li>
+          <li>• Custom instructions - <span id="customInstructionsStatus">No</span></li>
+        </ul>
+      </div>
+    </div>
+    
+    <!-- Settings View -->
+    <div id="settingsView" class="hidden">
+      <header class="settings-header">
+        <button id="backButton" class="back-button">← Back</button>
+        <h3>Settings</h3>
+      </header>
+      
+      <div class="settings-content">
+        <!-- Display Section -->
+        <div class="settings-section">
+          <h4>DISPLAY</h4>
+          <label class="toggle-wrapper">
+            <input type="checkbox" id="settingsShowAnalysis" class="toggle-input" checked>
+            <span class="toggle-slider"></span>
+            <span class="toggle-text">Show Analysis on Profile</span>
+          </label>
         </div>
         
-        <!-- AI Toggle -->
-        <div class="toggle-row">
-          <label for="aiEnabled">Enable AI Analysis</label>
-          <input type="checkbox" id="aiEnabled" class="toggle-switch">
-        </div>
-        
-        <!-- AI Configuration Box -->
-        <div id="aiConfig" class="ai-config disabled">
-          <!-- Target Role Settings -->
-          <div class="section-header">Target Role Settings</div>
+        <!-- AI Enhancement Section -->
+        <div class="settings-section">
+          <h4>AI ENHANCEMENT</h4>
+          <label class="toggle-wrapper">
+            <input type="checkbox" id="settingsEnableAI" class="toggle-input">
+            <span class="toggle-slider"></span>
+            <span class="toggle-text">Enable AI Analysis</span>
+          </label>
           
-          <div class="form-group">
-            <label for="targetRole">Role</label>
-            <select id="targetRole">
-              <option value="">Select your role...</option>
-              <option value="product-manager">Product Manager</option>
-              <option value="software-engineer">Software Engineer</option>
-              <option value="data-scientist">Data Scientist</option>
-              <option value="designer">Designer</option>
-              <option value="marketing">Marketing Professional</option>
-              <option value="sales">Sales Professional</option>
-              <option value="consultant">Consultant</option>
-              <option value="entrepreneur">Entrepreneur</option>
-              <option value="general">General Professional</option>
+          <div id="aiConfigSection" class="ai-config-section hidden">
+            <select id="settingsAiModel" class="settings-select">
+              <option value="">Select AI model...</option>
+              <option value="openai:gpt-4o-mini">OpenAI GPT-4o-mini | Fast & Affordable</option>
+              <option value="openai:gpt-4o">OpenAI GPT-4o | Best Quality</option>
+              <option value="anthropic:claude-3-5-sonnet" disabled>Anthropic Claude 3.5 Sonnet (coming soon)</option>
+              <option value="anthropic:claude-3-opus" disabled>Anthropic Claude 3 Opus (coming soon)</option>
             </select>
-          </div>
-          
-          <div class="form-group">
-            <label for="seniorityLevel">Experience Level</label>
-            <select id="seniorityLevel">
-              <option value="">Select level...</option>
-              <option value="entry">Entry Level</option>
-              <option value="mid">Mid Level</option>
-              <option value="senior">Senior</option>
-              <option value="lead">Lead/Principal</option>
-              <option value="director">Director+</option>
-            </select>
-          </div>
-          
-          <div class="form-group">
-            <label for="customInstructions">Additional Context</label>
-            <textarea id="customInstructions" 
-                      placeholder="e.g., Focus on leadership experience, highlight international work..."
-                      rows="2"></textarea>
-          </div>
-          
-          <div class="separator"></div>
-          
-          <!-- AI Provider Settings -->
-          <div class="section-header">AI Provider Settings</div>
-          <p class="section-subtext">Select provider and model</p>
-          
-          <div class="provider-model-row">
-            <select id="aiProviderModel" class="provider-model-select">
-              <option value="">Provider | Model | Value</option>
-              <option value="openai:gpt-4o-mini">OpenAI | GPT-4o mini | Fast & Affordable</option>
-              <option value="openai:gpt-4o">OpenAI | GPT-4o | Best Quality + Vision</option>
-            </select>
-          </div>
-          
-          <div class="api-key-section">
-            <label for="apiKeyMain" class="api-key-label">API Key</label>
-            <div class="api-key-input-row">
-              <input type="password" id="apiKeyMain" placeholder="Enter API key">
-              <a href="https://platform.openai.com/api-keys" target="_blank" class="api-key-link">Get API key →</a>
+            <input type="password" id="settingsApiKey" placeholder="Enter your API key" class="settings-input">
+            <div id="apiKeyError" class="error-text">API key required</div>
+            <div id="apiKeyTestStatus" class="test-status hidden"></div>
+            <div id="apiKeyExpirationStatus" style="margin: 4px 0 8px 0; font-size: 12px; color: #666; display: none;">
+              <span id="expirationText">✓ Key expires in 7 days</span>
+            </div>
+            <p class="cost-hint"><span id="costHint">~$0.02-0.07/analysis</span> • <a id="getKeyLink" href="https://platform.openai.com/api-keys" target="_blank">Get key →</a></p>
+            
+            <!-- Target Role & Custom Instructions (moved inside AI config) -->
+            <div class="ai-subsection">
+              <label class="settings-label">Target Role</label>
+              <select id="settingsTargetRole" class="settings-select">
+                <option value="">Select your target role...</option>
+                <option value="product-manager">Product Manager</option>
+                <option value="software-engineer">Software Engineer</option>
+                <option value="data-scientist">Data Scientist</option>
+                <option value="designer">Designer</option>
+                <option value="marketing">Marketing Professional</option>
+                <option value="sales">Sales Professional</option>
+                <option value="consultant">Consultant</option>
+                <option value="entrepreneur">Entrepreneur</option>
+                <option value="general">General Professional</option>
+                <option value="other">Other (specify)</option>
+              </select>
+              <input type="text" id="settingsCustomRole" class="settings-input hidden" placeholder="Enter your target role (e.g., DevOps Engineer, UX Researcher)" style="margin-top: 8px;">
+              <div id="customRoleError" class="error-text">Please enter your target role</div>
+              
+              <label class="settings-label">Target Level</label>
+              <select id="settingsSeniorityLevel" class="settings-select">
+                <option value="">Select target level...</option>
+                <option value="entry">Entry Level</option>
+                <option value="mid">Mid Level</option>
+                <option value="senior">Senior</option>
+                <option value="lead">Lead/Principal</option>
+                <option value="director">Director+</option>
+              </select>
+              
+              <label class="settings-label">Custom Instructions</label>
+              <textarea id="settingsCustomInstructions" class="settings-textarea" 
+                        placeholder="e.g., Focus on leadership experience, highlight international work..." 
+                        rows="3"></textarea>
             </div>
           </div>
-          
-          <div id="apiKeyTestStatus" class="test-status hidden"></div>
         </div>
-      </section>
-      
-      <!-- Action Buttons -->
-      <div class="action-buttons">
-        <button id="saveSettings" class="primary-button">Save Settings</button>
-        <p class="hint" style="margin: 8px 0 12px 0; font-size: 12px; color: #666; text-align: center;">
-          After saving, click "Analyze" in the blue ElevateLI banner on LinkedIn
-        </p>
-        <button id="resetAnalysis" class="secondary-button">Reset Analysis</button>
-        <a href="#" id="resetExtension" class="reset-link">Reset Extension</a>
+        
+        <button id="saveSettingsBtn" class="primary-button">Save Settings</button>
+        
+        <div class="settings-footer">
+          <a href="#" id="settingsResetAnalysis">Reset Profile Analysis</a>
+          <span class="separator">•</span>
+          <a href="#" id="settingsClearApiKey">Clear API Key</a>
+          <span class="separator">•</span>
+          <a href="#" id="settingsResetAll">Reset All</a>
+        </div>
       </div>
     </div>
     
@@ -159,22 +187,22 @@
     </div>
     
     <div class="footer-links">
-      <a href="https://github.com/prPMDev/elevateli/blob/main/elevateli-extension/TERMS.md" 
-         target="_blank" 
-         rel="noopener">
+      <a href="#" 
+         id="terms-link"
+         data-url="privacy-terms.html#terms">
         Terms
       </a>
       <span class="separator">•</span>
-      <a href="https://github.com/prPMDev/elevateli/blob/main/elevateli-extension/PRIVACY.md" 
-         target="_blank" 
-         rel="noopener">
+      <a href="#" 
+         id="privacy-link"
+         data-url="privacy-terms.html#privacy">
         Privacy
       </a>
       <span class="separator">•</span>
-      <a href="https://lnkd.in/gWr_MZ7J" 
+      <a href="https://github.com/prPMDev/elevateli/issues" 
          target="_blank" 
          rel="noopener">
-        💬 Send Feedback
+        💬 Feedback
       </a>
     </div>
     
@@ -183,6 +211,8 @@
     </div>
   </div>
   
+  <script src="../common/ownership-detector.js"></script>
+  <script src="../common/crypto-manager.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -1,13 +1,76 @@
 /* Background Service Worker for ElevateLI */
 
-// Check if Chrome APIs are available
-if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) {
-  console.error('[Service Worker] Chrome APIs not available during initialization');
-  // Service worker is being terminated or not properly initialized
-  // This is normal during service worker lifecycle
+// Debug configuration for service worker
+const DEBUG_CONFIG = {
+  ENABLED: true,
+  AI: { PROMPTS: true, RESPONSES: true, PARSING: true, SCORING: true, QUOTES: true, COSTS: true },
+  DATA: { EXTRACTION: true, TRANSFORMATION: true, VALIDATION: true, COMPLETENESS: true },
+  UI: { STATES: true, RENDERING: true, INTERACTIONS: true, ERRORS: true },
+  PERFORMANCE: { TIMING: true, MEMORY: false, CACHE: true, API_LATENCY: true },
+  SECTIONS: { EXPERIENCE: true, RECOMMENDATIONS: true, SKILLS: true, PROFILE_INTRO: true }
+};
+
+// Simple logger for service worker (can't import modules)
+class SmartLogger {
+  static log(category, action, data = {}) {
+    if (!DEBUG_CONFIG.ENABLED) return;
+    const [mainCat, subCat] = category.split('.');
+    if (!DEBUG_CONFIG[mainCat]?.[subCat]) return;
+    console.log(`[${category}] ${action}`, { timestamp: new Date().toISOString(), ...data });
+  }
+  
+  static error(category, action, error, context = {}) {
+    if (!DEBUG_CONFIG.ENABLED) return;
+    
+    // Handle different types of error objects
+    let errorInfo;
+    if (error instanceof Error) {
+      // Standard Error object
+      errorInfo = { message: error.message, stack: error.stack };
+    } else if (error && typeof error === 'object') {
+      // Plain object - try to stringify it
+      errorInfo = { 
+        message: error.message || JSON.stringify(error), 
+        type: 'object',
+        details: error 
+      };
+    } else {
+      // Primitive or null/undefined
+      errorInfo = { message: String(error), type: typeof error };
+    }
+    
+    console.error(`[${category}] ERROR: ${action}`, { 
+      timestamp: new Date().toISOString(), 
+      error: errorInfo,
+      context 
+    });
+  }
+  
+  static async time(category, action, asyncFn) {
+    if (!DEBUG_CONFIG.ENABLED || !DEBUG_CONFIG.PERFORMANCE?.TIMING) return asyncFn();
+    const start = performance.now();
+    try {
+      const result = await asyncFn();
+      const duration = Math.round((performance.now() - start) * 100) / 100;
+      this.log('PERFORMANCE.TIMING', action, { category, duration });
+      return result;
+    } catch (error) {
+      this.error('PERFORMANCE.TIMING', action, error, { duration: performance.now() - start });
+      throw error;
+    }
+  }
 }
 
-// Crypto utilities for API key encryption
+// Check if Chrome APIs are available
+if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) {
+  SmartLogger.error('SYSTEM', 'Chrome APIs not available', new Error('Chrome runtime unavailable'));
+}
+
+// Import crypto manager module
+importScripts('../common/crypto-manager.js');
+
+// DEPRECATED: Moving to shared crypto-manager.js module
+// Keeping temporarily for reference during migration
 class CryptoUtils {
   constructor() {
     this.algorithm = 'AES-GCM';
@@ -51,16 +114,14 @@ class CryptoUtils {
       const { installationId } = await chrome.storage.local.get('installationId');
       
       if (installationId) {
-        console.log('Using existing installation ID for encryption');
         return installationId;
       }
 
-      console.log('Creating new installation ID for encryption');
       const newId = crypto.randomUUID() + '-' + Date.now();
       await chrome.storage.local.set({ installationId: newId });
       return newId;
     } catch (error) {
-      console.error('Failed to get/create passphrase:', error);
+      SmartLogger.error('SECURITY', 'Failed to get/create passphrase', error);
       // Fallback to a simpler ID generation if crypto.randomUUID fails
       const fallbackId = 'elevateli-' + Date.now() + '-' + Math.random().toString(36).substring(2, 15);
       try {
@@ -68,7 +129,7 @@ class CryptoUtils {
           await chrome.storage.local.set({ installationId: fallbackId });
         }
       } catch (e) {
-        console.error('Failed to save fallback ID:', e);
+        SmartLogger.error('SECURITY', 'Failed to save fallback ID', e);
       }
       return fallbackId;
     }
@@ -76,8 +137,6 @@ class CryptoUtils {
 
   async encryptApiKey(apiKey) {
     try {
-      console.log('Starting API key encryption');
-      
       // Check if crypto.subtle is available
       if (!crypto || !crypto.subtle) {
         throw new Error('Web Crypto API not available');
@@ -98,13 +157,35 @@ class CryptoUtils {
         encoder.encode(apiKey)
       );
 
-      const combined = new Uint8Array(salt.length + iv.length + encrypted.byteLength);
+      // SIMPLE V1 FORMAT: Just concatenate salt + iv + encrypted
+      const encryptedBytes = new Uint8Array(encrypted);
+      const combined = new Uint8Array(salt.length + iv.length + encryptedBytes.length);
+      
+      // Write components
       combined.set(salt, 0);
       combined.set(iv, salt.length);
-      combined.set(new Uint8Array(encrypted), salt.length + iv.length);
-
-      const base64Result = btoa(String.fromCharCode(...combined));
-      console.log('API key encrypted successfully, length:', base64Result.length);
+      combined.set(encryptedBytes, salt.length + iv.length);
+      
+      // Safe base64 encoding for binary data
+      let binary = '';
+      const chunkSize = 0x8000; // 32KB chunks to avoid stack overflow
+      for (let i = 0; i < combined.length; i += chunkSize) {
+        const chunk = combined.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, chunk);
+      }
+      const base64Result = btoa(binary);
+      
+      // Store expiration separately
+      const expirationTime = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7 days
+      await chrome.storage.local.set({
+        apiKeyExpiration: expirationTime
+      });
+      
+      SmartLogger.log('AI.PROMPTS', 'API key encrypted successfully (v1)', { 
+        length: base64Result.length,
+        expiresAt: new Date(expirationTime).toISOString(),
+        format: 'v1'
+      });
       
       // Verify we can decrypt it immediately
       try {
@@ -112,19 +193,15 @@ class CryptoUtils {
         if (testDecrypt !== apiKey) {
           throw new Error('Encryption verification failed');
         }
-        console.log('Encryption verified successfully');
+        SmartLogger.log('AI.PROMPTS', 'Encryption verified successfully');
       } catch (verifyError) {
-        console.error('Failed to verify encryption:', verifyError);
+        SmartLogger.error('AI.PROMPTS', 'Failed to verify encryption', verifyError);
         throw new Error('Encryption verification failed');
       }
       
       return base64Result;
     } catch (error) {
-      console.error('Encryption error:', error);
-      console.error('Encryption error details:', {
-        errorName: error.name,
-        errorMessage: error.message,
-        errorStack: error.stack,
+      SmartLogger.error('AI.PROMPTS', 'Encryption error', error, {
         hasCrypto: !!crypto,
         hasCryptoSubtle: !!(crypto && crypto.subtle)
       });
@@ -144,8 +221,22 @@ class CryptoUtils {
     try {
       // Validate input
       if (!encryptedData || typeof encryptedData !== 'string') {
-        console.error('Invalid encrypted data:', encryptedData);
+        SmartLogger.error('AI.PROMPTS', 'Invalid encrypted data', new Error('Invalid data'), { 
+          dataType: typeof encryptedData,
+          hasData: !!encryptedData 
+        });
         throw new Error('Encrypted data is missing or invalid');
+      }
+
+      // Check expiration from separate storage FIRST
+      const { apiKeyExpiration } = await chrome.storage.local.get('apiKeyExpiration');
+      if (apiKeyExpiration && Date.now() > apiKeyExpiration) {
+        const expiredDate = new Date(apiKeyExpiration).toLocaleDateString();
+        SmartLogger.warn('AI.PROMPTS', 'API key has expired', {
+          expiredOn: expiredDate,
+          daysAgo: Math.floor((Date.now() - apiKeyExpiration) / (24 * 60 * 60 * 1000))
+        });
+        throw new Error(`API key expired on ${expiredDate}. Please enter a new key.`);
       }
 
       const passphrase = await this.getOrCreatePassphrase();
@@ -155,20 +246,73 @@ class CryptoUtils {
       try {
         combined = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
       } catch (e) {
-        console.error('Failed to decode base64:', e);
-        throw new Error('Invalid base64 encoded data');
+        SmartLogger.error('AI.PROMPTS', 'Failed to decode base64', e, {
+          encryptedDataSample: encryptedData.substring(0, 50) + '...'
+        });
+        // This might be a corrupted v2 key with chunked encoding
+        // Provide a clear error message
+        throw new Error('API key format is corrupted. Please delete and re-enter your API key.');
       }
       
-      // Validate combined data length
-      const minLength = this.saltLength + this.ivLength + 1; // At least 1 byte of encrypted data
-      if (combined.length < minLength) {
-        console.error('Encrypted data too short:', combined.length, 'bytes, expected at least', minLength);
-        throw new Error('Encrypted data is corrupted or too short');
+      let salt, iv, encrypted;
+      let isV2 = false;
+      
+      // Check if this is v2 format (starts with metadata length) for migration
+      if (combined.length >= 4) {
+        const dataView = new DataView(combined.buffer);
+        const possibleMetadataLength = dataView.getUint32(0, false);
+        
+        // Sanity check - metadata shouldn't be huge
+        if (possibleMetadataLength > 0 && possibleMetadataLength < 1000 && 
+            combined.length >= 4 + possibleMetadataLength + this.saltLength + this.ivLength + 1) {
+          
+          // This looks like v2 format - migrate it
+          try {
+            const metadataBytes = combined.slice(4, 4 + possibleMetadataLength);
+            const metadataJson = new TextDecoder().decode(metadataBytes);
+            const metadata = JSON.parse(metadataJson);
+            
+            // Extract crypto components after metadata
+            const dataStart = 4 + possibleMetadataLength;
+            salt = combined.slice(dataStart, dataStart + this.saltLength);
+            iv = combined.slice(dataStart + this.saltLength, dataStart + this.saltLength + this.ivLength);
+            encrypted = combined.slice(dataStart + this.saltLength + this.ivLength);
+            
+            // Migrate expiration to separate storage
+            if (metadata.expiresAt && !apiKeyExpiration) {
+              await chrome.storage.local.set({
+                apiKeyExpiration: metadata.expiresAt
+              });
+              SmartLogger.log('AI.PROMPTS', 'Migrated v2 expiration to separate storage');
+            }
+            
+            isV2 = true;
+            SmartLogger.log('AI.PROMPTS', 'Detected and migrating v2 encrypted format');
+          } catch (metadataError) {
+            // Not v2, continue with v1
+            isV2 = false;
+          }
+        }
       }
       
-      const salt = combined.slice(0, this.saltLength);
-      const iv = combined.slice(this.saltLength, this.saltLength + this.ivLength);
-      const encrypted = combined.slice(this.saltLength + this.ivLength);
+      // If not v2, use simple v1 format
+      if (!isV2) {
+        // Validate combined data length for v1 format
+        const minLength = this.saltLength + this.ivLength + 1;
+        if (combined.length < minLength) {
+          SmartLogger.error('AI.PROMPTS', 'Encrypted data too short', new Error('Data too short'), {
+            actualLength: combined.length,
+            expectedMinLength: minLength
+          });
+          throw new Error('Encrypted data is corrupted or too short');
+        }
+        
+        salt = combined.slice(0, this.saltLength);
+        iv = combined.slice(this.saltLength, this.saltLength + this.ivLength);
+        encrypted = combined.slice(this.saltLength + this.ivLength);
+        
+        SmartLogger.log('AI.PROMPTS', 'Using v1 encrypted format');
+      }
 
       const key = await this.generateKey(passphrase, salt);
 
@@ -182,20 +326,32 @@ class CryptoUtils {
       );
 
       const decoder = new TextDecoder();
-      return decoder.decode(decrypted);
+      const apiKey = decoder.decode(decrypted);
+      
+      // If we successfully decrypted a v2 key, re-encrypt it as v1
+      if (isV2) {
+        SmartLogger.log('AI.PROMPTS', 'Re-encrypting v2 key as v1 for future use');
+        try {
+          const newEncrypted = await this.encryptApiKey(apiKey);
+          await chrome.storage.local.set({ encryptedApiKey: newEncrypted });
+        } catch (reEncryptError) {
+          SmartLogger.error('AI.PROMPTS', 'Failed to re-encrypt as v1', reEncryptError);
+          // Continue - at least we decrypted it
+        }
+      }
+      
+      return apiKey;
     } catch (error) {
-      console.error('Decryption error:', error);
-      console.error('Error details:', {
+      SmartLogger.error('AI.PROMPTS', 'Decryption error', error, {
         encryptedDataLength: encryptedData?.length,
         encryptedDataType: typeof encryptedData,
         errorMessage: error.message,
-        errorName: error.name,
-        errorStack: error.stack
+        errorName: error.name
       });
       
       // Check if it's a decryption error (wrong key or corrupted data)
       if (error.name === 'OperationError' || error.message.includes('decrypt')) {
-        throw new Error('API key decryption failed - key may be corrupted');
+        throw new Error('API key decryption failed - key may be corrupted. Please re-enter your key.');
       }
       throw new Error('Failed to decrypt API key: ' + error.message);
     }
@@ -209,27 +365,29 @@ class CryptoUtils {
         return false;
       }
 
-      console.log('Migrating plain text API key to encrypted storage');
+      // console.log('Migrating plain text API key to encrypted storage');
       const encrypted = await this.encryptApiKey(apiKey);
       await chrome.storage.local.set({ encryptedApiKey: encrypted });
       await chrome.storage.local.remove('apiKey');
-      console.log('API key successfully migrated to encrypted storage');
+      SmartLogger.log('AI.PROMPTS', 'API key successfully migrated to encrypted storage');
       return true;
     } catch (error) {
-      console.error('Migration failed:', error);
+      SmartLogger.error('AI.PROMPTS', 'Migration failed', error);
       return false;
     }
   }
 }
 
-const cryptoUtils = new CryptoUtils();
+// Use shared crypto manager instead of local class
+const cryptoUtils = CryptoManager;
 
+// [CRITICAL_PATH:API_KEY_RETRIEVAL] - P0: Decrypts API key for all AI operations
 // Helper function to get decrypted API key
 async function getDecryptedApiKey() {
   try {
     // Check if Chrome storage is available
     if (!chrome || !chrome.storage || !chrome.storage.local) {
-      console.error('[getDecryptedApiKey] Chrome storage not available');
+      SmartLogger.error('PERFORMANCE.TIMING', 'Chrome storage not available', new Error('No Chrome storage'));
       return null;
     }
     
@@ -240,19 +398,24 @@ async function getDecryptedApiKey() {
     try {
       return await cryptoUtils.decryptApiKey(encryptedApiKey);
     } catch (error) {
-      console.error('Failed to decrypt API key:', error);
+      console.error('getDecryptedApiKey - Failed to decrypt:', error);
+      console.error('Encrypted key that failed:', encryptedApiKey);
+      SmartLogger.error('AI.PROMPTS', 'Failed to decrypt API key', error);
       
-      // If decryption fails, clear the corrupted key
+      // DO NOT auto-delete the key on decryption failure
+      // This was causing keys to disappear from settings
+      /*
       if (error.message.includes('decrypt') || error.message.includes('corrupted')) {
-        console.log('Clearing corrupted encrypted API key');
+        SmartLogger.log('AI.PROMPTS', 'Clearing corrupted encrypted API key');
         try {
           if (chrome && chrome.storage && chrome.storage.local) {
             await chrome.storage.local.remove(['encryptedApiKey']);
           }
         } catch (e) {
-          console.error('Failed to remove corrupted key:', e);
+          SmartLogger.error('AI.PROMPTS', 'Failed to remove corrupted key', e);
         }
       }
+      */
       
       return null;
     }
@@ -260,7 +423,7 @@ async function getDecryptedApiKey() {
   
   // If we have a plain text key (legacy), migrate it
   if (apiKey) {
-    console.log('Found legacy plain text API key, migrating...');
+    SmartLogger.log('AI.PROMPTS', 'Found legacy plain text API key, migrating');
     await cryptoUtils.migrateExistingKeys();
     // Try again with the migrated key
     try {
@@ -270,106 +433,125 @@ async function getDecryptedApiKey() {
           try {
             return await cryptoUtils.decryptApiKey(newEncrypted);
           } catch (error) {
-            console.error('Failed to decrypt migrated key:', error);
+            SmartLogger.error('AI.PROMPTS', 'Failed to decrypt migrated key', error);
             return null;
           }
         }
       }
     } catch (e) {
-      console.error('Failed to get migrated key:', e);
+      SmartLogger.error('AI.PROMPTS', 'Failed to get migrated key', e);
     }
   }
   
   return null;
   } catch (error) {
-    console.error('[getDecryptedApiKey] Error:', error);
+    SmartLogger.error('AI.PROMPTS', 'getDecryptedApiKey error', error);
     return null;
   }
 }
 
-// Run migration on startup
+// Initialize service worker properly
+(async function initializeServiceWorker() {
+  try {
+    SmartLogger.log('SYSTEM', 'Service worker initializing');
+    
+    // Check if migration is needed on every startup
+    const { cryptoMigrationComplete } = await chrome.storage.local.get('cryptoMigrationComplete');
+    if (!cryptoMigrationComplete) {
+      SmartLogger.log('SYSTEM', 'Running crypto migration');
+      await cryptoUtils.migrateExistingKeys();
+      await chrome.storage.local.set({ cryptoMigrationComplete: true });
+    }
+    
+    SmartLogger.log('SYSTEM', 'Service worker initialized successfully');
+  } catch (error) {
+    SmartLogger.error('SYSTEM', 'Service worker initialization failed', error);
+  }
+})();
+
+// Use onInstalled only for one-time setup
 if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
-  chrome.runtime.onInstalled.addListener(async () => {
-    await cryptoUtils.migrateExistingKeys();
+  chrome.runtime.onInstalled.addListener(async (details) => {
+    if (details.reason === 'install') {
+      SmartLogger.log('SYSTEM', 'Extension installed for the first time');
+      // Open updates page on fresh install
+      chrome.tabs.create({ url: 'updates.html' });
+    } else if (details.reason === 'update') {
+      SmartLogger.log('SYSTEM', 'Extension updated', { 
+        previousVersion: details.previousVersion 
+      });
+      
+      // Parse version numbers
+      const previousVersion = details.previousVersion || '0.0.0';
+      const currentVersion = chrome.runtime.getManifest().version;
+      
+      // Check if this is a major or minor version update
+      const [prevMajor, prevMinor] = previousVersion.split('.').map(Number);
+      const [currMajor, currMinor] = currentVersion.split('.').map(Number);
+      
+      // Show updates page for major or minor version changes
+      if (currMajor > prevMajor || (currMajor === prevMajor && currMinor > prevMinor)) {
+        chrome.tabs.create({ url: 'updates.html' });
+      }
+    }
   });
 }
 
-// Rate limiting implementation
-class RateLimiter {
-  constructor() {
-    this.providers = {
-      openai: {
-        maxRequests: 10,
-        windowMs: 60000,
-        requests: [],
-        retryAfter: null
-      },
-      anthropic: {
-        maxRequests: 5,
-        windowMs: 60000,
-        requests: [],
-        retryAfter: null
-      }
-    };
-  }
+// Rate limiting class defined later in file to avoid duplication
 
-  async checkLimit(provider) {
-    const config = this.providers[provider];
-    if (!config) return { allowed: true };
+// Service worker keep-alive mechanism for long operations
+let keepAliveInterval;
 
-    const now = Date.now();
-    
-    if (config.retryAfter && now < config.retryAfter) {
-      return {
-        allowed: false,
-        waitTime: Math.ceil((config.retryAfter - now) / 1000),
-        reason: 'cooldown'
-      };
+function startKeepAlive() {
+  keepAliveInterval = setInterval(() => {
+    if (chrome.runtime?.id) {
+      // Simple ping to keep service worker alive
+      chrome.runtime.getPlatformInfo(() => {});
     }
+  }, 20000); // Every 20 seconds
+}
 
-    config.requests = config.requests.filter(time => now - time < config.windowMs);
-
-    if (config.requests.length >= config.maxRequests) {
-      const oldestRequest = Math.min(...config.requests);
-      const waitTime = Math.ceil((oldestRequest + config.windowMs - now) / 1000);
-      return {
-        allowed: false,
-        waitTime,
-        reason: 'rate_limit'
-      };
-    }
-
-    config.requests.push(now);
-    return { allowed: true };
-  }
-
-  setCooldown(provider, seconds) {
-    if (this.providers[provider]) {
-      this.providers[provider].retryAfter = Date.now() + (seconds * 1000);
-    }
+function stopKeepAlive() {
+  if (keepAliveInterval) {
+    clearInterval(keepAliveInterval);
+    keepAliveInterval = null;
   }
 }
 
-const rateLimiter = new RateLimiter();
+// Wrapper for long-running operations
+async function withKeepAlive(operation) {
+  startKeepAlive();
+  try {
+    return await operation();
+  } finally {
+    stopKeepAlive();
+  }
+}
 
 // Profile Score Calculator for weighted section scoring
 class ProfileScoreCalculator {
   // Section weights (when present)
   static SECTION_WEIGHTS = {
-    about: 0.30,      // 30%
-    experience: 0.30, // 30%
-    skills: 0.20,     // 20%
-    headline: 0.10,   // 10%
-    education: 0.05,  // 5%
-    recommendations: 0.05 // 5%
+    first_impression: 0.20,  // 20% - Unified headline/photo/banner
+    about: 0.25,            // 25% - Standalone about section  
+    experience: 0.30,       // 30%
+    skills: 0.15,           // 15%
+    education: 0.05,        // 5%
+    recommendations: 0.05,  // 5%
+    // Legacy weights for backward compatibility
+    profile_intro: 0.30,    // 30% - Old combined headline+about
+    headline: 0.10          // 10% - Old standalone headline
   };
   
   // Critical sections - missing these caps the score
   static CRITICAL_SECTIONS = {
+    first_impression: { required: true, maxScoreWithout: 8 }, // Missing photo/headline severely limits impact
     about: { required: true, maxScoreWithout: 7 },
     experience: { required: true, maxScoreWithout: 6 },
     skills: { required: false, maxScoreWithout: 9 },
-    recommendations: { required: false, maxScoreWithout: 8 }
+    recommendations: { required: false, maxScoreWithout: 8 },
+    // Legacy sections for backward compatibility
+    profile_intro: { required: true, maxScoreWithout: 7 }
   };
   
   static calculateOverallScore(sectionScores) {
@@ -379,10 +561,11 @@ class ProfileScoreCalculator {
     
     // Add defensive check for sectionScores
     if (!sectionScores || typeof sectionScores !== 'object') {
-      console.log('[ProfileScoreCalculator] Invalid sectionScores:', sectionScores);
+      SmartLogger.log('AI.SCORING', 'Invalid sectionScores', { sectionScores });
       return {
-        overallScore: 5, // Default middle score
-        baseScore: 5,
+        overallScore: null,
+        baseScore: null,
+        errorType: 'DATA_READ_ERROR',
         maxPossibleScore: 10,
         sectionScores: {},
         missingCritical: []
@@ -449,7 +632,7 @@ const CACHE_CONFIG = {
 // Check cache for analysis results - Content-based validation, no time expiration
 async function checkCache(cacheKey, forceRefresh = false) {
   if (forceRefresh) {
-    console.log(`Force refresh requested for ${cacheKey}, bypassing cache`);
+    SmartLogger.log('PERFORMANCE.CACHE', 'Force refresh requested', { cacheKey });
     return null;
   }
   
@@ -460,25 +643,25 @@ async function checkCache(cacheKey, forceRefresh = false) {
       const age = Date.now() - cached.timestamp;
       
       // Always return cache regardless of age - content-based invalidation only
-      console.log(`Cache hit for ${cacheKey}, age: ${formatCacheAge(age)}`);
+      SmartLogger.log('PERFORMANCE.CACHE', 'Cache hit', { cacheKey, age: formatCacheAge(age) });
       
       // Check if cached analysis has recommendations, if not try to parse from summary
       let cachedAnalysis = cached.analysis;
       if (!cachedAnalysis.recommendations && cachedAnalysis.summary && cachedAnalysis.summary.includes('"recommendations"')) {
-        console.log('📦 Re-parsing cached result to extract recommendations');
-        console.log('Summary preview:', cachedAnalysis.summary.substring(0, 200));
+        SmartLogger.log('AI.PARSING', 'Re-parsing cached result', { 
+          summaryPreview: cachedAnalysis.summary.substring(0, 200) 
+        });
         try {
           // Extract JSON from summary if it exists
           const jsonMatch = cachedAnalysis.summary.match(/```json\n([\s\S]+?)\n```/);
           if (jsonMatch) {
-            console.log('Found JSON in summary, parsing...');
+            SmartLogger.log('AI.PARSING', 'Found JSON in summary');
             const jsonData = JSON.parse(jsonMatch[1]);
             if (jsonData.recommendations) {
               cachedAnalysis.recommendations = jsonData.recommendations;
               cachedAnalysis.insights = jsonData.insights;
               cachedAnalysis.fullAnalysis = jsonData;
-              console.log('✅ Successfully extracted recommendations from cached summary');
-              console.log('Recommendations structure:', {
+              SmartLogger.log('AI.PARSING', 'Successfully extracted recommendations from cache', {
                 critical: cachedAnalysis.recommendations.critical?.length || 0,
                 important: cachedAnalysis.recommendations.important?.length || 0,
                 niceToHave: cachedAnalysis.recommendations.niceToHave?.length || 0
@@ -486,17 +669,17 @@ async function checkCache(cacheKey, forceRefresh = false) {
             }
           }
         } catch (parseError) {
-          console.error('Failed to re-parse cached summary:', parseError);
+          SmartLogger.error('AI.PARSING', 'Failed to re-parse cached summary', parseError);
         }
       }
       
       return cachedAnalysis;
     }
     
-    console.log(`Cache miss for ${cacheKey}`);
+    SmartLogger.log('PERFORMANCE.CACHE', 'Cache miss', { cacheKey });
     return null;
   } catch (error) {
-    console.error('Cache check error:', error);
+    SmartLogger.error('PERFORMANCE.CACHE', 'Cache check failed', error);
     return null;
   }
 }
@@ -513,9 +696,15 @@ async function storeInCache(cacheKey, analysis) {
     storageData[cacheKey] = cacheData;
     
     await chrome.storage.local.set(storageData);
-    console.log(`Stored in cache: ${cacheKey}`);
+    
+    SmartLogger.log('PERFORMANCE.CACHE', 'Stored in cache', {
+      cacheKey,
+      hasRecommendations: !!analysis.recommendations,
+      contentScore: analysis.contentScore,
+      sectionCount: Object.keys(analysis.sectionScores || {}).length
+    });
   } catch (error) {
-    console.error('Cache storage error:', error);
+    SmartLogger.error('PERFORMANCE.CACHE', 'Cache storage failed', error, { cacheKey });
   }
 }
 
@@ -534,10 +723,10 @@ async function cleanupOldCache() {
     
     if (keysToRemove.length > 0) {
       await chrome.storage.local.remove(keysToRemove);
-      console.log(`Cleaned up ${keysToRemove.length} old cache entries`);
+      SmartLogger.log('PERFORMANCE.CACHE', 'Cleaned old cache entries', { count: keysToRemove.length });
     }
   } catch (error) {
-    console.error('Cache cleanup error:', error);
+    SmartLogger.error('PERFORMANCE.CACHE', 'Cache cleanup failed', error);
   }
 }
 
@@ -553,10 +742,22 @@ function formatCacheAge(ageMs) {
 
 // Handle AI analysis
 async function handleAIAnalysis(request, sender, sendResponse) {
-  console.log('[AI Analysis] Request received:', {
+  // Check rate limit for analysis
+  const profileId = request.profileId || 'unknown';
+  const rateCheck = rateLimiter.canMakeRequest('analysis', profileId);
+  if (!rateCheck.allowed) {
+    sendResponse({
+      success: false,
+      error: `Analysis rate limit exceeded. Please wait ${rateCheck.waitTime} seconds before analyzing again.`,
+      rateLimited: true
+    });
+    return;
+  }
+
+  SmartLogger.log('AI.PROMPTS', 'AI analysis request received', {
     sections: Object.keys(request.sections || {}),
     forceRefresh: request.forceRefresh,
-    settings: request.settings
+    hasSettings: !!request.settings
   });
   
   const { sections, settings = {}, forceRefresh = false } = request;
@@ -565,7 +766,7 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     // Check AI enabled
     const { enableAI } = await chrome.storage.local.get('enableAI');
     if (!enableAI) {
-      console.log('[AI Analysis] AI is disabled');
+      SmartLogger.log('AI.PROMPTS', 'AI is disabled');
       sendResponse({ success: false, error: 'AI analysis is disabled' });
       return;
     }
@@ -573,7 +774,7 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     // Get provider info
     const { aiProvider } = await chrome.storage.local.get('aiProvider');
     if (!aiProvider) {
-      console.log('[AI Analysis] No AI provider configured');
+      SmartLogger.log('AI.PROMPTS', 'No AI provider configured');
       sendResponse({ 
         success: false, 
         error: 'No AI provider configured',
@@ -583,9 +784,9 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     }
     
     // Check rate limit
-    const rateCheck = await rateLimiter.checkLimit(aiProvider);
+    const rateCheck = rateLimiter.canMakeRequest('analysis', request.profileId || 'unknown');
     if (!rateCheck.allowed) {
-      console.log('[AI Analysis] Rate limit hit:', rateCheck);
+      SmartLogger.log('AI.PROMPTS', 'Rate limit hit', rateCheck);
       sendResponse({
         success: false,
         error: `Rate limit exceeded. Please wait ${rateCheck.waitTime} seconds.`,
@@ -596,26 +797,54 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     }
     
     // Get decrypted API key
-    const apiKey = await getDecryptedApiKey();
+    let apiKey = null;
+    let decryptionError = null;
+    
+    try {
+      apiKey = await getDecryptedApiKey();
+    } catch (error) {
+      decryptionError = error;
+      SmartLogger.error('AI.PROMPTS', 'Failed to get decrypted key', error);
+    }
+    
     if (!apiKey) {
-      console.log('[AI Analysis] No API key found');
-      sendResponse({ 
-        success: false, 
-        error: 'API key not configured',
-        type: 'AUTH',
-        message: 'Please configure your API key in the extension settings'
-      });
+      SmartLogger.log('AI.PROMPTS', 'No API key found', { hasDecryptError: !!decryptionError });
+      
+      // Check if we have an encrypted key that failed to decrypt
+      const { encryptedApiKey } = await chrome.storage.local.get('encryptedApiKey');
+      
+      if (encryptedApiKey && decryptionError) {
+        // We have a key but it failed to decrypt
+        sendResponse({ 
+          success: false, 
+          error: 'Failed to decrypt API key. Please re-enter your key in settings.',
+          type: 'AUTH',
+          decryptionFailed: true
+        });
+      } else {
+        // No key at all
+        sendResponse({ 
+          success: false, 
+          error: 'API key not configured',
+          type: 'AUTH',
+          message: 'Please configure your API key in the extension settings'
+        });
+      }
       return;
     }
     
-    // Generate cache key based on content
-    const contentHash = await generateContentHash(sections);
-    const cacheKey = `${CACHE_CONFIG.keyPrefix}${contentHash}`;
+    // Generate content hash for smart caching (infinite duration)
+    const contentHash = await generateTextContentHash(sections);
+    const profileId = sender?.tab?.url?.match(/linkedin\.com\/in\/([^\/]+)/)?.[1] || 'unknown';
     
-    // Check cache unless forced refresh
-    const cachedAnalysis = await checkCache(cacheKey, forceRefresh);
+    // Check smart cache unless forced refresh
+    const cachedAnalysis = await checkSmartCache(profileId, contentHash, 'text', forceRefresh);
     if (cachedAnalysis) {
-      console.log('[AI Analysis] Returning cached result');
+      SmartLogger.log('PERFORMANCE.CACHE', 'Returning cached text analysis', { 
+        profileId,
+        contentHash: contentHash.substring(0, 8) + '...',
+        cachedAt: cachedAnalysis.cachedAt
+      });
       sendResponse({ 
         success: true, 
         analysis: cachedAnalysis,
@@ -625,7 +854,7 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     }
     
     // Get fresh analysis
-    console.log('[AI Analysis] Performing fresh analysis');
+    SmartLogger.log('AI.PROMPTS', 'Performing fresh analysis', { provider: aiProvider, model: aiModel });
     const { aiModel } = await chrome.storage.local.get('aiModel');
     const analysis = await performDistributedAnalysis(sections, {
       apiKey,
@@ -636,8 +865,8 @@ async function handleAIAnalysis(request, sender, sendResponse) {
       customInstructions: settings.customInstructions || ''
     });
     
-    // Store in cache
-    await storeInCache(cacheKey, analysis);
+    // Store in smart cache (infinite duration)
+    await storeInSmartCache(profileId, contentHash, analysis, 'text');
     
     sendResponse({ 
       success: true, 
@@ -646,7 +875,7 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     });
     
   } catch (error) {
-    console.error('[AI Analysis] Error:', error);
+    SmartLogger.error('AI.PROMPTS', 'AI analysis failed', error);
     
     // Check for specific error types
     if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
@@ -658,7 +887,8 @@ async function handleAIAnalysis(request, sender, sendResponse) {
       });
     } else if (error.message?.includes('429') || error.message?.includes('rate limit')) {
       const waitTime = parseInt(error.message.match(/\d+/)?.[0] || '60');
-      rateLimiter.setCooldown(request.settings?.provider || 'openai', waitTime);
+      // Note: setCooldown not implemented in current RateLimiter
+      // rateLimiter.setCooldown(request.settings?.provider || 'openai', waitTime);
       sendResponse({
         success: false,
         error: `Rate limit exceeded. Please wait ${waitTime} seconds.`,
@@ -672,29 +902,253 @@ async function handleAIAnalysis(request, sender, sendResponse) {
         type: 'NETWORK',
         message: 'Unable to connect to AI service. Please check your internet connection.'
       });
-    } else {
+    } else if (error.message?.includes('expired')) {
+      // Keep expiration messages - they're already user-friendly
       sendResponse({
         success: false,
-        error: error.message || 'Analysis failed',
+        error: error.message,
+        type: 'EXPIRED'
+      });
+    } else {
+      // Generic sanitized message for all other errors
+      sendResponse({
+        success: false,
+        error: 'Analysis failed',
         type: 'UNKNOWN'
       });
     }
   }
 }
 
-// Generate content hash for caching
-async function generateContentHash(sections) {
-  const content = JSON.stringify(sections);
-  const encoder = new TextEncoder();
-  const data = encoder.encode(content);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+// Handle vision AI analysis for images
+async function handleVisionAnalysis(request, sender, sendResponse) {
+  SmartLogger.log('AI.PROMPTS', 'Vision analysis request received', {
+    hasImageData: !!request.imageData,
+    hasPrompt: !!request.prompt,
+    hasContext: !!request.context
+  });
+  
+  const { imageData, prompt, context = {} } = request;
+  
+  try {
+    // Check AI enabled
+    const { enableAI } = await chrome.storage.local.get('enableAI');
+    if (!enableAI) {
+      SmartLogger.log('AI.PROMPTS', 'AI is disabled');
+      sendResponse({ success: false, error: 'AI analysis is disabled' });
+      return;
+    }
+    
+    // Get provider info and check vision support
+    const { aiProvider, aiModel } = await chrome.storage.local.get(['aiProvider', 'aiModel']);
+    if (!aiProvider || aiProvider !== 'openai' || aiModel !== 'gpt-4o') {
+      SmartLogger.log('AI.PROMPTS', 'Vision analysis requires GPT-4o');
+      sendResponse({ 
+        success: false, 
+        error: 'Vision analysis requires OpenAI GPT-4o',
+        type: 'VISION_UNSUPPORTED'
+      });
+      return;
+    }
+    
+    // Validate image data
+    if (!imageData || !imageData.startsWith('data:image/')) {
+      sendResponse({
+        success: false,
+        error: 'Invalid image data provided'
+      });
+      return;
+    }
+    
+    // Get decrypted API key
+    const apiKey = await getDecryptedApiKey();
+    if (!apiKey) {
+      SmartLogger.log('AI.PROMPTS', 'No API key found');
+      sendResponse({ 
+        success: false, 
+        error: 'API key not configured',
+        type: 'AUTH'
+      });
+      return;
+    }
+    
+    // Generate image content hash for caching
+    const imageHash = await generateImageHash(imageData);
+    const profileId = context.profileId || 'unknown';
+    const analysisType = context.analysisType || 'image';
+    
+    // Check smart cache unless forced refresh
+    const cachedResult = await checkSmartCache(profileId, imageHash, `vision_${analysisType}`, context.forceRefresh);
+    if (cachedResult) {
+      SmartLogger.log('PERFORMANCE.CACHE', 'Returning cached vision result', { 
+        imageHash: imageHash.substring(0, 8) + '...',
+        analysisType 
+      });
+      sendResponse({ 
+        success: true, 
+        result: cachedResult
+      });
+      return;
+    }
+    
+    // Perform fresh vision analysis
+    SmartLogger.log('AI.PROMPTS', 'Performing fresh vision analysis', { 
+      provider: aiProvider, 
+      model: aiModel,
+      analysisType 
+    });
+    
+    const visionResult = await callOpenAIVision(apiKey, imageData, prompt);
+    
+    // Store in smart cache (infinite duration)
+    await storeInSmartCache(profileId, imageHash, visionResult, `vision_${analysisType}`);
+    
+    sendResponse({ 
+      success: true, 
+      result: visionResult
+    });
+    
+  } catch (error) {
+    SmartLogger.error('AI.PROMPTS', 'Vision analysis failed', error);
+    
+    // Handle specific error types
+    if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
+      sendResponse({
+        success: false,
+        error: 'Invalid API key',
+        type: 'AUTH'
+      });
+    } else if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      sendResponse({
+        success: false,
+        error: 'Rate limit exceeded',
+        type: 'RATE_LIMIT'
+      });
+    } else {
+      sendResponse({
+        success: false,
+        error: error.message || 'Vision analysis failed'
+      });
+    }
+  }
+}
+
+// Generate image hash for caching
+async function generateImageHash(imageDataUrl) {
+  try {
+    // Extract base64 data (remove data:image/...;base64, prefix)
+    const base64Data = imageDataUrl.split(',')[1];
+    if (!base64Data) {
+      return 'invalid_image';
+    }
+    
+    // Convert base64 to ArrayBuffer
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    
+    // Generate SHA-256 hash
+    const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (error) {
+    SmartLogger.error('AI.PROMPTS', 'Error generating image hash', error);
+    return `img_fallback_${Date.now()}`;
+  }
+}
+
+// Smart cache functions for content-hash based infinite caching
+async function checkSmartCache(profileId, contentHash, analysisType, forceRefresh = false) {
+  if (forceRefresh) return null;
+  
+  try {
+    const cacheKey = `ai_${analysisType}_${profileId}_${contentHash}`;
+    const result = await chrome.storage.local.get(cacheKey);
+    
+    if (result[cacheKey]) {
+      const cachedData = result[cacheKey];
+      cachedData._cacheInfo = {
+        cached: true,
+        cacheKey,
+        cachedAt: cachedData.cachedAt || 'unknown',
+        contentHash,
+        analysisType
+      };
+      return cachedData;
+    }
+    
+    return null;
+  } catch (error) {
+    SmartLogger.error('PERFORMANCE.CACHE', 'Error checking smart cache', error);
+    return null;
+  }
+}
+
+async function storeInSmartCache(profileId, contentHash, analysisResult, analysisType) {
+  try {
+    const cacheKey = `ai_${analysisType}_${profileId}_${contentHash}`;
+    const cacheData = {
+      ...analysisResult,
+      cachedAt: new Date().toISOString(),
+      contentHash,
+      analysisType,
+      profileId
+    };
+    
+    await chrome.storage.local.set({
+      [cacheKey]: cacheData
+    });
+    
+    SmartLogger.log('PERFORMANCE.CACHE', 'Stored in smart cache', {
+      cacheKey,
+      contentHash: contentHash.substring(0, 8) + '...',
+      analysisType
+    });
+    
+    return true;
+  } catch (error) {
+    SmartLogger.error('PERFORMANCE.CACHE', 'Error storing in smart cache', error);
+    return false;
+  }
+}
+
+// Generate text content hash for smart caching (compatible with SmartCacheManager)
+async function generateTextContentHash(sections) {
+  try {
+    // Create consistent structure for hashing (compatible with SmartCacheManager)
+    const textContent = {
+      about: sections.about?.text || '',
+      headline: sections.headline?.text || '',
+      experience: JSON.stringify(sections.experience || []),
+      skills: JSON.stringify(sections.skills || []),
+      education: JSON.stringify(sections.education || []),
+      recommendations: JSON.stringify(sections.recommendations || []),
+      certifications: JSON.stringify(sections.certifications || []),
+      projects: JSON.stringify(sections.projects || []),
+      featured: JSON.stringify(sections.featured || [])
+    };
+    
+    // Create deterministic string for hashing
+    const contentString = JSON.stringify(textContent, Object.keys(textContent).sort());
+    
+    // Generate SHA-256 hash
+    const encoder = new TextEncoder();
+    const data = encoder.encode(contentString);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (error) {
+    SmartLogger.error('PERFORMANCE.CACHE', 'Error generating text content hash', error);
+    // Fallback to timestamp-based cache key if hashing fails
+    return `fallback_${Date.now()}`;
+  }
 }
 
 // Perform distributed AI analysis
 async function performDistributedAnalysis(sections, config) {
-  console.log('[Distributed Analysis] Starting with config:', {
+  SmartLogger.log('AI.PROMPTS', 'Starting distributed analysis', {
     provider: config.provider,
     targetRole: config.targetRole,
     seniorityLevel: config.seniorityLevel,
@@ -716,7 +1170,19 @@ async function performDistributedAnalysis(sections, config) {
     
     try {
       const sectionPrompt = createSectionPrompt(sectionName, sectionContent, config);
-      const response = await callAIProvider(config.provider, config.apiKey, sectionPrompt, config.model);
+      
+      // Log prompt generation
+      SmartLogger.log('AI.PROMPTS', 'Section prompt created', {
+        section: sectionName,
+        promptLength: sectionPrompt.length,
+        targetRole: config.targetRole,
+        seniorityLevel: config.seniorityLevel,
+        hasCustomInstructions: !!config.customInstructions
+      });
+      
+      const response = await SmartLogger.time('PERFORMANCE.API_LATENCY', `AI analysis - ${sectionName}`, 
+        async () => await callAIProvider(config.provider, config.apiKey, sectionPrompt, config.model)
+      );
       
       // Parse the response
       const analysis = parseSectionAnalysis(response, sectionName);
@@ -725,16 +1191,23 @@ async function performDistributedAnalysis(sections, config) {
         ...analysis
       };
       
-      console.log(`[Distributed Analysis] ${sectionName} score:`, analysis.score);
+      SmartLogger.log('AI.RESPONSES', 'Section analyzed', {
+        section: sectionName,
+        score: analysis.score,
+        hasPositiveInsight: !!analysis.positiveInsight,
+        hasActionItems: analysis.actionItems?.length > 0,
+        hasQuotes: analysis.positiveInsight?.includes('"') || analysis.gapAnalysis?.includes('"')
+      });
       
       // Small delay between requests to avoid rate limits
       await new Promise(resolve => setTimeout(resolve, 1000));
       
     } catch (error) {
-      console.error(`[Distributed Analysis] Error analyzing ${sectionName}:`, error);
+      SmartLogger.error('AI.RESPONSES', 'Section analysis failed', error, { section: sectionName });
       sectionAnalyses[sectionName] = {
         exists: true,
-        score: 5,
+        score: null,
+        errorType: 'ANALYSIS_FAILED',
         feedback: 'Unable to analyze this section.',
         error: error.message
       };
@@ -757,25 +1230,75 @@ async function performDistributedAnalysis(sections, config) {
 }
 
 // Create section-specific prompt
-function createSectionPrompt(sectionName, content, config) {
+function createSectionPrompt(sectionName, content, config, context = {}) {
+  // Add current date to config for all prompts
+  const enhancedConfig = {
+    ...config,
+    currentDate: new Date().toISOString().split('T')[0] // Format: "2025-01-19"
+  };
+  
   // Special handling for experience roles
   if (sectionName === 'experience_role' && typeof content === 'object') {
-    return createExperienceRolePrompt(content, config);
+    return createExperienceRolePrompt(content, enhancedConfig, context);
+  }
+  
+  // Special handling for overall experience analysis
+  if (sectionName === 'experience_overall' && typeof content === 'object') {
+    SmartLogger.log('AI.PROMPTS', 'Using overall experience prompt', { 
+      contentKeys: Object.keys(content),
+      totalRoles: content.totalRoles,
+      hasExperiences: content.experiences?.length > 0 
+    });
+    return createExperienceOverallPrompt(content, enhancedConfig, context);
   }
   
   // Special handling for experience section (fallback)
   if (sectionName === 'experience' && typeof content === 'object') {
-    console.log('[Section Prompt] Using experience section fallback prompt');
+    SmartLogger.log('AI.PROMPTS', 'Using experience fallback prompt', { 
+      contentKeys: Object.keys(content),
+      hasExperiences: content.experiences?.length > 0 
+    });
     return createExperienceSectionPrompt(content, config);
+  }
+  
+  // Special handling for recommendations
+  if (sectionName === 'recommendations' && typeof content === 'object') {
+    return createRecommendationsPrompt(content, enhancedConfig, context);
+  }
+  
+  // Special handling for first impression (headline + photo + banner)
+  if (sectionName === 'first_impression' && typeof content === 'object') {
+    return createFirstImpressionPrompt(content, enhancedConfig);
+  }
+  
+  // Special handling for standalone about section
+  if (sectionName === 'about' && typeof content === 'string') {
+    return createAboutPrompt(content, enhancedConfig);
+  }
+  
+  // Special handling for profile intro (headline + about) - DEPRECATED, keeping for backward compatibility
+  if (sectionName === 'profile_intro' && typeof content === 'object') {
+    return createProfileIntroPrompt(content, enhancedConfig);
+  }
+  
+  // Special handling for skills
+  if (sectionName === 'skills' && typeof content === 'object') {
+    return createSkillsPrompt(content, enhancedConfig, context);
   }
   
   // Default prompt for other sections
   const basePrompt = `You are an extremely experienced career coach specializing in helping professionals transition to ${config.targetRole} at the ${config.seniorityLevel} level. You have 20+ years of experience optimizing LinkedIn profiles for maximum impact.
 
+⚠️ CRITICAL ANALYSIS RULES:
+1. ALWAYS quote specific text from the profile when giving feedback
+2. NEVER give generic advice like "add skills X, Y, Z" without analyzing what's already there
+3. Your feedback must reference ACTUAL CONTENT from their profile
+4. If you can't find specific content to quote, say so explicitly
+
 Analyze this ${sectionName} section with the following approach:
-1. First acknowledge what's working (be specific and honest - don't sugarcoat)
-2. Identify gaps preventing this person from landing their target role
-3. Provide actionable, specific improvements
+1. First acknowledge what's working (quote specific content that's effective)
+2. Identify gaps by analyzing what's actually written (not what's missing)
+3. Provide specific improvements to existing content (not generic additions)
 
 Target role: ${config.targetRole}
 Seniority level: ${config.seniorityLevel}
@@ -788,100 +1311,148 @@ Provide your coaching analysis in EXACT JSON format:
 
 {
   "score": 7,
-  "positiveInsight": "Your skills demonstrate solid technical competency with relevant tools like Jira and SQL, showing you can handle the technical aspects of product management.",
-  "gapAnalysis": "However, you're missing strategic skills that distinguish ${config.seniorityLevel} product managers. The current selection emphasizes execution over strategy and leadership.",
+  "positiveInsight": "Your headline effectively highlights your expertise in 'API and platform integration' which is crucial for a product manager role, and your experience with 'Oracle' adds credibility.",
+  "gapAnalysis": "However, your About section currently says 'Passionate about technology' which is too generic. The phrase doesn't differentiate you from thousands of other candidates.",
+  "specificFeedback": {
+    "originalLine": "[Quote exact text from their profile here]",
+    "suggestion": "[Your improved version of that specific text]",
+    "why": "[Explain why this change makes it more compelling]"
+  },
   "actionItems": [
     {
-      "what": "Add 5-7 strategic product skills",
-      "how": "Include 'Product Strategy', 'Go-to-Market Strategy', 'Market Analysis', 'Business Model Design', 'Revenue Optimization'. These signal you can think beyond features to business impact.",
-      "priority": "high"
+      "category": "Content Depth",
+      "action": "Replace 'Passionate about technology' with metrics like '40% adoption increase via API strategies'",
+      "impact": "Differentiates you from generic profiles",
+      "priority": "high",
+      "quotedContent": "Your current text says: '[actual quote]'"
     },
     {
-      "what": "Showcase leadership capabilities",
-      "how": "Add 'Cross-functional Team Leadership', 'Stakeholder Management', 'Executive Communication', 'Product Vision'. These demonstrate you can influence and lead at the ${config.seniorityLevel} level.",
-      "priority": "high"
+      "category": "Quantitative Evidence", 
+      "action": "Add specific metrics: users (50K→150K), revenue ($2M), or efficiency gains (40% faster)",
+      "impact": "Shows measurable business value",
+      "priority": "high",
+      "quotedContent": "Currently reads: '[actual quote]'"
     }
   ]
 }
 
 IMPORTANT: 
 - Score 0-10 where 10 is perfect for landing the target role
-- Be honest but constructive in your feedback
-- "positiveInsight" should be genuine and specific to what you see
-- "gapAnalysis" should explain what's missing for their target role
-- Each actionItem must have specific "how" guidance, not generic advice`;
+- MUST quote actual text in positiveInsight, gapAnalysis, and actionItems
+- specificFeedback is REQUIRED and must quote real content
+- Each actionItem MUST include "quotedContent" field with actual text
+- ActionItems based on score:
+  * Score 9-10: Provide 0-1 improvement ONLY if absolutely critical (most 9-10 scores need NO improvements)
+  * Score 7-8: Provide 1-2 impactful improvements
+  * Score 0-6: Provide EXACTLY 2 critical improvements
+- CRITICAL actionItem structure (NEW FORMAT):
+  * "category": Improvement area (30-50 chars) - WHAT aspect needs work
+  * "action": Specific steps to take (100-150 chars) - HOW to improve it  
+  * "impact": Why it matters (50-80 chars) - Business/career impact
+  * Examples:
+    - GOOD: category="Content Depth", action="Replace generic phrases with specific metrics", impact="Makes profile stand out"
+    - BAD: category="Add metrics", action="This improves your profile", impact="Better visibility"
+    - GOOD: category="Leadership Evidence", action="Request 2 recommendations from direct reports", impact="Shows 360° management skills"
+    - BAD: category="Get recommendation from peer", action="Ask someone to recommend you", impact="More recommendations"
+- Keep positiveInsight between 200-300 characters for complete, meaningful feedback
+- Focus on improving what's there, not adding generic content`;
 
   return basePrompt;
 }
 
-// Create specialized prompt for experience roles
-function createExperienceRolePrompt(experience, config) {
-  const prompt = `You are an extremely experienced career coach specializing in helping professionals transition to ${config.targetRole} at the ${config.seniorityLevel} level. You have 20+ years of experience optimizing LinkedIn profiles.
+// Create specialized prompt for experience roles using Anthropic best practices
+function createExperienceRolePrompt(experience, config, context = {}) {
+  const prompt = `You are an expert career coach analyzing individual LinkedIn experience entries for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
-Analyze this work experience with a coach's eye:
-- What story does this role tell about their capabilities?
-- How well does it position them for ${config.targetRole}?
-- What's missing that would make recruiters say "yes"?
+<context>
+Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
+Target Role: ${config.targetRole}
+Seniority Level: ${config.seniorityLevel}
+Custom Instructions: ${config.customInstructions || 'None provided'}
+</context>
 
-TARGET ROLE: ${config.targetRole}
-SENIORITY LEVEL: ${config.seniorityLevel}
+<critical_rules>
+⚠️ YOU MUST FOLLOW THESE RULES:
+1. READ THE FULL DESCRIPTION FIRST - Identify what IS already present before suggesting additions
+2. NEVER suggest adding metrics/achievements that already exist in the description
+3. SCORING FEEDBACK APPROACH:
+   - Scores 0-6: START with the most critical gap, then acknowledge strengths
+   - Scores 7-10: START with specific strengths, END with 1-2 refinements to reach 10/10
+4. Quote EXACT phrases from their description when giving feedback
+5. If description mentions "$50M revenue" don't ask to "add revenue metrics" - suggest how to enhance it
+6. Give SPECIFIC improvements: "Move your $50M ARR metric to the first line" not "Add metrics"
+7. Consider role recency - weight recent roles (< 2 years) more heavily
+8. MUST return valid JSON only - no markdown, no extra text
+</critical_rules>
 
-POSITION DETAILS:
+<position_details>
 Title: ${experience.title}
 Company: ${experience.company}${experience.companyDetails?.size ? ` (${experience.companyDetails.size} employees)` : ''}
 Industry: ${experience.companyDetails?.industry || 'Not specified'}
-Employment Type: ${experience.employment?.type || 'Not specified'}
-Duration: ${experience.employment?.duration || 'Not specified'} ${experience.employment?.isCurrent ? '(Current Role)' : ''}
-Location: ${experience.location || 'Not specified'}
+Duration: ${experience.employment?.duration || 'Not specified'} ${experience.employment?.isCurrent ? '(CURRENT ROLE)' : ''}
+Dates: ${experience.startDate || 'Unknown'} - ${experience.endDate || (experience.employment?.isCurrent ? 'Present' : 'Unknown')}
+Role Position: ${context.position ? `#${context.position + 1} of ${context.totalRoles} total roles` : 'Unknown'}
+Visibility Level: ${context.position < 3 ? 'PREMIUM (top 3 - most visible)' : context.position < 10 ? 'Standard (requires scrolling)' : 'Hidden (requires expansion)'}
+</position_details>
 
-DESCRIPTION:
-${experience.description || 'No description provided'}
+<role_description_full>
+Character Count: ${experience.description?.length || 0}
+Content Quality Indicators:
+- Has Quantified Achievements: ${experience.hasQuantifiedAchievements ? 'YES - READ DESCRIPTION' : 'NO'}
+- Mentions Tech Stack: ${experience.hasTechStack ? 'YES - READ DESCRIPTION' : 'NO'}
 
-CONTENT ANALYSIS:
-- Length: ${experience.description?.length || 0} characters
-- Has Quantified Results: ${experience.hasQuantifiedAchievements ? 'Yes' : 'No'}
-- Mentions Tech Stack: ${experience.hasTechStack ? 'Yes' : 'No'}
+FULL DESCRIPTION:
+${experience.description || '[NO DESCRIPTION PROVIDED - CRITICAL GAP]'}
+</role_description_full>
 
-MENTIONED SKILLS:
-${experience.mentionedSkills?.join(', ') || 'None extracted'}
+<analysis_task>
+Analyze this individual role description:
 
-QUALITY INDICATORS:
-- Has Quantified Achievements: ${experience.hasQuantifiedAchievements ? 'Yes' : 'No'}
-- Mentions Tech Stack: ${experience.hasTechStack ? 'Yes' : 'No'}
-- Content Quality Score: ${experience.contentQualityScore || 0}/10
-- Recency Weight: ${experience.recencyScore || 0} ${experience.recencyScore > 0.8 ? '(Recent/Current)' : experience.recencyScore > 0.5 ? '(Moderately Recent)' : '(Older Position)'}
+1. FIRST, identify from the description above:
+   - What specific metrics/numbers ARE already mentioned
+   - What technologies/tools ARE already listed
+   - What leadership/impact evidence IS already present
+   - Overall narrative quality and structure
 
-Provide your coaching analysis in EXACT JSON format:
+2. Score (0-10) based on:
+   - Relevance to ${config.targetRole} at ${config.seniorityLevel}
+   - Quality of existing content (not what's missing)
+   - Impact and achievement focus
+   - Clarity and specificity
+   - Role recency (recent = more weight)
 
+3. Provide feedback:
+   - positiveInsight: Quote specific strong content from their description
+   - gapAnalysis: Identify weak areas using their actual words
+   - specificFeedback: Pick their weakest sentence and rewrite it
+   - actionItems: Based on score level (see rules above)
+
+4. For high scores (7+):
+   - Acknowledge what's working with specific quotes
+   - Provide 1-2 refinements to reach 10/10
+   - Focus on repositioning/enhancing existing content
+</analysis_task>
+
+Return ONLY valid JSON with this exact structure:
 {
-  "score": 4,
-  "positiveInsight": "This role demonstrates hands-on product management experience at a reputable company, showing you've worked in a product capacity.",
-  "gapAnalysis": "However, the description reads like a job posting rather than achievements. For ${config.seniorityLevel} roles, recruiters need to see quantified impact and strategic thinking, not just responsibilities.",
+  "score": <integer 0-10>,
+  "positiveInsight": "<200-300 chars quoting their ACTUAL strong content like 'Your mention of leading $50M ARR product shows...' or acknowledging specific achievements>",
+  "gapAnalysis": "<150-250 chars identifying weak areas by quoting their actual phrases that need improvement>",
   "specificFeedback": {
-    "originalLine": "Managed product roadmap and worked with engineering team",
-    "suggestion": "Led 18-month product roadmap for payment processing features, partnering with 12-person engineering team to deliver 3 major releases that increased transaction volume by 45% ($2.3M additional revenue)",
-    "why": "Shows timeline, team scale, specific domain, and business impact with hard numbers"
+    "originalLine": "<Exact weak sentence from their description>",
+    "suggestion": "<Rewritten version with specific improvements>",
+    "why": "<50-100 chars explaining the improvement>"
   },
   "actionItems": [
     {
-      "what": "Quantify your business impact",
-      "how": "Add specific metrics: user growth (50K→150K users), revenue impact ($X generated/saved), efficiency gains (reduced churn by 25%), or process improvements (cut deployment time by 40%)",
-      "priority": "high"
-    },
-    {
-      "what": "Demonstrate strategic thinking",
-      "how": "Mention market analysis, competitive positioning, or strategic decisions you made. For example: 'Identified market gap through user research, leading to new feature that captured 15% market share from competitor'",
-      "priority": "high"
+      "category": "<'Impact Metrics'|'Strategic Context'|'Leadership Evidence'|'Technical Depth'|'10/10 Optimization'>",
+      "action": "<SPECIFIC action based on their actual content - if metrics exist, suggest repositioning; if missing, be specific>",
+      "impact": "<How this helps position for ${config.targetRole}>",
+      "priority": "<'high'|'medium'|'low'>",
+      "quotedContent": "<Exact quote from their description this feedback addresses>"
     }
   ]
-}
-
-IMPORTANT: 
-- Score based on how well this positions them for ${config.targetRole}
-- Be specific in positiveInsight - reference actual content
-- gapAnalysis should explain what's missing for their target role
-- specificFeedback should pick an actual line from their description
-- Each actionItem must have concrete examples, not generic advice`;
+}`;
 
   return prompt;
 }
@@ -917,6 +1488,717 @@ NOTE: This is a fallback analysis. Individual role analysis would provide better
   return prompt;
 }
 
+// Create specialized prompt for overall experience analysis
+function createExperienceOverallPrompt(experienceData, config, context = {}) {
+  const currentYear = new Date().getFullYear();
+  const totalMonths = experienceData.totalMonths || 0;
+  const yearsOfExperience = Math.floor(totalMonths / 12);
+  const totalRoles = experienceData.totalRoles || experienceData.count || 0;
+  
+  const prompt = `You are an expert career coach analyzing LinkedIn profiles for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+
+<context>
+Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
+Target Role: ${config.targetRole}  
+Seniority Level: ${config.seniorityLevel}
+Profile Completeness: ${context.completenessScore}%
+Custom Instructions: ${config.customInstructions || 'None provided'}
+</context>
+
+<critical_rules>
+⚠️ YOU MUST FOLLOW THESE RULES:
+1. READ THE FULL DESCRIPTIONS FIRST - Identify what metrics, achievements, and details ARE already present
+2. NEVER suggest adding something that's already there (e.g., if they mention "$50M ARR", don't ask them to add revenue metrics)
+3. Be DIRECT and ACTIONABLE - no generic praise or fluff
+4. SCORING FEEDBACK RULES:
+   - Scores 0-6: START with the most critical gap, then mention strengths
+   - Scores 7-10: START with what's working well, END with specific steps to reach 10/10
+5. Give SPECIFIC actions: "Move your Oracle ML project mention to the first bullet" not "Highlight technical skills"
+6. Focus on STRATEGIC career trajectory patterns, not individual role nitpicks
+7. If they already have strong metrics, suggest how to REPOSITION or ENHANCE them, not add more
+8. MUST return valid JSON only - no markdown, no additional text
+</critical_rules>
+
+<profile_overview>
+Total Experience: ${yearsOfExperience} years across ${totalRoles} roles
+Average Tenure: ${experienceData.averageTenure ? Math.round(experienceData.averageTenure) + ' months per role' : 'Unknown'}
+Current Status: ${experienceData.hasCurrentRole ? 'Currently employed' : 'Not currently employed'}
+Career Start: ${experienceData.experiences?.[experienceData.experiences.length - 1]?.startDate || 'Unknown'}
+Industry Changes: ${experienceData.industryChanges || 0}
+</profile_overview>
+
+<career_trajectory>
+${experienceData.experiences && experienceData.experiences.length > 0 ? 
+  experienceData.experiences.slice(0, 5).map((exp, idx) => 
+    `${idx + 1}. ${exp.title} at ${exp.company} (${exp.duration || 'Duration not specified'})${exp.startDate ? ' - Started ' + exp.startDate : ''}`
+  ).join('\n') : 'No experience data available'}
+</career_trajectory>
+
+<recent_roles_full_content>
+${experienceData.experiences && experienceData.experiences.length > 0 ? 
+  experienceData.experiences.slice(0, 3).map((exp, idx) => 
+    `
+===== ROLE ${idx + 1} =====
+Title: ${exp.title}
+Company: ${exp.company}
+Duration: ${exp.duration || 'Not specified'}
+Dates: ${exp.startDate || 'Unknown'} - ${exp.endDate || 'Present'}
+FULL DESCRIPTION (${exp.description?.length || 0} chars):
+${exp.description || '[NO DESCRIPTION PROVIDED]'}
+
+Metrics Already Present: ${exp.hasQuantifiedAchievements ? 'YES - READ ABOVE' : 'NO'}
+Tech Stack Mentioned: ${exp.hasTechStack ? 'YES - READ ABOVE' : 'NO'}
+`
+  ).join('\n') : 'No description data available'}
+</recent_roles_full_content>
+
+<analysis_task>
+Analyze the OVERALL career trajectory and experience section:
+
+1. FIRST, carefully identify from the descriptions above:
+   - What specific metrics ARE mentioned (revenue, growth %, team size, users, etc.)
+   - What technologies/methodologies ARE listed
+   - What leadership/impact evidence IS present
+   - Career progression patterns (promotions, industry moves, increasing scope)
+
+2. Score (0-10) based on:
+   - Alignment of career trajectory with ${config.targetRole} at ${config.seniorityLevel}
+   - Quality of existing content (acknowledge what's there)
+   - Strategic positioning and narrative clarity
+   - Evidence of increasing responsibility
+   - Recency and relevance (weight recent roles more heavily)
+
+3. Provide positiveInsight:
+   - For scores 0-6: Acknowledge their journey but focus on potential
+   - For scores 7-10: Celebrate specific achievements you see in their descriptions
+
+4. Provide actionItems:
+   - For scores 0-6: 3 critical improvements needed
+   - For scores 7-10: 2-3 refinements to reach 10/10
+   - Each action must reference ACTUAL content from above or specific gaps
+   - If metrics exist, suggest repositioning: "Lead with your $50M ARR at Avalara"
+   - If metrics missing, be specific: "Quantify the 'API-first products' user base or revenue impact"
+</analysis_task>
+
+Return ONLY valid JSON with this exact structure (no markdown, no extra text):
+{
+  "score": <integer 0-10>,
+  "positiveInsight": "<200-300 chars about their ACTUAL career progression, quoting specific roles/companies/achievements from above>",
+  "actionItems": [
+    {
+      "category": "<'Strategic Positioning'|'Career Narrative'|'Missing Elements'|'Content Enhancement'|'10/10 Optimization'>",
+      "action": "<SPECIFIC action based on content above - never generic>",
+      "impact": "<How this helps reach 10/10 for ${config.targetRole} at ${config.seniorityLevel}>",
+      "priority": "<'high'|'medium'|'low'>"
+    }
+  ]
+}`;
+
+  return prompt;
+}
+
+// Create specialized prompt for recommendations using Anthropic best practices
+function createRecommendationsPrompt(recommendationsData, config, context = {}) {
+  const recommendationCount = recommendationsData.count || recommendationsData.receivedCount || 0;
+  const currentYear = new Date().getFullYear();
+  
+  SmartLogger.log('AI.PROMPTS', 'Creating recommendations prompt', {
+    dataKeys: Object.keys(recommendationsData),
+    count: recommendationsData.count,
+    receivedCount: recommendationsData.receivedCount,
+    hasRecommendationChunks: !!recommendationsData.recommendationChunks,
+    chunksLength: recommendationsData.recommendationChunks?.length || 0,
+    hasReceived: !!recommendationsData.received,
+    receivedLength: recommendationsData.received?.length || 0
+  });
+  
+  const prompt = `You are an expert LinkedIn profile optimizer analyzing recommendations for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+
+<context>
+Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
+Target Role: ${config.targetRole}
+Seniority Level: ${config.seniorityLevel}
+Custom Instructions: ${config.customInstructions || 'None provided'}
+</context>
+
+<critical_rules>
+⚠️ YOU MUST FOLLOW THESE RULES:
+1. READ ALL RECOMMENDATION CONTENT FIRST before providing feedback
+2. If they have recent recommendations (< 6 months), acknowledge this as exceptional
+3. SCORING FEEDBACK APPROACH:
+   - Scores 0-6: Focus on critical gaps, but acknowledge any positives
+   - Scores 7-10: START with strengths, END with refinements to reach 10/10
+4. Quote EXACT content from recommendations when discussing them
+5. Give SPECIFIC actions: "Request recommendation from your manager John at Avalara" not "Get more recommendations"
+6. Consider recency heavily - recent recommendations (< 1 year) are highly valuable
+7. Don't penalize for having 0-2 recommendations - this is increasingly common
+8. MUST return valid JSON only - no markdown, no extra text
+</critical_rules>
+
+<career_context>
+Current Role: ${context.currentRole ? `${context.currentRole.title} at ${context.currentRole.company}` : 'Not specified'}
+Recent Companies: ${context.recentCompanies?.slice(0, 3).map(exp => exp.company).join(', ') || 'No recent data'}
+Years of Experience: ${context.yearsOfExperience || 0}
+</career_context>
+
+<recommendations_overview>
+Total Recommendations: ${recommendationCount}
+Received: ${recommendationsData.receivedCount || 0}
+Given: ${recommendationsData.givenCount || 0}
+</recommendations_overview>
+
+<recommendation_content>
+${recommendationsData.recommendationChunks && recommendationsData.recommendationChunks.length > 0 ? 
+recommendationsData.recommendationChunks.map(rec => `
+===== RECOMMENDATION ${rec.index} =====
+From: ${rec.recommender}
+Their Company: ${rec.company || 'Not specified'}
+Relationship: ${rec.relationship}
+Date: ${rec.date}
+Your Role Then: ${rec.relatedRole || 'Not matched'}
+
+FULL TEXT:
+"${rec.text}"
+`).join('\n') : '[NO RECOMMENDATIONS FOUND]'}
+</recommendation_content>
+
+<analysis_task>
+Analyze the recommendations section:
+
+1. FIRST, evaluate what's present:
+   - Number of recommendations and their recency
+   - WHO gave them (managers vs peers vs reports)
+   - Quality of content (specific vs generic praise)
+   - Alignment with ${config.targetRole} positioning
+
+2. Score (0-10) based on:
+   - 0-2: No recommendations (but don't be harsh - this is common)
+   - 3-4: Only old recommendations (> 2 years)
+   - 5-6: Recent but generic or few in number
+   - 7-8: Recent and specific with good coverage
+   - 9-10: Exceptional - recent, specific, from relevant perspectives
+
+3. Provide feedback:
+   - For low scores: Focus on WHO to request from (be specific)
+   - For high scores: Suggest strategic enhancements
+   - Always consider recency as a major factor
+
+4. For action items:
+   - Be SPECIFIC: "Request from your manager Jane at Company X" not "Get manager recommendation"
+   - Consider missing perspectives: manager, peer, direct report, client
+   - If they have good recommendations, suggest how to leverage them better
+</analysis_task>
+
+Return ONLY valid JSON with this exact structure (no markdown, no extra text):
+{
+  "score": <integer 0-10>,
+  "positiveInsight": "<150-250 chars acknowledging what they have, even if it's 0>",
+  "gapAnalysis": "<150-250 chars on what's missing or could be improved>",
+  "specificFeedback": {
+    "originalLine": "<Quote from a recommendation OR describe the gap>",
+    "suggestion": "<Specific improvement action>",
+    "why": "<50-100 chars on impact>"
+  },
+  "actionItems": [
+    {
+      "category": "<'Strategic Requests'|'Perspective Gaps'|'Content Enhancement'|'10/10 Optimization'>",
+      "action": "<SPECIFIC action with names/companies when possible>",
+      "impact": "<How this helps for ${config.targetRole}>",
+      "priority": "<'high'|'medium'|'low'>",
+      "quotedContent": "<Quote from recommendations OR describe the specific gap>"
+    }
+  ]
+}`;
+
+  return prompt;
+}
+
+// Create specialized prompt for profile intro (headline + about)
+function createProfileIntroPrompt(profileData, config) {
+  // Log the incoming data to debug [object Object] issue
+  SmartLogger.log('AI.PROMPTS', 'Profile intro data received', {
+    headlineType: typeof profileData.headline,
+    headlineValue: profileData.headline,
+    headlineFirst50: profileData.headline?.substring(0, 50),
+    aboutType: typeof profileData.about,
+    aboutLength: profileData.about?.length || 0,
+    aboutFirst100: profileData.about?.substring(0, 100),
+    configTargetRole: config.targetRole,
+    configSeniority: config.seniorityLevel
+  });
+  
+  const prompt = `You are an expert LinkedIn profile optimizer analyzing the CRITICAL first impression: headline and about section together.
+
+⚠️ CRITICAL ANALYSIS RULES:
+1. You MUST quote the EXACT headline and specific phrases from the about section
+2. Analyze how headline and about work TOGETHER (or conflict)
+3. Never suggest generic additions - improve what's already there
+4. Analyze the ENTIRE About section, but pay special attention to the opening (before "see more")
+5. MANDATORY: ALL feedback (positiveInsight, gapAnalysis, actionItems) must quote ACTUAL text from their profile
+6. NEVER use placeholder text like "[actual headline]" or "[specific aspect]" - use their REAL words
+7. When praising something, quote the specific good phrase. When critiquing, quote the problematic text
+
+CONTEXT:
+Today's Date: ${config.currentDate}
+TARGET ROLE: ${config.targetRole}
+SENIORITY LEVEL: ${config.seniorityLevel}
+
+PROFILE INTRO CONTENT:
+HEADLINE: "${profileData.headline || 'No headline provided'}"
+ABOUT SECTION:
+${profileData.about || profileData.summary || 'No about section provided'}
+
+Character counts:
+- Headline: ${profileData.headline?.length || 0}/220 characters
+- About: ${profileData.about?.length || 0}/2600 characters
+
+Analyze this profile intro and provide:
+
+{
+  "score": 6,
+  "positiveInsight": "Your headline mentioning 'API & Platform Integration Expert' and 'ex-Oracle' effectively establishes credibility, while your About section's mention of 'led strategy and execution' shows leadership capability.",
+  "headlinePositive": "Your headline 'Senior Product Manager | API & Platform Integration Expert' clearly positions you as a technical PM with specific domain expertise.",
+  "aboutPositive": "Your About section's focus on 'deep customer empathy' and 'architectural thinking' demonstrates the strategic mindset crucial for senior PM roles.",
+  "gapAnalysis": "However, your About section opens with '[quote their actual opening line]' which is too generic. Also, you mention '[quote another weak line]' which doesn't differentiate you from other SENIORITY_LEVEL candidates.",
+  "specificFeedback": {
+    "originalLine": "[Quote the weakest line - often the opening]",
+    "suggestion": "[Rewrite with specific value proposition]",
+    "why": "The first 2 lines are crucial - they determine if recruiters click 'see more'"
+  },
+  "actionItems": [
+    {
+      "category": "Headline Optimization",
+      "action": "Add industry or domain focus like 'Senior PM - Fintech APIs' or 'Platform PM | B2B SaaS'",
+      "impact": "Improves searchability for specific roles",
+      "priority": "high",
+      "quotedContent": "Your headline says: 'Senior Product Manager | API Expert'",
+      "section": "headline"
+    },
+    {
+      "category": "About Opening",
+      "action": "Replace 'Passionate about technology' with specific value like 'Led API products generating $5M ARR'",
+      "impact": "Hooks recruiters to click 'see more'",
+      "priority": "high", 
+      "quotedContent": "Your About starts with: 'Passionate about technology and innovation.'",
+      "section": "about"
+    }
+  ]
+}
+
+IMPORTANT:
+- The headline and about must work as a cohesive unit
+- Focus on the ACTUAL TEXT they wrote, not what's missing
+- Analyze the ENTIRE About section, not just the opening
+- While the opening lines matter most (visible before "see more"), problematic content anywhere should be addressed
+- Score based on how well this positions them for ${config.targetRole}
+- ALWAYS quote the EXACT text from their About section in quotedContent field
+- NEVER use placeholder text like "[quote first line]" - use their ACTUAL words
+- Provide THREE separate positive insights:
+  * positiveInsight: Overall combined positive (both sections)
+  * headlinePositive: Specific to what's good about their headline
+  * aboutPositive: Specific to what's good about their About section
+- Ensure each actionItem clearly indicates which section it's for using the "section" field
+- Use "section": "headline" for headline-specific feedback
+- Use "section": "about" for about-specific feedback
+- DO NOT mix feedback between sections in a single actionItem
+- Headlines (220 char limit) should focus on role/expertise/unique value, NOT metrics
+- About section is where detailed metrics and achievements belong
+- ActionItems based on score:
+  * Score 9-10: Provide EXACTLY 1 advanced/strategic improvement
+  * Score 7-8: Provide EXACTLY 2 impactful improvements
+  * Score 0-6: Provide EXACTLY 2 critical improvements
+- CRITICAL actionItem structure (NEW FORMAT):
+  * "category": Improvement area (30-50 chars) - WHAT aspect needs work
+  * "action": Specific steps to take (100-150 chars) - HOW to improve it  
+  * "impact": Why it matters (50-80 chars) - Business/career impact
+  * Examples:
+    - GOOD: category="Skill Relevance", action="Move technical skills to top 3 positions", impact="Matches recruiter search priorities"
+    - BAD: category="Move Product Strategy higher", action="Reorder your skills", impact="Better visibility"
+- Keep positiveInsight between 200-300 characters for complete, meaningful feedback
+- FINAL CHECK: Before returning, ensure ALL feedback quotes their ACTUAL text, not placeholders like "[actual headline]"`;
+
+  return prompt;
+}
+
+// [CRITICAL_PATH:FIRST_IMPRESSION_AI] - P0: AI analysis for unified first impression
+// Create specialized prompt for first impression (headline + photo + banner)
+function createFirstImpressionPrompt(firstImpressionData, config) {
+  // Log the incoming data
+  SmartLogger.log('AI.PROMPTS', 'First impression data received', {
+    hasHeadline: !!firstImpressionData.headline,
+    headlineLength: firstImpressionData.headline?.length,
+    hasPhoto: firstImpressionData.photo?.exists,
+    hasCustomBanner: firstImpressionData.banner?.isCustomBanner,
+    openToWork: firstImpressionData.metadata?.openToWork
+  });
+  
+  const prompt = `You are an expert LinkedIn profile optimizer analyzing first impressions for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+
+<context>
+Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
+Target Role: ${config.targetRole}
+Seniority Level: ${config.seniorityLevel}
+Custom Instructions: ${config.customInstructions || 'None provided'}
+</context>
+
+<critical_rules>
+⚠️ YOU MUST FOLLOW THESE RULES:
+1. Quote the EXACT headline text when giving feedback
+2. SCORING FEEDBACK APPROACH:
+   - Scores 0-6: START with critical gaps, then acknowledge strengths
+   - Scores 7-10: START with what's working, END with refinements to reach 10/10
+3. Analyze how all elements work together for first impression
+4. Don't penalize for default banner - it's common and professional
+5. MUST return valid JSON only - no markdown, no extra text
+</critical_rules>
+
+<first_impression_data>
+HEADLINE: "${firstImpressionData.headline || '[NO HEADLINE - CRITICAL GAP]'}"
+Character Count: ${firstImpressionData.headlineCharCount || 0} of 220 maximum
+Profile Photo: ${firstImpressionData.photo?.exists ? 'Present ✓' : 'MISSING - Critical gap'}
+Background Banner: ${firstImpressionData.banner?.isCustomBanner ? 'Custom (good!)' : 'Default (normal, not a weakness)'}
+Open to Work: ${firstImpressionData.metadata?.openToWork ? 'Enabled' : 'Not enabled'}
+Creator Mode: ${firstImpressionData.metadata?.creatorMode ? 'Enabled' : 'Not enabled'}
+Connection Count: ${firstImpressionData.metadata?.connectionCount || 'Not visible'}
+</first_impression_data>
+
+<analysis_task>
+Analyze the first impression elements:
+
+1. FIRST, evaluate what's present:
+   - Headline quality and relevance to ${config.targetRole}
+   - Profile photo presence (critical for trust)
+   - Banner customization (nice-to-have, not critical)
+   - Open to Work badge implications
+
+2. Score (0-10) based on:
+   - Headline clarity and positioning (weighs heavily)
+   - Photo presence (missing = cap at 5)
+   - Overall professional presentation
+   - NOTE: Default banner is NORMAL, don't penalize heavily
+
+3. Provide feedback:
+   - Quote the exact headline when discussing it
+   - For scores 7-10: Celebrate strengths, suggest refinements
+   - For scores 0-6: Focus on critical gaps first
+</analysis_task>
+
+Return ONLY valid JSON with this exact structure (no markdown, no extra text):
+{
+  "score": <integer 0-10>,
+  "positiveInsight": "<150-250 chars acknowledging what's working in their first impression>",
+  "headlineAnalysis": "<150-250 chars analyzing their actual headline quoted>",
+  "gapAnalysis": "<150-250 chars identifying weaknesses>",
+  "overallImpression": "<150-250 chars on unified first impression impact>",
+  "actionItems": [
+    {
+      "category": "<'Profile Photo'|'Headline Enhancement'|'Visual Branding'|'10/10 Optimization'>",
+      "action": "<SPECIFIC action based on gaps identified>",
+      "impact": "<How this improves first impression for ${config.targetRole}>",
+      "priority": "<'critical'|'high'|'medium'|'low'>",
+      "quotedContent": "<Quote their headline or describe the gap>",
+      "element": "<'photo'|'headline'|'banner'>"
+    }
+  ]
+}`;
+
+  return prompt;
+}
+
+// [CRITICAL_PATH:ABOUT_SECTION_AI] - P0: Standalone About section analysis
+// Create specialized prompt for About section only using Anthropic best practices
+function createAboutPrompt(aboutContent, config) {
+  SmartLogger.log('AI.PROMPTS', 'About section data received', {
+    aboutLength: aboutContent?.length || 0,
+    aboutFirst100: aboutContent?.substring(0, 100),
+    configTargetRole: config.targetRole,
+    configSeniority: config.seniorityLevel
+  });
+  
+  const prompt = `You are an expert LinkedIn profile optimizer analyzing About sections for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+
+<context>
+Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
+Target Role: ${config.targetRole}
+Seniority Level: ${config.seniorityLevel}
+Custom Instructions: ${config.customInstructions || 'None provided'}
+</context>
+
+<critical_rules>
+⚠️ YOU MUST FOLLOW THESE RULES:
+1. READ THE ENTIRE ABOUT SECTION FIRST before providing feedback
+2. Quote EXACT phrases from their About section when discussing issues
+3. NEVER use placeholder text like "[opening line]" - use their ACTUAL words
+4. SCORING FEEDBACK APPROACH:
+   - Scores 0-6: START with critical opening issues, then other gaps
+   - Scores 7-10: START with what's working, END with refinements to reach 10/10
+5. Focus on the opening 2-3 lines as CRITICAL (visible before "see more" click)
+6. Give SPECIFIC rewrites: Show exactly how to improve weak sentences
+7. If they have metrics, suggest how to position them better, don't ask to add metrics
+8. MUST return valid JSON only - no markdown, no extra text
+</critical_rules>
+
+<about_section_content>
+Character Count: ${aboutContent?.length || 0} of 2600 maximum
+Opening Lines (most visible): ${aboutContent?.substring(0, 200) || 'NO CONTENT'}
+
+FULL ABOUT SECTION:
+${aboutContent || '[NO ABOUT SECTION PROVIDED - CRITICAL GAP]'}
+</about_section_content>
+
+<analysis_task>
+Analyze the About section for strategic positioning:
+
+1. FIRST, identify from the content above:
+   - What metrics/achievements ARE already mentioned
+   - Quality of the opening hook (first 2-3 lines)
+   - Narrative flow and coherence
+   - Alignment with ${config.targetRole} at ${config.seniorityLevel}
+
+2. Score (0-10) based on:
+   - Opening hook effectiveness (weighs heavily)
+   - Specificity and evidence provided
+   - Narrative clarity and flow
+   - Positioning for target role
+   - Professional tone and personal brand
+
+3. Provide four distinct assessments:
+   - positiveInsight: What's working well (quote specific strong content)
+   - openingAssessment: Analysis of first 2-3 lines effectiveness
+   - gapAnalysis: Major weaknesses throughout (quote weak phrases)
+   - flowAnalysis: How well the story flows from beginning to end
+
+4. For action items:
+   - If opening is weak: Show exact rewrite
+   - If claims lack evidence: Quote the claim and suggest specific metrics
+   - If flow is poor: Identify the disconnect and suggest restructuring
+</analysis_task>
+
+Return ONLY valid JSON with this exact structure (no markdown, no extra text):
+{
+  "score": <integer 0-10>,
+  "positiveInsight": "<150-250 chars quoting their ACTUAL strong content like 'Your mention of leading $50M initiatives shows...'>"",
+  "openingAssessment": "<150-250 chars analyzing their actual opening lines effectiveness>",
+  "gapAnalysis": "<150-250 chars identifying weaknesses by quoting actual weak phrases>",
+  "flowAnalysis": "<150-250 chars on narrative structure and transitions>",
+  "specificFeedback": {
+    "originalLine": "<Quote their weakest sentence exactly>",
+    "suggestion": "<Rewritten version with improvements>",
+    "why": "<50-100 chars explaining the improvement>"
+  },
+  "actionItems": [
+    {
+      "category": "<'Opening Hook'|'Metric Specificity'|'Narrative Flow'|'Value Proposition'|'10/10 Refinement'>",
+      "action": "<SPECIFIC action quoting their actual content and showing how to improve it>",
+      "impact": "<How this helps position for ${config.targetRole}>",
+      "priority": "<'critical'|'high'|'medium'|'low'>",
+      "quotedContent": "<Exact quote from their About section this addresses>"
+    }
+  ]
+}`;
+
+  return prompt;
+}
+
+// Create specialized prompt for skills section
+function createSkillsPrompt(skillsData, config, context = {}) {
+  // UNCONDITIONAL DEBUG: Log skills data received in service worker
+  console.log('[SERVICE WORKER SKILLS DEBUG] Skills data received:', {
+    dataType: typeof skillsData,
+    dataKeys: Object.keys(skillsData),
+    count: skillsData.count,
+    visibleCount: skillsData.visibleCount,
+    hasSkillsArray: !!skillsData.skills,
+    skillsArrayLength: skillsData.skills ? skillsData.skills.length : 0,
+    skillsArrayType: typeof skillsData.skills,
+    firstSkill: skillsData.skills?.[0],
+    hasEndorsements: skillsData.hasEndorsements,
+    fullDataSize: JSON.stringify(skillsData).length + ' bytes',
+    contextKeys: Object.keys(context),
+    contextSize: JSON.stringify(context).length + ' bytes'
+  });
+  
+  // Debug logging for skills data
+  SmartLogger.log('AI.SKILLS', 'Skills analysis data', {
+    total: skillsData.count || skillsData.skills?.length,
+    hasEndorsements: skillsData.skills?.some(s => s.endorsementCount > 0),
+    topSkills: skillsData.skills?.slice(0, 3).map(s => s.name)
+  });
+  
+  // ENHANCED DEBUG: Log detailed skills data received
+  SmartLogger.log('AI.SKILLS', 'Detailed skills structure received:', {
+    dataKeys: Object.keys(skillsData),
+    skillsArrayLength: skillsData.skills?.length,
+    firstThreeSkillsDetailed: skillsData.skills?.slice(0, 3).map(s => ({
+      name: s.name || s,
+      endorsementCount: s.endorsementCount,
+      hasEndorsements: s.hasEndorsements,
+      endorsementRecency: s.endorsementRecency,
+      position: s.position,
+      visibilityTier: s.visibilityTier,
+      experienceContext: s.experienceContext ? {
+        hasContext: true,
+        totalExperiences: s.experienceContext.totalExperiences,
+        primaryCompany: s.experienceContext.primaryCompany
+      } : null,
+      educationContext: s.educationContext,
+      hasDetails: s.hasDetails,
+      detailsCount: s.detailsCount
+    })),
+    totalEndorsements: skillsData.totalEndorsements,
+    averageEndorsements: skillsData.averageEndorsements,
+    endorsedSkillsCount: skillsData.endorsedSkillsCount,
+    visibleSkillsCount: skillsData.visibleSkillsCount,
+    expandedSkillsCount: skillsData.expandedSkillsCount,
+    hasTop3Skills: !!skillsData.top3Skills,
+    hasTopEndorsedSkills: !!skillsData.topEndorsedSkills,
+    hasSkillsByCategory: !!skillsData.skillsByCategory
+  });
+  
+  // SCORE MISMATCH DEBUG: Log if this is a skills section
+  if (config.currentDate) {
+    SmartLogger.log('AI.SKILLS', 'About to create skills prompt for analysis');
+  }
+  
+  // Add completeness context for conditional generic advice
+  const completenessScore = context.completenessScore || 100;
+  const hasCompletenessIssues = completenessScore < 95;
+  const visibleSkillsCount = skillsData.skills?.filter(s => s.visibilityTier === 'top3' || s.visibilityTier === 'visible').length || skillsData.visibleCount || 0;
+  const hasEndorsementIssues = visibleSkillsCount > 0 && skillsData.endorsedSkillsCount === 0;
+  
+  const prompt = `You are an expert LinkedIn profile optimizer analyzing skills for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+
+<context>
+Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
+Target Role: ${config.targetRole}
+Seniority Level: ${config.seniorityLevel}
+Profile Completeness: ${completenessScore}%
+Custom Instructions: ${config.customInstructions || 'None provided'}
+</context>
+
+<critical_rules>
+⚠️ YOU MUST FOLLOW THESE RULES:
+1. READ THE FULL SKILLS LIST FIRST - Identify what skills ARE already present AND their endorsement status
+2. NEVER suggest adding skills that already exist in their list
+3. ENDORSEMENT REALITY CHECK:
+   - Having ANY endorsements with recency (< 6 months) = OUTSTANDING validation, top tier
+   - Having ANY endorsements (even 1) = EXCELLENT credibility signal
+   - 0 endorsements = Normal and common, not a weakness
+   - 1 endorsement = Strong validation, especially if recent
+   - 2-3 endorsements = Exceptional, rare achievement
+   - 5+ endorsements = Extremely rare, top 1% of profiles
+   - CRITICAL: If someone has 1 recent endorsement, this is BETTER than 10 old endorsements
+   - Most professionals have ZERO endorsements - having even 1 puts you ahead
+4. SCORING FEEDBACK APPROACH:
+   - Scores 0-4: Missing critical skills or poor alignment
+   - Scores 5-7: Good skills but could optimize positioning or get more endorsements
+   - Scores 8-10: Strong skills with endorsements - focus on refinements only
+5. Quote EXACT skill names and endorsement counts (e.g., "Your 'Product Management' with 1 recent endorsement...")
+6. If skill has ANY endorsements, celebrate them - don't ask for more unless there's a strategic reason
+7. DO NOT give mechanical repositioning advice with position numbers
+8. Focus on skill quality: "Consider making 'Data Analysis' more prominent" not "Move from #8 to #3"
+9. Focus on LinkedIn UI reality: Only some skills are visible without clicking "Show all"
+10. MUST return valid JSON only - no markdown, no extra text
+</critical_rules>
+
+<profile_status>
+Completeness Score: ${completenessScore}%
+Has Major Gaps: ${hasCompletenessIssues ? 'YES - Focus on critical issues only' : 'NO - Can provide strategic advice'}
+Endorsement Status: ${hasEndorsementIssues ? 'CRITICAL - Visible skills lack endorsements' : 'OK'}
+Visible Skills Count: ${visibleSkillsCount} (without clicking "Show all")
+</profile_status>
+
+<career_context>
+Current Role: ${context.currentRole ? `${context.currentRole.title} at ${context.currentRole.company}` : 'Not specified'}
+Years of Experience: ${context.yearsOfExperience || 0} years
+</career_context>
+
+<skills_overview>
+Total Skills: ${skillsData.count || skillsData.skills?.length || 0}
+Visible Without Clicking: ${visibleSkillsCount}
+Hidden Behind "Show all": ${Math.max(0, (skillsData.count || 0) - visibleSkillsCount)}
+Total Endorsements: ${skillsData.totalEndorsements || 0}
+Skills with Endorsements: ${skillsData.endorsedSkillsCount || 0}
+</skills_overview>
+
+<top_3_most_visible_skills>
+${skillsData.skills?.slice(0, 3).map((s, i) => 
+  `${i + 1}. "${s.name || s}" - ${s.endorsementCount || 0} endorsements`
+).join('\n') || 'No skills data available'}
+</top_3_most_visible_skills>
+
+<all_skills_full_list>
+${skillsData.skills ? 
+  skillsData.skills.slice(0, 30).map((s, i) => {
+    const visibility = i < 3 ? '[MOST PROMINENT]' : i < visibleSkillsCount ? '[VISIBLE]' : '[REQUIRES EXPANSION]';
+    return `"${s.name}" ${visibility} - ${s.endorsementCount || 0} endorsements`;
+  }).join('\n') :
+  'No detailed skills data available'}
+${skillsData.skills?.length > 30 ? `\n... and ${skillsData.skills.length - 30} more skills` : ''}
+
+</all_skills_full_list>
+
+<analysis_task>
+Analyze the skills section for quality and relevance:
+
+1. FIRST, identify from the full list above:
+   - What skills ARE already present (don't suggest adding them)
+   - Which skills have endorsements vs which don't
+   - How well the most prominent skills align with ${config.targetRole}
+   - Any redundant skills (e.g., "Excel" + "Microsoft Office")
+
+2. Score (0-10) based on:
+   - Relevance of MOST PROMINENT skills to ${config.targetRole} (weighs heavily)
+   - Endorsement presence (ANY endorsements = good, recent = excellent)
+   - Overall skill set completeness for ${config.seniorityLevel}
+   - SCORING GUIDE:
+     * 9-10: Most prominent skills perfectly aligned with role + have recent endorsements
+     * 8-9: Most prominent skills perfectly aligned with role + any endorsements OR excellent alignment without endorsements
+     * 6-7: Skills well aligned but could enhance visibility or lacks endorsements
+     * 4-5: Skills exist but poor relevance for target role
+     * 0-3: No skills or completely misaligned with role
+   - CRITICAL: Recent endorsements (< 6 months) automatically add +2 to score
+
+3. Provide feedback:
+   - If they have recent endorsements (< 6 months), START with: "Outstanding! Your recent endorsements show active validation"
+   - If most prominent skills are already perfect for the role, acknowledge this
+   - For scores 7-10: Celebrate achievements first, focus on skill quality not positions
+   - Focus on skill relevance and endorsement quality, not mechanical reordering
+
+4. For action items:
+   - CRITICAL: Check if score >= 9. If yes, provide 0-1 improvements MAX (or none if perfect)
+   - DO NOT suggest repositioning skills that are already most prominent
+   - Focus on: Adding missing critical skills, getting endorsements for unendorsed skills, or highlighting hidden gems
+   - If skills are well-positioned and endorsed, suggest strategic additions instead
+   - Avoid mechanical position swapping - focus on strategic improvements
+   - Example good feedback: "Consider highlighting your 'Data Analysis' skill more prominently"
+   - Example bad feedback: "Move skill from position #1 to #1" (meaningless)
+</analysis_task>
+
+Return ONLY valid JSON with this exact structure (no markdown, no extra text):
+{
+  "score": <integer 0-10>,
+  "positiveInsight": "<200-300 chars acknowledging their ACTUAL skills like 'Your top skill Product Management with 45 endorsements shows...'>",
+  "gapAnalysis": "<150-250 chars identifying issues with specific skills quoted from their list>",
+  "specificFeedback": {
+    "originalLine": "<Quote their actual top 3 skills>",
+    "suggestion": "<How to improve the top 3 positioning>",
+    "why": "<50-100 chars explaining impact>"
+  },
+  "actionItems": [
+    {
+      "category": "<'Strategic Positioning'|'Endorsement Building'|'Skill Optimization'|'10/10 Refinement'>",
+      "action": "<SPECIFIC action referencing their actual skills by name>",
+      "impact": "<How this helps for ${config.targetRole} at ${config.seniorityLevel}>",
+      "priority": "<'high'|'medium'|'low'>",
+      "quotedContent": "<Exact skill names and endorsement counts from their list>"
+    }
+  ]
+}`;
+
+  return prompt;
+}
+
 // Parse section analysis response
 function parseSectionAnalysis(response, sectionName) {
   try {
@@ -929,6 +2211,44 @@ function parseSectionAnalysis(response, sectionName) {
       const actionItems = parsed.actionItems || parsed.recommendations || [];
       const improvements = parsed.improvements || [];
       
+      // Validate that AI included specific quotes
+      const hasQuotes = (text) => text && (text.includes('"') || text.includes("'") || text.includes('[') || text.includes('Your'));
+      
+      // Log warning if response lacks specific quotes
+      if (parsed.positiveInsight && !hasQuotes(parsed.positiveInsight)) {
+        SmartLogger.log('AI.QUOTES', 'Missing quotes in positiveInsight', { 
+          section: sectionName,
+          textPreview: parsed.positiveInsight.substring(0, 100) 
+        });
+      }
+      
+      if (parsed.gapAnalysis && !hasQuotes(parsed.gapAnalysis)) {
+        SmartLogger.log('AI.QUOTES', 'Missing quotes in gapAnalysis', { 
+          section: sectionName,
+          textPreview: parsed.gapAnalysis.substring(0, 100) 
+        });
+      }
+      
+      // Validate actionItems have quotedContent
+      const validatedActionItems = actionItems.map(item => {
+        if (typeof item === 'object' && !item.quotedContent) {
+          SmartLogger.log('AI.QUOTES', 'ActionItem missing quotedContent', { 
+            section: sectionName,
+            what: item.what 
+          });
+        }
+        return item;
+      });
+      
+      // Log successful parse
+      SmartLogger.log('AI.PARSING', 'Response parsed successfully', {
+        section: sectionName,
+        score: parsed.score,
+        hasSpecificFeedback: !!parsed.specificFeedback,
+        actionItemCount: validatedActionItems.length,
+        quotesDetected: hasQuotes(parsed.positiveInsight) || hasQuotes(parsed.gapAnalysis)
+      });
+      
       return {
         score: Math.min(10, Math.max(0, parsed.score || 5)),
         // New format with positiveInsight and gapAnalysis
@@ -938,21 +2258,26 @@ function parseSectionAnalysis(response, sectionName) {
         insight: parsed.insight || parsed.feedback || `${parsed.strengths?.join('. ')}. ${improvements.join('. ')}`,
         strengths: parsed.strengths || [],
         improvements: improvements,
-        actionItems: actionItems,
+        actionItems: validatedActionItems,
         specificFeedback: parsed.specificFeedback || null,
         // Keep backwards compatibility
-        recommendations: actionItems.map(item => 
+        recommendations: validatedActionItems.map(item => 
           typeof item === 'string' ? item : (item.what || item.text || item)
         )
       };
     }
   } catch (error) {
-    console.error(`[Parse Error] Failed to parse ${sectionName} response:`, error);
+    SmartLogger.error('AI.PARSING', 'Failed to parse response', error, {
+      section: sectionName,
+      responsePreview: response.substring(0, 200)
+    });
   }
   
   // Fallback parsing
+  SmartLogger.log('AI.PARSING', 'Using fallback parsing', { section: sectionName });
   return {
-    score: 5,
+    score: null,
+    errorType: 'RESPONSE_PARSE_ERROR',
     positiveInsight: '',
     gapAnalysis: '',
     insight: response.substring(0, 200),
@@ -965,7 +2290,7 @@ function parseSectionAnalysis(response, sectionName) {
 
 // Synthesize final analysis from section analyses
 async function synthesizeFinalAnalysis(sectionAnalyses, config) {
-  console.log('[Synthesis] Creating final recommendations from section analyses');
+  SmartLogger.log('AI.PROMPTS', 'Creating final recommendations from section analyses');
   
   // Separate experience roles from other sections
   const experienceRoles = [];
@@ -1130,11 +2455,11 @@ async function synthesizeFinalAnalysis(sectionAnalyses, config) {
     summary: `Analysis complete. Found ${allRecommendations.length} recommendations across ${Object.keys(sectionAnalyses).length} sections.`
   };
   
-  console.log('[synthesizeFinalAnalysis] Returning:', {
+  SmartLogger.log('AI.PROMPTS', 'Final synthesis complete', {
     hasRecommendations: !!result.recommendations,
-    recommendationStructure: result.recommendations,
+    recommendationCount: allRecommendations.length,
     insightsType: typeof result.insights,
-    summary: result.summary
+    summaryLength: result.summary.length
   });
   
   return result;
@@ -1186,7 +2511,7 @@ function analyzeCareerTrajectory(experienceRoles) {
 
 // Call AI provider
 async function callAIProvider(provider, apiKey, prompt, model = null) {
-  console.log(`[AI Provider] Calling ${provider} with model:`, model);
+  SmartLogger.log('AI.PROMPTS', 'Calling AI provider', { provider, model });
   
   // Clean and validate API key
   if (!apiKey || typeof apiKey !== 'string') {
@@ -1198,7 +2523,10 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
   
   // Check if key was significantly altered (might indicate encoding issues)
   if (cleanApiKey.length < apiKey.length - 2) {
-    console.warn('[AI Provider] API key contained non-ASCII characters that were removed');
+    SmartLogger.log('AI.PROMPTS', 'API key contained non-ASCII characters that were removed', { 
+      originalLength: apiKey.length, 
+      cleanLength: cleanApiKey.length 
+    });
   }
   
   if (!cleanApiKey) {
@@ -1246,49 +2574,78 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
     throw new Error(`Unknown provider: ${provider}`);
   }
   
-  const response = await fetch(providerConfig.url, {
-    method: 'POST',
-    headers: providerConfig.headers,
-    body: JSON.stringify(providerConfig.body)
-  });
+  // Add timeout to prevent hanging requests
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
   
-  if (!response.ok) {
-    const errorData = await response.text();
-    console.error(`[AI Provider] Error response:`, errorData);
-    throw new Error(`API error: ${response.status} ${response.statusText}`);
-  }
-  
-  const data = await response.json();
-  
-  // Log token usage for OpenAI
-  if (provider === 'openai' && data.usage) {
-    console.log('[AI Provider] Token usage:', {
-      prompt_tokens: data.usage.prompt_tokens,
-      completion_tokens: data.usage.completion_tokens,
-      total_tokens: data.usage.total_tokens,
-      model: model || 'gpt-4o-mini',
-      estimated_cost: model === 'gpt-4o' ? 
-        `$${((data.usage.prompt_tokens / 1000) * 0.01 + (data.usage.completion_tokens / 1000) * 0.03).toFixed(4)}` :
-        `$${((data.usage.prompt_tokens / 1000) * 0.00015 + (data.usage.completion_tokens / 1000) * 0.0006).toFixed(4)}`
+  try {
+    const response = await fetch(providerConfig.url, {
+      method: 'POST',
+      headers: providerConfig.headers,
+      body: JSON.stringify(providerConfig.body),
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      const errorData = await response.text();
+      SmartLogger.error('AI.RESPONSES', 'API error response', new Error(errorData), { status: response.status });
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    return processProviderResponse(provider, data, model);
+    
+  } catch (error) {
+    clearTimeout(timeoutId);
+    
+    if (error.name === 'AbortError') {
+      SmartLogger.error('AI.PROMPTS', 'Request timeout', new Error('API request timed out after 30 seconds'));
+      throw new Error('Request timeout - API not responding');
+    }
+    
+    throw error;
   }
   
-  // Extract content based on provider
-  if (provider === 'openai') {
-    return data.choices?.[0]?.message?.content || '';
-  } else if (provider === 'anthropic') {
-    return data.content?.[0]?.text || '';
+  // Helper function to process provider response
+  function processProviderResponse(provider, data, model) {
+    // Log token usage for OpenAI
+    if (provider === 'openai' && data.usage) {
+      SmartLogger.log('AI.COSTS', 'Token usage', {
+        prompt_tokens: data.usage.prompt_tokens,
+        completion_tokens: data.usage.completion_tokens,
+        total_tokens: data.usage.total_tokens,
+        model: model || 'gpt-4o-mini',
+        estimated_cost: model === 'gpt-4o' ? 
+          `$${((data.usage.prompt_tokens / 1000) * 0.01 + (data.usage.completion_tokens / 1000) * 0.03).toFixed(4)}` :
+          `$${((data.usage.prompt_tokens / 1000) * 0.00015 + (data.usage.completion_tokens / 1000) * 0.0006).toFixed(4)}`
+      });
+    }
+    
+    // Extract content based on provider
+    if (provider === 'openai') {
+      return data.choices?.[0]?.message?.content || '';
+    } else if (provider === 'anthropic') {
+      return data.content?.[0]?.text || '';
+    }
+    
+    return '';
   }
-  
-  return '';
 }
 
 // Message handler
 if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // SECURITY: Validate message sender
+  if (!sender || sender.id !== chrome.runtime.id) {
+    console.warn('[SECURITY] Service worker rejected message from unknown sender:', sender);
+    return false;
+  }
+  
   const { action } = request;
   
-  console.log('Service worker received message:', action);
+  SmartLogger.log('PERFORMANCE.TIMING', 'Service worker received message', { action, senderId: sender.id });
   
   // Handle test API key
   if (action === 'testApiKey') {
@@ -1300,20 +2657,28 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
     return true;
   }
   
-  // Handle AI analysis
+  // Handle AI analysis with keep-alive for long operations
   if (action === 'analyzeWithAI') {
-    handleAIAnalysis(request, sender, sendResponse);
+    withKeepAlive(() => handleAIAnalysis(request, sender, sendResponse));
     return true;
   }
   
+  
+  // [CRITICAL_PATH:API_KEY_ENCRYPTION_HANDLER] - P0: Handles API key encryption requests from popup
   // Handle API key encryption with better error handling
   if (action === 'encryptApiKey') {
-    console.log('[Service Worker] Encrypting API key...');
-    cryptoUtils.encryptApiKey(request.apiKey).then(encryptedKey => {
-      console.log('[Service Worker] Encryption successful');
-      sendResponse({ success: true, encryptedApiKey: encryptedKey });
+    SmartLogger.log('AI.PROMPTS', 'Encrypting API key');
+    cryptoUtils.encryptApiKey(request.apiKey).then(async (encryptedKey) => {
+      SmartLogger.log('AI.PROMPTS', 'Encryption successful');
+      // Get installationId from storage
+      const { installationId } = await chrome.storage.local.get('installationId');
+      sendResponse({ 
+        success: true, 
+        encryptedApiKey: encryptedKey,
+        installationId: installationId || null
+      });
     }).catch(error => {
-      console.error('[Service Worker] Encryption failed:', error);
+      SmartLogger.error('AI.PROMPTS', 'Encryption failed', error);
       sendResponse({ 
         success: false, 
         error: error.message || 'Failed to encrypt API key',
@@ -1321,6 +2686,23 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
           errorName: error.name,
           errorStack: error.stack
         }
+      });
+    });
+    return true;
+  }
+  
+  // [CRITICAL_PATH:API_KEY_CLEAR_HANDLER] - P0: Securely removes all API key data
+  // Handle API key clearing
+  if (action === 'clearApiKey') {
+    SmartLogger.log('AI.PROMPTS', 'Clearing API key');
+    cryptoUtils.clearApiKey().then(() => {
+      SmartLogger.log('AI.PROMPTS', 'API key cleared successfully');
+      sendResponse({ success: true });
+    }).catch(error => {
+      SmartLogger.error('AI.PROMPTS', 'Failed to clear API key', error);
+      sendResponse({ 
+        success: false, 
+        error: error.message || 'Failed to clear API key'
       });
     });
     return true;
@@ -1340,14 +2722,22 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   
   // Handle API key validation
   if (action === 'validateApiKey') {
-    console.log('[Service Worker] Validating API key...');
+    SmartLogger.log('AI.PROMPTS', 'Validating API key');
     (async () => {
       try {
-        // Get provider and API key from storage
-        const { aiProvider } = await chrome.storage.local.get('aiProvider');
-        const apiKey = await getDecryptedApiKey();
+        // Use provider and API key from request (during setup)
+        // OR fall back to storage (for later validation)
+        let provider = request.provider;
+        let apiKey = request.apiKey;
         
-        if (!aiProvider || !apiKey) {
+        // If not provided in request, get from storage
+        if (!provider || !apiKey) {
+          const stored = await chrome.storage.local.get('aiProvider');
+          provider = provider || stored.aiProvider;
+          apiKey = apiKey || await getDecryptedApiKey();
+        }
+        
+        if (!provider || !apiKey) {
           sendResponse({ 
             success: false, 
             error: 'API key or provider not configured' 
@@ -1356,10 +2746,10 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
         }
         
         // Use the existing testApiKey function
-        const result = await testApiKey(aiProvider, apiKey, null);
+        const result = await testApiKey(provider, apiKey, null);
         sendResponse(result);
       } catch (error) {
-        console.error('[Service Worker] API key validation error:', error);
+        SmartLogger.error('AI.PROMPTS', 'API key validation error', error);
         sendResponse({ 
           success: false, 
           error: error.message || 'Validation failed' 
@@ -1377,15 +2767,108 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   }
   
   // Default response for unknown actions
-  console.log('[Service Worker] Unknown action:', action);
+  SmartLogger.log('PERFORMANCE.TIMING', 'Unknown action', { action });
   sendResponse({ success: false, error: 'Unknown action' });
   return true;
 });
 
+// API Rate Limiter
+class RateLimiter {
+  constructor() {
+    this.requests = new Map();
+    this.limits = {
+      'api': { limit: 10, window: 60000 },        // 10 API calls per minute
+      'test': { limit: 5, window: 60000 },        // 5 test calls per minute
+      'analysis': { limit: 30, window: 300000 }   // 30 analyses per 5 minutes
+    };
+  }
+
+  canMakeRequest(type, identifier = 'global') {
+    const config = this.limits[type] || this.limits['api'];
+    const key = `${type}:${identifier}`;
+    const now = Date.now();
+    
+    // Get request history
+    const requests = this.requests.get(key) || [];
+    
+    // Filter to requests within the time window
+    const recentRequests = requests.filter(t => now - t < config.window);
+    
+    // Check if under limit
+    if (recentRequests.length >= config.limit) {
+      const oldestRequest = recentRequests[0];
+      const waitTime = Math.ceil((config.window - (now - oldestRequest)) / 1000);
+      SmartLogger.log('AI.RATE_LIMIT', 'Rate limit exceeded', {
+        type,
+        identifier,
+        limit: config.limit,
+        window: config.window,
+        current: recentRequests.length,
+        waitTimeSeconds: waitTime
+      });
+      return { allowed: false, waitTime };
+    }
+    
+    // Add current request
+    recentRequests.push(now);
+    this.requests.set(key, recentRequests);
+    
+    // Clean old entries periodically
+    if (Math.random() < 0.1) { // 10% chance to clean
+      this.cleanOldEntries();
+    }
+    
+    return { allowed: true };
+  }
+
+  cleanOldEntries() {
+    const now = Date.now();
+    for (const [key, requests] of this.requests.entries()) {
+      const [type] = key.split(':');
+      const config = this.limits[type] || this.limits['api'];
+      const recentRequests = requests.filter(t => now - t < config.window);
+      
+      if (recentRequests.length === 0) {
+        this.requests.delete(key);
+      } else {
+        this.requests.set(key, recentRequests);
+      }
+    }
+  }
+
+  reset(type = null, identifier = null) {
+    if (type && identifier) {
+      this.requests.delete(`${type}:${identifier}`);
+    } else if (type) {
+      for (const key of this.requests.keys()) {
+        if (key.startsWith(`${type}:`)) {
+          this.requests.delete(key);
+        }
+      }
+    } else {
+      this.requests.clear();
+    }
+  }
+}
+
+// Create rate limiter instance
+const rateLimiter = new RateLimiter();
+
 // Test API Key function
 async function testApiKey(provider, apiKey, model) {
   try {
-    console.log(`Testing ${provider} API key...`);
+    // Check rate limit
+    const rateCheck = rateLimiter.canMakeRequest('test', provider);
+    if (!rateCheck.allowed) {
+      return {
+        success: false,
+        error: `Rate limit exceeded. Please wait ${rateCheck.waitTime} seconds before testing again.`
+      };
+    }
+
+    // Normalize provider string
+    provider = provider?.toLowerCase()?.trim();
+    SmartLogger.log('AI.PROMPTS', 'Testing API key', { provider, hasApiKey: !!apiKey });
     
     // Clean and validate API key
     if (!apiKey || typeof apiKey !== 'string') {
@@ -1397,7 +2880,10 @@ async function testApiKey(provider, apiKey, model) {
     
     // Check if key was significantly altered (might indicate encoding issues)
     if (cleanApiKey.length < apiKey.length - 2) {
-      console.warn('[Test API] API key contained non-ASCII characters that were removed');
+      SmartLogger.log('AI.PROMPTS', 'API key contained non-ASCII characters', {
+        originalLength: apiKey.length,
+        cleanLength: cleanApiKey.length
+      });
     }
     
     if (!cleanApiKey) {
@@ -1423,7 +2909,7 @@ async function testApiKey(provider, apiKey, model) {
       
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('OpenAI test failed:', errorData);
+        SmartLogger.error('AI.PROMPTS', 'OpenAI test failed', new Error(JSON.stringify(errorData)), { status: response.status });
         
         if (response.status === 401) {
           return { success: false, error: 'Invalid API key' };
@@ -1457,7 +2943,7 @@ async function testApiKey(provider, apiKey, model) {
       
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('Anthropic test failed:', errorData);
+        SmartLogger.error('AI.PROMPTS', 'Anthropic test failed', new Error(JSON.stringify(errorData)), { status: response.status });
         
         if (response.status === 401) {
           return { success: false, error: 'Invalid API key' };
@@ -1475,7 +2961,11 @@ async function testApiKey(provider, apiKey, model) {
     return { success: false, error: 'Unknown provider' };
     
   } catch (error) {
-    console.error('Test API key error:', error);
+    SmartLogger.error('AI.PROMPTS', 'Test API key error', error, {
+      errorType: error.name,
+      errorMessage: error.message,
+      errorStack: error.stack
+    });
     return { success: false, error: error.message || 'Connection failed' };
   }
 }
@@ -1486,8 +2976,8 @@ async function handleSectionAnalysis(request, sendResponse) {
   const { section, data, context, settings } = request;
   
   try {
-    console.log(`[Section Analysis] Analyzing ${section}`, {
-      timestamp: new Date().toISOString(),
+    SmartLogger.log('SECTIONS.EXPERIENCE', 'Analyzing section', {
+      section,
       dataSize: JSON.stringify(data).length,
       hasContext: !!context,
       hasSettings: !!settings
@@ -1495,7 +2985,7 @@ async function handleSectionAnalysis(request, sendResponse) {
     
     // Log specific details for experience roles
     if (section === 'experience_role') {
-      console.log('[Section Analysis] Experience role details:', {
+      SmartLogger.log('SECTIONS.EXPERIENCE', 'Experience role details', {
         title: data?.title,
         company: data?.company,
         hasDescription: !!data?.description,
@@ -1520,7 +3010,7 @@ async function handleSectionAnalysis(request, sendResponse) {
     }
     
     // Check rate limit
-    const rateCheck = await rateLimiter.checkLimit(aiProvider);
+    const rateCheck = rateLimiter.canMakeRequest('analysis', request.profileId || 'unknown');
     if (!rateCheck.allowed) {
       sendResponse({
         success: false,
@@ -1540,37 +3030,85 @@ async function handleSectionAnalysis(request, sendResponse) {
       customInstructions: settings?.customInstructions || ''
     };
     
-    console.log(`[Section Analysis] Creating prompt for ${section}`);
-    const prompt = createSectionPrompt(section, data, config);
+    // Special logging for recommendations
+    if (section === 'recommendations') {
+      SmartLogger.log('AI.PROMPTS', 'Recommendations data received in service worker', {
+        hasData: !!data,
+        dataKeys: data ? Object.keys(data) : [],
+        count: data?.count,
+        receivedCount: data?.receivedCount,
+        hasRecommendationChunks: !!data?.recommendationChunks,
+        chunksLength: data?.recommendationChunks?.length || 0,
+        hasReceived: !!data?.received,
+        receivedLength: data?.received?.length || 0,
+        firstChunk: data?.recommendationChunks?.[0] ? {
+          hasText: !!data.recommendationChunks[0].text,
+          textLength: data.recommendationChunks[0].text?.length || 0,
+          recommender: data.recommendationChunks[0].recommender
+        } : null
+      });
+    }
+    
+    const prompt = createSectionPrompt(section, data, config, context);
+    
+    // Log prompt details for debugging
+    SmartLogger.log('AI.PROMPTS', 'Individual section prompt', {
+      section,
+      promptLength: prompt.length,
+      dataType: typeof data,
+      hasExperience: section === 'experience_role',
+      targetRole: config.targetRole,
+      hasPhotoData: section === 'first_impression' && data?.photo?.hasImageData,
+      photoDataSize: section === 'first_impression' ? data?.photo?.imageData?.length : 0
+    });
+    
     const model = settings?.aiModel || null;
     
-    console.log(`[Section Analysis] Calling AI provider for ${section}`);
-    const response = await callAIProvider(aiProvider, apiKey, prompt, model);
+    // Regular text-only analysis
+    const response = await SmartLogger.time('PERFORMANCE.API_LATENCY', `Individual AI call - ${section}`,
+      async () => await callAIProvider(aiProvider, apiKey, prompt, model)
+    );
     
-    // Log raw response to debug format
-    console.log(`[Section Analysis] Raw AI response for ${section}:`, {
+    // Log response characteristics
+    SmartLogger.log('AI.RESPONSES', 'Raw response received', {
+      section,
       responseLength: response.length,
-      responsePreview: response.substring(0, 500),
-      hasJSON: response.includes('{')
+      hasJSON: response.includes('{'),
+      containsQuotes: response.includes('"') || response.includes("'")
     });
+    
+    // SCORE MISMATCH DEBUG: Log full raw response for skills
+    if (section === 'skills') {
+      SmartLogger.log('AI.SKILLS', 'Raw skills AI response for debugging:', {
+        response: response.substring(0, 1000) + (response.length > 1000 ? '...' : ''),
+        fullLength: response.length
+      });
+    }
     
     // Parse the response
     const analysis = parseSectionAnalysis(response, section);
     
-    // Log parsed analysis to see what fields we got
-    console.log(`[Section Analysis] Parsed analysis for ${section}:`, {
-      hasInsight: !!analysis.insight,
-      hasActionItems: !!analysis.actionItems,
-      hasRecommendations: !!analysis.recommendations,
-      hasSpecificFeedback: !!analysis.specificFeedback,
-      fields: Object.keys(analysis)
-    });
+    // SCORE MISMATCH DEBUG: Log parsed analysis for skills
+    if (section === 'skills') {
+      SmartLogger.log('AI.SKILLS', 'Parsed skills analysis debugging:', {
+        originalScore: analysis.score,
+        positiveInsight: analysis.positiveInsight?.substring(0, 200),
+        gapAnalysis: analysis.gapAnalysis?.substring(0, 200),
+        actionItemsCount: analysis.actionItems?.length,
+        specificFeedback: analysis.specificFeedback,
+        allAnalysisKeys: Object.keys(analysis)
+      });
+    }
     
-    const sectionElapsed = Date.now() - sectionStartTime;
-    console.log(`[Section Analysis] Completed ${section}`, {
+    // Log analysis results
+    SmartLogger.log('AI.RESPONSES', 'Section analysis complete', {
+      section,
       score: analysis.score,
-      elapsedMs: sectionElapsed,
-      recommendationCount: analysis.recommendations?.length || 0
+      hasPositiveInsight: !!analysis.positiveInsight,
+      hasGapAnalysis: !!analysis.gapAnalysis,
+      hasSpecificFeedback: !!analysis.specificFeedback,
+      actionItemCount: analysis.actionItems?.length || 0,
+      elapsedMs: Date.now() - sectionStartTime
     });
     
     sendResponse({
@@ -1595,10 +3133,9 @@ async function handleSectionAnalysis(request, sendResponse) {
     
   } catch (error) {
     const sectionElapsed = Date.now() - sectionStartTime;
-    console.error(`[Section Analysis] Error analyzing ${section}:`, {
-      error: error.message,
-      elapsedMs: sectionElapsed,
-      stack: error.stack
+    SmartLogger.error('SECTIONS.EXPERIENCE', 'Error analyzing section', error, {
+      section,
+      elapsedMs: sectionElapsed
     });
     sendResponse({
       success: false,
@@ -1612,29 +3149,33 @@ async function handleSynthesisAnalysis(request, sendResponse) {
   const { sectionScores, sectionRecommendations, targetRole, seniorityLevel, customInstructions } = request;
   
   try {
-    console.log('[Synthesis] Creating final recommendations from section analyses');
-    console.log('[Synthesis] Section scores received:', sectionScores);
+    SmartLogger.log('AI.PROMPTS', 'Creating final recommendations from section analyses');
+    SmartLogger.log('AI.PROMPTS', 'Section scores received', { sectionScores });
     
     // Calculate weighted average score from section results
     let totalScore = 0;
     let totalWeight = 0;
     const weights = {
-      profile_intro: 0.30,      // 30% - Profile intro (headline + about)
-      experience_role: 0.35,    // 35% - All experience roles combined
-      skills: 0.20,             // 20% - Skills
-      recommendations: 0.15     // 15% - Recommendations
+      first_impression: 0.20,   // 20% - First impression (headline + photo + banner)
+      about: 0.25,              // 25% - Standalone about section
+      profile_intro: 0.30,      // 30% - Profile intro (headline + about) - LEGACY FALLBACK
+      experience_role: 0.30,    // 30% - All experience roles combined
+      experience_overall: 0.30, // 30% - Overall experience (alternative to role-by-role)
+      skills: 0.15,             // 15% - Skills
+      recommendations: 0.10     // 10% - Recommendations
     };
     
     // Track experience scores separately to average them
     const experienceScores = [];
     
-    console.log('[Synthesis] Processing section scores:', {
+    SmartLogger.log('AI.PROMPTS', 'Processing section scores', {
       sectionCount: Object.keys(sectionScores || {}).length,
       sections: Object.keys(sectionScores || {})
     });
     
     Object.entries(sectionScores || {}).forEach(([sectionType, result]) => {
-      console.log(`[Synthesis] Processing ${sectionType}:`, {
+      SmartLogger.log('AI.SCORING', 'Processing section type', {
+        sectionType,
         hasScore: result && result.score !== undefined,
         isArray: Array.isArray(result),
         score: result?.score
@@ -1647,6 +3188,10 @@ async function handleSynthesisAnalysis(request, sendResponse) {
             experienceScores.push(role.score);
           }
         });
+      } else if (sectionType === 'experience_overall' && result && result.score !== undefined && result.score !== null) {
+        // Handle overall experience score
+        totalScore += result.score * weights.experience_overall;
+        totalWeight += weights.experience_overall;
       } else if (result && result.score !== undefined && result.score !== null) {
         // Process other sections normally
         const weight = weights[sectionType] || 0.1;
@@ -1655,8 +3200,9 @@ async function handleSynthesisAnalysis(request, sendResponse) {
       }
     });
     
-    // Add averaged experience score
-    if (experienceScores.length > 0) {
+    // Add averaged experience score ONLY if we didn't already use experience_overall
+    const hasExperienceOverall = sectionScores?.experience_overall?.score !== undefined;
+    if (experienceScores.length > 0 && !hasExperienceOverall) {
       const avgExperienceScore = experienceScores.reduce((a, b) => a + b, 0) / experienceScores.length;
       totalScore += avgExperienceScore * weights.experience_role;
       totalWeight += weights.experience_role;
@@ -1665,8 +3211,8 @@ async function handleSynthesisAnalysis(request, sendResponse) {
     // Calculate final score
     const finalScore = totalWeight > 0 ? Math.round((totalScore / totalWeight) * 10) / 10 : 5;
     
-    console.log('[Synthesis] Score calculation:', {
-      experienceScores,
+    SmartLogger.log('AI.SCORING', 'Score calculation complete', {
+      experienceScoreCount: experienceScores.length,
       avgExperienceScore: experienceScores.length > 0 ? experienceScores.reduce((a, b) => a + b, 0) / experienceScores.length : 0,
       totalScore,
       totalWeight,
@@ -1682,7 +3228,7 @@ async function handleSynthesisAnalysis(request, sendResponse) {
     
     const synthesis = await synthesizeFinalAnalysis(sectionScores || {}, config);
     
-    console.log('[Synthesis] Sending response back to content script:', {
+    SmartLogger.log('AI.PROMPTS', 'Sending synthesis response', {
       finalScore: finalScore,
       hasSynthesis: !!synthesis,
       hasRecommendations: !!synthesis.recommendations,
@@ -1700,10 +3246,17 @@ async function handleSynthesisAnalysis(request, sendResponse) {
       sectionScores: sectionScores
     };
     
-    console.log('[Synthesis] Response data structure:', responseData);
+    SmartLogger.log('AI.PROMPTS', 'Response data structure', { 
+      hasRecommendations: !!responseData.overallRecommendations,
+      hasCareerNarrative: !!responseData.careerNarrative,
+      sectionScoreKeys: Object.keys(sectionScores || {}),
+      hasExperienceOverall: !!sectionScores?.experience_overall,
+      experienceOverallScore: sectionScores?.experience_overall?.score,
+      hasExperienceRoles: !!sectionScores?.experience_roles
+    });
     sendResponse(responseData);
   } catch (error) {
-    console.error('[Synthesis] Error:', error);
+    SmartLogger.error('AI.PROMPTS', 'Synthesis error', error);
     sendResponse({
       success: false,
       error: error.message || 'Failed to synthesize analysis'
@@ -1713,7 +3266,7 @@ async function handleSynthesisAnalysis(request, sendResponse) {
 
 // Note: openPopup is handled in the main message listener above
 } else {
-  console.warn('[Service Worker] chrome.runtime.onMessage not available');
+  SmartLogger.log('PERFORMANCE.TIMING', 'chrome.runtime.onMessage not available');
 }
 
 // Cleanup old cache periodically
@@ -1725,5 +3278,5 @@ if (chrome && chrome.alarms) {
     }
   });
 } else {
-  console.warn('[Service Worker] chrome.alarms API not available - cache cleanup will not be scheduled');
+  SmartLogger.log('PERFORMANCE.TIMING', 'chrome.alarms API not available - cache cleanup will not be scheduled');
 }

@@ -1,0 +1,34 @@
+{
+  "appName": {
+    "message": "ElevateLI",
+    "description": "The name of the extension"
+  },
+  "appDescription": {
+    "message": "Optimize your LinkedIn profile with AI-powered suggestions",
+    "description": "The description of the extension"
+  },
+  "analyzeButton": {
+    "message": "Analyze",
+    "description": "Button text for analyze action"
+  },
+  "reanalyzeButton": {
+    "message": "Re-analyze",
+    "description": "Button text for re-analyze action"
+  },
+  "completenessLabel": {
+    "message": "Profile Completeness",
+    "description": "Label for completeness score"
+  },
+  "contentQualityLabel": {
+    "message": "Content Quality (AI)",
+    "description": "Label for content quality score"
+  },
+  "enableAILabel": {
+    "message": "Enable AI Analysis",
+    "description": "Toggle label for enabling AI"
+  },
+  "apiKeyPlaceholder": {
+    "message": "Enter API key",
+    "description": "Placeholder text for API key input"
+  }
+}

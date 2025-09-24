@@ -1,12 +1,12 @@
 /**
  * Cache Manager Module for ElevateLI
- * Handles content-based caching with configurable expiration
+ * Handles content-based caching with infinite persistence
+ * Cache persists until explicitly cleared by user
  * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
 class CacheManager {
-  constructor(cacheDurationDays = null) {
-    this.cacheDurationDays = cacheDurationDays; // null means no expiration
+  constructor() {
     this.AI_CACHE_PREFIX = 'aiCache_';
     this.COMPLETENESS_CACHE_PREFIX = 'completeness_';
   }
@@ -59,24 +59,16 @@ class CacheManager {
         
         const cachedData = data[cacheKey];
         if (!cachedData) {
-          Logger.info('[CacheManager] No cache found for profile:', profileId);
+          Logger.info('[CacheManager] No cache found for profile:', profileId, 'key:', cacheKey);
           resolve(null);
           return;
         }
         
-        // Check if cache is expired (only if duration is set)
-        if (this.cacheDurationDays !== null) {
-          const cacheAge = Date.now() - new Date(cachedData.timestamp).getTime();
-          const maxAge = this.cacheDurationDays * 24 * 60 * 60 * 1000;
-          
-          if (cacheAge > maxAge) {
-            Logger.info('[CacheManager] Cache expired for profile:', profileId);
-            resolve(null);
-            return;
-          }
-        }
-        
-        Logger.info('[CacheManager] Found valid cache for profile:', profileId);
+        Logger.info('[CacheManager] Found valid cache for profile:', profileId, {
+          cacheKey,
+          hasCompleteness: cachedData.completeness !== undefined,
+          timestamp: cachedData.timestamp
+        });
         resolve(cachedData);
       });
     });
@@ -131,7 +123,7 @@ class CacheManager {
     const cachedData = await this.get(profileId);
     if (!cachedData) return null;
     
-    // For now, just return cached data if it exists and isn't expired
+    // Return cached data if it exists
     // In future, could compare content hash to detect changes
     return cachedData;
   }

@@ -72,16 +72,15 @@ const PhotoExtractor = {
   async extract() {
     const scanResult = await this.scan();
     
-    return {
+    const result = {
       exists: scanResult.exists,
       hasPhoto: scanResult.exists,
       photoUrl: scanResult.photoUrl
     };
+    
+    Logger.info('[PhotoExtractor] Extract result:', result);
+    
+    return result;
   },
   
-  /**
-   * Deep extraction is same as basic for photo
-   * @returns {Object} Photo data
-   */
-  // REMOVED: extractDeep - duplicate method that just calls extract(), not used by analyzer
 };

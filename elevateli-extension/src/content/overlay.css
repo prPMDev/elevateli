@@ -17,10 +17,12 @@
   flex-wrap: nowrap;
 }
 
-.overlay-collapsed-view .brand-logo {
+.overlay-collapsed-view .brand-logo,
+.overlay-collapsed-view .overlay-logo {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
+  margin-right: 6px;
 }
 
 .overlay-collapsed-view .brand-name {
@@ -163,6 +165,81 @@
 
 .overlay-collapsed-view .view-details-link:hover {
   text-decoration: underline;
+}
+
+/* Responsive Label Display - Hide short versions by default */
+.label-short {
+  display: none;
+}
+
+.btn-text-short {
+  display: none;
+}
+
+.stars-numeric {
+  display: none;
+}
+
+.details-text-medium {
+  display: none;
+}
+
+.details-icon {
+  display: none;
+}
+
+/* Medium screens (tablets, iPad mini) */
+@media (max-width: 768px) {
+  /* Show "Details" instead of "View details" */
+  .details-text-full {
+    display: none;
+  }
+  
+  .details-text-medium {
+    display: inline;
+  }
+}
+
+/* Small screens (phones) */
+@media (max-width: 500px) {
+  /* Abbreviated labels */
+  .label-full {
+    display: none;
+  }
+  
+  .label-short {
+    display: inline;
+  }
+  
+  /* Abbreviated button text */
+  .btn-text-full {
+    display: none;
+  }
+  
+  .btn-text-short {
+    display: inline;
+  }
+  
+  /* Show numeric rating instead of visual stars for empty state */
+  .stars-visual {
+    display: none;
+  }
+  
+  .stars-numeric {
+    display: inline;
+  }
+  
+  /* Show icon instead of "Details" text */
+  .details-text-medium {
+    display: none;
+  }
+  
+  .details-icon {
+    display: inline;
+    color: #0a66c2;
+    font-size: 18px;
+    vertical-align: middle;
+  }
 }
 
 /* Spin animation for analyzing state */
@@ -370,7 +447,7 @@
  * BASE OVERLAY STYLES
  * ============================================ */
 .elevateli-overlay-wrapper {
-  /* LinkedIn card styling */
+  /* Custom card styling without LinkedIn classes */
   background: #fff;
   border: 1px solid #e0e0e0;
   border-radius: 8px;
@@ -380,6 +457,22 @@
   transition: all 0.3s ease;
   max-width: 100%;
   box-sizing: border-box;
+  
+  /* Force full width and prevent sidebar placement */
+  width: 100% !important;
+  display: block !important;
+  position: relative !important;
+  grid-column: 1 / -1 !important; /* Span full grid if parent uses grid */
+  float: none !important;
+}
+
+/* Custom card class to replace LinkedIn's artdeco-card */
+.elevateli-card {
+  /* Mimic LinkedIn card appearance */
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .elevateli-overlay {
@@ -407,11 +500,29 @@
   border-bottom: 1px solid #e0e0e0;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .header-left h3 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
   color: #0a66c2; /* LinkedIn blue */
+}
+
+.header-logo {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.logo-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .timestamp-display {
@@ -892,4 +1003,130 @@
 /* Match LinkedIn's card hover behavior */
 .elevateli-overlay-wrapper:hover {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Prevent LinkedIn's grid layout from placing overlay in sidebar */
+.scaffold-layout__sidebar .elevateli-overlay-wrapper {
+  display: none !important; /* Never show in sidebar */
+}
+
+/* Force overlay to stay in main content area */
+.elevateli-overlay-wrapper {
+  grid-area: unset !important;
+  grid-row: unset !important;
+  grid-column: unset !important;
+}
+
+/* Toast Notifications */
+.elevateli-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 400px;
+  z-index: 10001;
+  transform: translateX(calc(100% + 20px));
+  transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.elevateli-toast-show {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.elevateli-toast-hide {
+  transform: translateX(calc(100% + 20px));
+  opacity: 0;
+}
+
+.elevateli-toast-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.elevateli-toast-text {
+  font-size: 14px;
+  line-height: 1.4;
+  color: #333;
+}
+
+/* Toast types */
+.elevateli-toast-info {
+  background: #e7f3ff;
+  border: 1px solid #c2e0ff;
+}
+
+.elevateli-toast-success {
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+}
+
+.elevateli-toast-warning {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+}
+
+.elevateli-toast-error {
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+}
+
+.elevateli-toast-error .elevateli-toast-text {
+  color: #721c24;
+}
+
+.elevateli-toast-warning .elevateli-toast-text {
+  color: #856404;
+}
+
+.elevateli-toast-success .elevateli-toast-text {
+  color: #155724;
+}
+
+.elevateli-toast-info .elevateli-toast-text {
+  color: #004085;
+}
+
+/* Error indicator on button */
+.elevateli-overlay .action-button.has-error::before {
+  content: '•';
+  color: #dc2626;
+  font-size: 20px;
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.elevateli-overlay .action-button.has-error {
+  position: relative;
+  padding-left: 24px;
+}
+
+/* Chrome Store Release v1.0 - Clean Unified UI */
+/* Hides legacy UI elements in expanded view for better UX */
+.overlay-expanded-view .scores-container,
+.overlay-expanded-view .missing-items-section,
+.overlay-expanded-view .recommendations-section,
+.overlay-expanded-view .insights-section,
+.overlay-expanded-view .overlay-actions {
+  display: none !important;
+}
+
+/* Ensure unified section is always visible */
+.overlay-expanded-view .unified-section {
+  display: block !important;
+}
+
+/* Clean up any spacing issues from hidden elements */
+.overlay-expanded-view .status-indicator + .unified-section {
+  margin-top: 16px;
 }

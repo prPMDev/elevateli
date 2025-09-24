@@ -4,22 +4,58 @@
  * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
-const OverlayManager = {
-  // Feature Flags (DEMO ONLY - Remove before production)
-  FEATURES: {
-    unifiedView: true  // Toggle for before/after demo - NEW UI ENABLED
+// Debug logging system for Mac testing
+window.elevateliDebug = {
+  logs: [],
+  enabled: false,
+  
+  init() {
+    // Enable debug mode if URL contains debug=true
+    this.enabled = window.location.href.includes('debug=true');
+    if (this.enabled) {
+      console.log('[ElevateLI Debug] Debug mode enabled');
+    }
   },
   
+  addLog(component, message, data = {}) {
+    if (!this.enabled) return;
+    
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      component,
+      message,
+      data,
+      platform: navigator.platform,
+      userAgent: navigator.userAgent
+    };
+    
+    this.logs.push(logEntry);
+    console.log(`[${component}]`, message, data);
+  },
+  
+  getLogs() {
+    return JSON.stringify(this.logs, null, 2);
+  },
+  
+  clearLogs() {
+    this.logs = [];
+  }
+};
+
+// Initialize debug system
+window.elevateliDebug.init();
+
+const OverlayManager = {
   // UI States
   states: {
     INITIALIZING: 'initializing',
     EMPTY_CACHE: 'empty_cache',
-    CACHE_LOADED: 'cache_loaded',
     SCANNING: 'scanning',
     EXTRACTING: 'extracting',
     CALCULATING: 'calculating',
     ANALYZING: 'analyzing',
     AI_ANALYZING: 'ai_analyzing',
+    AI_RETRYING: 'ai_retrying',
     COMPLETE: 'complete',
     ERROR: 'error',
     ANALYSIS_FAILED_CACHE_FALLBACK: 'analysis_failed_cache_fallback'
@@ -28,8 +64,10 @@ const OverlayManager = {
   // Current state tracking
   currentState: null,
   overlayElement: null,
-  viewState: 'expanded', // Default to expanded (old UI) unless feature flag is on
+  viewState: 'collapsed', // Always start in collapsed view
   currentData: null, // Store the full analysis data for reference
+  isRestoringState: false, // Track restoration to prevent duplicates
+  lastRestoredProfile: null, // Track last restored profile to avoid redundant restoration
   
   /**
    * Get color class based on score value
@@ -57,35 +95,61 @@ const OverlayManager = {
    * @returns {OverlayManager} Self for chaining
    */
   async initialize() {
-    console.log('[OverlayManager] Initializing overlay');
+    SmartLogger.log('UI.STATES', 'Initializing overlay');
     
-    // Check if user wants to show analysis
-    const settings = await chrome.storage.local.get(['showAnalysis']);
-    if (settings.showAnalysis === false) {
-      console.log('[OverlayManager] Show analysis is disabled, skipping initialization');
+    // Check if extension context is still valid
+    try {
+      if (!chrome?.runtime?.id) {
+        SmartLogger.log('UI.STATES', 'Extension context invalid, skipping initialization');
+        return this;
+      }
+    } catch (e) {
+      SmartLogger.log('UI.STATES', 'Extension context check failed, skipping initialization');
       return this;
+    }
+    
+    // Check if user wants to show analysis and compliance
+    try {
+      const settings = await new Promise((resolve) => {
+        chrome.storage.local.get(['showAnalysis', 'compliance'], (data) => {
+          if (chrome.runtime.lastError) {
+            SmartLogger.log('UI.STATES', 'Chrome storage error:', chrome.runtime.lastError.message);
+            resolve({});
+            return;
+          }
+          resolve(data);
+        });
+      });
+      
+      if (settings.showAnalysis === false) {
+        SmartLogger.log('UI.STATES', 'Show analysis is disabled, skipping initialization');
+        return this;
+      }
+      
+      // Store compliance status for button state management
+      this.hasCompliance = settings.compliance?.hasAcknowledged || false;
+    } catch (error) {
+      // Continue with initialization on error
+      SmartLogger.log('UI.STATES', 'Error checking settings:', error);
+      this.hasCompliance = false;
     }
     
     this.setState(this.states.INITIALIZING);
     
-    // Set initial viewState based on feature flag
-    if (this.FEATURES.unifiedView) {
-      this.viewState = 'collapsed';
-    } else {
-      this.viewState = 'expanded';
-    }
+    // Always start in collapsed view
+    this.viewState = 'collapsed';
     
     // Try to inject immediately
     this.createAndInject();
     
     // If injection failed, retry with delays
     if (!this.overlayElement) {
-      console.log('[OverlayManager] Initial injection failed, scheduling retries...');
+      SmartLogger.log('UI.ERRORS', 'Initial injection failed, scheduling retries');
       
       // Retry after DOM settles
       setTimeout(() => {
         if (!this.overlayElement) {
-          console.log('[OverlayManager] Retrying injection (attempt 2)...');
+          SmartLogger.log('UI.STATES', 'Retrying injection (attempt 2)');
           this.createAndInject();
         }
       }, 1000);
@@ -93,57 +157,191 @@ const OverlayManager = {
       // Final retry after LinkedIn finishes loading
       setTimeout(() => {
         if (!this.overlayElement) {
-          console.log('[OverlayManager] Final injection attempt (attempt 3)...');
+          SmartLogger.log('UI.STATES', 'Final injection attempt (attempt 3)');
           this.createAndInject();
         }
       }, 3000);
     }
     
+    // CRITICAL: Restore cached data automatically after overlay is created
+    // This ensures returning users see their previous analysis immediately
+    // We need to handle two cases:
+    // 1. No compliance - show zero state with disabled analyze button
+    // 2. Has compliance but no cache - show zero state with enabled analyze button
+    // 3. Has compliance and cache - restore cached data
+    if (this.overlayElement) {
+      if (this.hasCompliance) {
+        SmartLogger.log('UI.STATES', 'User has compliance, checking for cached data on initialization');
+        // Use setTimeout to ensure DOM is fully ready
+        setTimeout(async () => {
+          // Check if we already have scores displayed (from popup-triggered analysis)
+          const hasScores = this.overlayElement?.querySelector('.completeness-score')?.textContent;
+          if (hasScores && hasScores !== '0' && hasScores !== '') {
+            SmartLogger.log('UI.STATES', 'Scores already displayed, skipping restoration on init');
+            return;
+          }
+          // This will check for cache and either restore it or show EMPTY_CACHE state
+          await this.restoreAppropriateState();
+        }, 100);
+      } else {
+        SmartLogger.log('UI.STATES', 'No compliance yet, showing zero state with disabled analyze button');
+        // The INITIALIZING state handler will show zero state for no compliance
+        // No need to call restoreAppropriateState
+      }
+    }
+    
     return this;
   },
   
+  
   /**
    * Create overlay HTML with skeleton UI
+   * @param {boolean} hidden - Whether to create the overlay in hidden state
    */
-  createAndInject() {
+  createAndInject(hidden = false) {
     // Create wrapper for proper integration
     const wrapperHtml = `
-      <div class="elevateli-overlay-wrapper artdeco-card pv-profile-card break-words mt4">
-        <div id="elevateli-overlay" class="elevateli-overlay ${this.FEATURES.unifiedView ? 'unified-ui' : 'classic-ui'}" data-state="${this.currentState}" data-view-state="${this.viewState}">
+      <style>
+        /* Ensure overlay takes full width and doesn't go to sidebar */
+        .elevateli-overlay-wrapper {
+          width: 100% !important;
+          max-width: none !important;
+          margin-left: 0 !important;
+          margin-right: 0 !important;
+          display: block !important;
+          position: relative !important;
+          clear: both !important;
+        }
+        
+        /* LinkedIn card appearance without their layout rules */
+        .elevateli-card {
+          background: white;
+          border-radius: 8px;
+          box-shadow: 0 0 0 1px rgba(0,0,0,.08), 0 2px 3px rgba(0,0,0,.04);
+          margin-top: 16px;
+          margin-bottom: 16px;
+          padding: 0;
+          overflow: hidden;
+        }
+        
+        /* Zero state responsive layout with fallbacks */
+        .elevateli-overlay .zero-state-tiles {
+          /* Flexbox fallback for older browsers */
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 16px;
+          
+          /* Modern grid layout */
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+          max-width: 800px;
+          margin: 0 auto 24px;
+        }
+        
+        /* Flexbox fallback styling */
+        @supports not (display: grid) {
+          .elevateli-overlay .zero-state-tiles > div {
+            flex: 0 1 calc(33.333% - 16px);
+            min-width: 200px;
+          }
+        }
+        
+        /* Responsive breakpoints */
+        @media (max-width: 768px) {
+          .elevateli-overlay .zero-state-tiles {
+            grid-template-columns: repeat(2, 1fr);
+          }
+          
+          /* Center the third tile */
+          .elevateli-overlay .zero-state-tiles > div:nth-child(3) {
+            grid-column: 1 / -1;
+            max-width: 300px;
+            margin: 0 auto;
+          }
+          
+          /* Flexbox fallback for tablet */
+          @supports not (display: grid) {
+            .elevateli-overlay .zero-state-tiles > div {
+              flex: 0 1 calc(50% - 16px);
+            }
+            .elevateli-overlay .zero-state-tiles > div:nth-child(3) {
+              flex: 0 1 100%;
+              max-width: 300px;
+            }
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .elevateli-overlay .zero-state-tiles {
+            grid-template-columns: 1fr;
+          }
+          
+          .elevateli-overlay .zero-state-tiles > div:nth-child(3) {
+            grid-column: auto;
+            max-width: none;
+            margin: 0;
+          }
+          
+          /* Flexbox fallback for mobile */
+          @supports not (display: grid) {
+            .elevateli-overlay .zero-state-tiles > div {
+              flex: 0 1 100%;
+            }
+          }
+        }
+        
+        /* Container query support for more accurate responsiveness */
+        @supports (container-type: inline-size) {
+          .elevateli-overlay-wrapper {
+            container-type: inline-size;
+          }
+          
+          @container (max-width: 700px) {
+            .elevateli-overlay .zero-state-tiles {
+              grid-template-columns: repeat(2, 1fr);
+            }
+            .elevateli-overlay .zero-state-tiles > div:nth-child(3) {
+              grid-column: 1 / -1;
+              max-width: 300px;
+              margin: 0 auto;
+            }
+          }
+          
+          @container (max-width: 450px) {
+            .elevateli-overlay .zero-state-tiles {
+              grid-template-columns: 1fr;
+            }
+            .elevateli-overlay .zero-state-tiles > div:nth-child(3) {
+              grid-column: auto;
+              max-width: none;
+              margin: 0;
+            }
+          }
+        }
+      </style>
+      <div class="elevateli-overlay-wrapper elevateli-card" ${hidden ? 'style="display: none;"' : ''}>
+        <div id="elevateli-overlay" class="elevateli-overlay unified-ui" data-state="${this.currentState}" data-view-state="${this.viewState}">
           <!-- Collapsed view (new default) -->
           <div class="overlay-collapsed-view">
-            <img src="${chrome.runtime.getURL('src/images/icon.png')}" class="brand-logo" alt="ElevateLI" />
+            <img src="${chrome?.runtime?.id ? chrome.runtime.getURL('src/images/icon.png') : ''}" class="brand-logo" alt="ElevateLI" />
             <span class="brand-name">ElevateLI</span>
-            <span class="score-badge completeness">Completeness: --</span>
-            <span class="score-badge quality">Content Quality (AI): --</span>
+            <span class="score-badge completeness"><span class="label-full">Completeness</span><span class="label-short">Complete</span>: --</span>
+            <span class="score-badge quality"><span class="label-full">Content Quality</span><span class="label-short">Quality</span>: --</span>
             <div class="spacer"></div>
             <span class="last-analyzed-collapsed"></span>
             <button class="analyze-btn-collapsed">Analyze</button>
-            <a href="#" class="view-details-link">View details</a>
+            <a href="#" class="view-details-link">
+              <span class="details-text-full">View details</span>
+              <span class="details-text-medium">Details</span>
+              <span class="details-icon">▼</span>
+            </a>
           </div>
           
-          <!-- Expanded view (existing content) -->
+          <!-- Expanded view -->
           <div class="overlay-expanded-view">
-          ${!this.FEATURES.unifiedView ? `
-          <!-- Classic UI Header -->
-          <div class="overlay-header">
-            <div class="header-left">
-              <h3>ElevateLI Analysis</h3>
-              <span class="last-analyzed" style="font-size: 12px; color: #666; margin-left: 12px; opacity: 0;"></span>
-            </div>
-            <div class="header-right">
-              <button class="overlay-close" aria-label="Close overlay">&times;</button>
-            </div>
-          </div>
-          ` : ''}
-          <!-- DEMO TOGGLE in expanded view - Remove before production -->
-          <!-- Commented out for production release - uncomment for development
-          <div style="text-align: right; margin-bottom: 10px;">
-            <button class="demo-toggle-expanded" style="font-size: 11px; padding: 4px 8px; background: #f3f4f6; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">
-              Demo: ${this.FEATURES.unifiedView ? 'NEW' : 'OLD'}
-            </button>
-          </div>
-          -->
+          <!-- Header removed - branding already in collapsed bar -->
         
         <div class="scores-container">
           <div class="score-block completeness">
@@ -161,7 +359,7 @@ const OverlayManager = {
             <label>Content Quality (AI)</label>
             <div class="score-display">
               <span class="score-value skeleton">--</span>
-              <span class="score-suffix">/10</span>
+              <span class="score-suffix"></span>
             </div>
             <div class="score-bar">
               <div class="score-bar-fill skeleton" style="width: 0%"></div>
@@ -202,7 +400,7 @@ const OverlayManager = {
           </button>
           <button class="action-button refresh-button hidden">
             <span class="button-icon">🔄</span>
-            Re-analyze
+            Refresh
           </button>
           <button class="action-button details-button hidden">
             <span class="button-icon">📊</span>
@@ -231,15 +429,45 @@ const OverlayManager = {
       profileWrapper: !!document.querySelector('[data-generated-suggestion-target]'),
       profileMain: !!document.querySelector('.profile-detail'),
       bodyContainer: !!document.querySelector('.body-container'),
-      applicationBody: !!document.querySelector('.application-outlet')
+      applicationBody: !!document.querySelector('.application-outlet'),
+      profileContentMain: !!document.querySelector('.pv-oc'),
+      profileViewContainer: !!document.querySelector('[data-view-name="profile-view"]')
     });
+    
+    // Strategy 0: Look for main profile content container first
+    const profileMainContent = document.querySelector('.pv-oc') || 
+                              document.querySelector('[data-view-name="profile-view"]') ||
+                              document.querySelector('.profile-detail');
+    
+    if (profileMainContent && !injected) {
+      const topCard = profileMainContent.querySelector('.pv-top-card');
+      if (topCard) {
+        Logger.info('[OverlayManager] Injecting after top card in main profile content');
+        topCard.insertAdjacentHTML('afterend', wrapperHtml);
+        injected = true;
+      }
+    }
     
     // Strategy 1: After the profile top card (most common location)
     const topCard = document.querySelector('.pv-top-card');
-    if (topCard && topCard.parentElement) {
-      Logger.info('[OverlayManager] Injecting after profile top card');
-      topCard.parentElement.insertAdjacentHTML('afterend', wrapperHtml);
-      injected = true;
+    if (topCard) {
+      // Check if parent is the main content area, not a sidebar
+      const parent = topCard.parentElement;
+      const isMainContent = parent && !parent.classList.contains('scaffold-layout__sidebar') && 
+                           !parent.closest('.scaffold-layout__sidebar') &&
+                           !parent.classList.contains('pv-profile-sticky-header-v2__container');
+      
+      if (isMainContent) {
+        Logger.info('[OverlayManager] Injecting after profile top card', {
+          parentClasses: parent.className,
+          parentId: parent.id,
+          parentTag: parent.tagName
+        });
+        topCard.insertAdjacentHTML('afterend', wrapperHtml);
+        injected = true;
+      } else {
+        Logger.warn('[OverlayManager] Top card found but parent appears to be sidebar or header');
+      }
     }
     
     // Strategy 2: After the profile photo/intro section
@@ -272,25 +500,7 @@ const OverlayManager = {
       }
     }
     
-    // Strategy 5: Inside main content area
-    if (!injected) {
-      const mainContent = document.querySelector('main.scaffold-layout__main, main[role="main"]');
-      if (mainContent) {
-        // Find the container that holds profile sections
-        const profileContainer = mainContent.querySelector('.pv-profile-body-container, .scaffold-layout__inner');
-        if (profileContainer) {
-          Logger.info('[OverlayManager] Injecting in profile container');
-          profileContainer.insertAdjacentHTML('afterbegin', wrapperHtml);
-          injected = true;
-        } else {
-          Logger.info('[OverlayManager] Injecting at beginning of main content');
-          mainContent.insertAdjacentHTML('afterbegin', wrapperHtml);
-          injected = true;
-        }
-      }
-    }
-    
-    // Strategy 6: Any artdeco-card (very generic fallback)
+    // Strategy 5: Any artdeco-card (very generic fallback)
     if (!injected) {
       const anyCard = document.querySelector('section.artdeco-card');
       if (anyCard) {
@@ -300,7 +510,7 @@ const OverlayManager = {
       }
     }
     
-    // Strategy 7: Look for profile wrapper with data attributes
+    // Strategy 6: Look for profile wrapper with data attributes
     if (!injected) {
       const profileWrapper = document.querySelector('[data-generated-suggestion-target]');
       if (profileWrapper) {
@@ -310,7 +520,7 @@ const OverlayManager = {
       }
     }
     
-    // Strategy 8: Look for any element with class containing "profile"
+    // Strategy 7: Look for any element with class containing "profile"
     if (!injected) {
       const profileElements = Array.from(document.querySelectorAll('[class*="profile"]')).filter(el => 
         el.tagName === 'SECTION' || el.tagName === 'DIV'
@@ -319,6 +529,46 @@ const OverlayManager = {
         Logger.info('[OverlayManager] Injecting after first profile element');
         profileElements[0].insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
+      }
+    }
+    
+    // Strategy 8: Inside main content area (safer injection)
+    if (!injected) {
+      // Look for main content area, avoiding sidebars
+      const mainContent = document.querySelector('main.scaffold-layout__main, main[role="main"], .scaffold-layout__inner');
+      if (mainContent) {
+        // Try to find the profile content specifically
+        const profileContent = mainContent.querySelector('.profile-detail, .pv-profile-body-container, [data-view-name="profile-view"]');
+        
+        if (profileContent) {
+          // Find the first section/card in profile content
+          const firstSection = profileContent.querySelector('section, .artdeco-card');
+          if (firstSection) {
+            Logger.info('[OverlayManager] Injecting after first profile section in main content');
+            firstSection.insertAdjacentHTML('afterend', wrapperHtml);
+            injected = true;
+          } else {
+            // Instead of afterbegin, find first child and inject after it
+            const firstChild = profileContent.querySelector('*');
+            if (firstChild) {
+              Logger.info('[OverlayManager] Injecting after first child of profile content');
+              firstChild.insertAdjacentHTML('afterend', wrapperHtml);
+              injected = true;
+            } else {
+              Logger.warn('[OverlayManager] Profile content found but no suitable injection point');
+            }
+          }
+        } else {
+          // Instead of injecting at beginning of main, find first substantial child
+          const firstMainChild = mainContent.querySelector('section, article, div.artdeco-card, div[class*="profile"]');
+          if (firstMainChild) {
+            Logger.info('[OverlayManager] Injecting after first substantial child in main content');
+            firstMainChild.insertAdjacentHTML('afterend', wrapperHtml);
+            injected = true;
+          } else {
+            Logger.warn('[OverlayManager] Main content found but no suitable injection point - skipping');
+          }
+        }
       }
     }
     
@@ -333,12 +583,8 @@ const OverlayManager = {
           this.overlayElement = document.getElementById('elevateli-overlay');
           if (this.overlayElement) {
             this.attachEventListeners();
-            // Update CSS class
-            if (this.FEATURES.unifiedView) {
-              this.overlayElement.classList.add('unified-ui');
-            } else {
-              this.overlayElement.classList.add('classic-ui');
-            }
+            // Add unified UI class
+            this.overlayElement.classList.add('unified-ui');
             this.overlayElement.setAttribute('data-view-state', this.viewState);
           }
         } else {
@@ -365,32 +611,51 @@ const OverlayManager = {
     // Attach event listeners
     this.attachEventListeners();
     
-    console.log('[OverlayManager] Overlay injected into DOM');
+    SmartLogger.log('UI.RENDERING', 'Overlay injected into DOM');
   },
   
   /**
    * Attach event listeners to overlay elements
    */
   attachEventListeners() {
-    // Close button (classic UI only)
-    const closeBtn = this.overlayElement.querySelector('.overlay-close');
-    closeBtn?.addEventListener('click', () => this.close());
-    
     // Analyze button (for first-time analysis)
     const analyzeBtn = this.overlayElement.querySelector('.analyze-button');
-    analyzeBtn?.addEventListener('click', () => this.handleAnalyze());
+    if (analyzeBtn) {
+      if (!this.hasCompliance) {
+        analyzeBtn.disabled = true;
+        analyzeBtn.title = 'Please complete setup in extension popup first';
+      } else {
+        analyzeBtn.addEventListener('click', () => this.handleAnalyze());
+      }
+    }
     
     // Refresh button (for re-analysis)
     const refreshBtn = this.overlayElement.querySelector('.refresh-button');
-    refreshBtn?.addEventListener('click', () => this.handleRefresh());
+    if (refreshBtn) {
+      if (!this.hasCompliance) {
+        refreshBtn.disabled = true;
+        refreshBtn.title = 'Please complete setup in extension popup first';
+      } else {
+        refreshBtn.addEventListener('click', () => this.handleRefresh());
+      }
+    }
     
     // Details button
     const detailsBtn = this.overlayElement.querySelector('.details-button');
     detailsBtn?.addEventListener('click', () => this.handleViewDetails());
     
-    // Analyze button (collapsed view)
+    // Analyze button (collapsed view) - always attach listener
     const analyzeBtnCollapsed = this.overlayElement.querySelector('.analyze-btn-collapsed');
-    analyzeBtnCollapsed?.addEventListener('click', () => this.handleAnalyze());
+    if (analyzeBtnCollapsed) {
+      // Always add the event listener
+      analyzeBtnCollapsed.addEventListener('click', () => this.handleAnalyze());
+      
+      // Set initial disabled state based on compliance
+      analyzeBtnCollapsed.disabled = !this.hasCompliance;
+      if (!this.hasCompliance) {
+        analyzeBtnCollapsed.title = 'Please complete setup in extension popup first';
+      }
+    }
     
     // View details link (collapsed view)
     const viewDetailsLink = this.overlayElement.querySelector('.view-details-link');
@@ -398,10 +663,6 @@ const OverlayManager = {
       e.preventDefault();
       this.toggleView();
     });
-    
-    // Demo toggle button in expanded view (DEMO ONLY)
-    const demoToggleExpanded = this.overlayElement.querySelector('.demo-toggle-expanded');
-    demoToggleExpanded?.addEventListener('click', () => this.toggleFeature());
   },
   
   /**
@@ -410,13 +671,38 @@ const OverlayManager = {
    * @param {Object} data - Data for the new state
    */
   setState(newState, data = {}) {
-    console.log(`[OverlayManager] State change: ${this.currentState} → ${newState}`, {
+    // Add null/undefined check for newState
+    if (!newState) {
+      SmartLogger.error('UI.STATES', 'setState called with null/undefined state', {
+        providedState: newState,
+        currentState: this.currentState,
+        stackTrace: new Error().stack
+      });
+      // Default to EMPTY_CACHE if no state provided
+      newState = this.states.EMPTY_CACHE;
+    }
+    
+    // Validate that the state exists in our defined states
+    const validStates = Object.values(this.states);
+    if (!validStates.includes(newState)) {
+      SmartLogger.error('UI.STATES', 'setState called with invalid state', {
+        providedState: newState,
+        validStates: validStates,
+        currentState: this.currentState
+      });
+      // Default to EMPTY_CACHE for invalid states
+      newState = this.states.EMPTY_CACHE;
+    }
+    
+    SmartLogger.log('UI.STATES', 'State change', {
+      from: this.currentState,
+      to: newState,
       hasData: !!data,
-      dataKeys: Object.keys(data),
-      completeness: data.completeness,
-      contentScore: data.contentScore,
-      hasRecommendations: !!data.recommendations,
-      recommendationType: typeof data.recommendations
+      dataKeys: data ? Object.keys(data) : [],
+      completeness: data?.completeness,
+      contentScore: data?.contentScore,
+      hasRecommendations: !!data?.recommendations,
+      recommendationType: data?.recommendations ? typeof data.recommendations : 'undefined'
     });
     this.currentState = newState;
     
@@ -427,52 +713,85 @@ const OverlayManager = {
     // State-specific updates
     const stateHandlers = {
       [this.states.INITIALIZING]: () => {
-        this.updateStatus('Initializing analysis...', '⣾');
-        this.showSkeletons();
-        // Show analyze button for first-time analysis
-        this.showActionButtons({ showAnalyze: true, showDetails: false });
+        // Check if we have compliance - if not, show zero state
+        if (!this.hasCompliance) {
+          this.clearEmptyStateMessage();
+          this.hideStatusIndicator();
+          this.hideSkeletons();
+          this.showZeroState();
+          // Don't show analyze button until setup is complete
+          this.showActionButtons({ 
+            showAnalyze: false,
+            showRefresh: false,
+            showDetails: false 
+          });
+        } else {
+          this.updateStatus('Initializing analysis...', '⣾');
+          this.showSkeletons();
+          // Show analyze button for first-time analysis
+          this.showActionButtons({ showAnalyze: true, showDetails: false });
+        }
       },
       
       [this.states.EMPTY_CACHE]: () => {
         this.updateStatus('No previous analysis found', 'ℹ️');
         this.hideSkeletons();
         
-        // Check if in NEW UI to show appropriate zero state
-        if (this.FEATURES.unifiedView) {
-          // Show welcome message in unified section
-          this.showZeroState();
-        } else {
-          // Show empty state message in OLD UI
-          const scoresContainer = this.overlayElement.querySelector('.scores-container');
-          if (scoresContainer) {
-            // Clear existing content safely
-            while (scoresContainer.firstChild) {
-              scoresContainer.removeChild(scoresContainer.firstChild);
-            }
-            
-            // Create empty state message using DOM methods
-            const emptyStateDiv = document.createElement('div');
-            emptyStateDiv.className = 'empty-state-message';
-            emptyStateDiv.style.cssText = 'grid-column: 1 / -1; text-align: center; padding: 30px 20px; color: #666;';
-            
-            const iconDiv = document.createElement('div');
-            iconDiv.style.cssText = 'font-size: 48px; margin-bottom: 16px; opacity: 0.3;';
-            iconDiv.textContent = '📊';
-            
-            const titleP = document.createElement('p');
-            titleP.style.cssText = 'margin-bottom: 12px; font-size: 16px; font-weight: 600;';
-            titleP.textContent = 'This profile hasn\'t been analyzed yet';
-            
-            const subtitleP = document.createElement('p');
-            subtitleP.style.cssText = 'font-size: 14px; color: #999;';
-            subtitleP.textContent = 'Click below to generate your profile scores';
-            
-            emptyStateDiv.appendChild(iconDiv);
-            emptyStateDiv.appendChild(titleP);
-            emptyStateDiv.appendChild(subtitleP);
-            scoresContainer.appendChild(emptyStateDiv);
-          }
+        // Clear score values and stars
+        const completenessValue = this.overlayElement.querySelector('.completeness .score-value');
+        const qualityValue = this.overlayElement.querySelector('.quality .score-value');
+        const qualitySuffix = this.overlayElement.querySelector('.quality .score-suffix');
+        
+        if (completenessValue) {
+          completenessValue.textContent = '--';
+          completenessValue.classList.add('skeleton');
         }
+        if (qualityValue) {
+          qualityValue.textContent = '--';
+          qualityValue.classList.add('skeleton');
+        }
+        if (qualitySuffix) {
+          qualitySuffix.textContent = '';
+        }
+        
+        // Reset progress bars
+        const completenessBar = this.overlayElement.querySelector('.completeness .score-bar-fill');
+        const qualityBar = this.overlayElement.querySelector('.quality .score-bar-fill');
+        if (completenessBar) {
+          completenessBar.style.width = '0%';
+          completenessBar.classList.add('skeleton');
+        }
+        if (qualityBar) {
+          qualityBar.style.width = '0%';
+          qualityBar.classList.add('skeleton');
+        }
+        
+        // Clear collapsed view badges
+        const completenessBadge = this.overlayElement.querySelector('.score-badge.completeness');
+        const qualityBadge = this.overlayElement.querySelector('.score-badge.quality');
+        const timestampBadge = this.overlayElement.querySelector('.last-analyzed-collapsed');
+        
+        if (completenessBadge) {
+          completenessBadge.innerHTML = '<span class="label-full">Completeness</span><span class="label-short">Complete</span>: --';
+          completenessBadge.classList.remove('high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
+        }
+        if (qualityBadge) {
+          qualityBadge.innerHTML = '<span class="label-full">Content Quality</span><span class="label-short">Quality</span>: --';
+          qualityBadge.classList.remove('ai-disabled', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
+        }
+        if (timestampBadge) {
+          timestampBadge.textContent = '';
+          timestampBadge.style.color = '';
+        }
+        
+        // Reset collapsed analyze button text
+        const collapsedAnalyzeBtn = this.overlayElement.querySelector('.analyze-btn-collapsed');
+        if (collapsedAnalyzeBtn) {
+          collapsedAnalyzeBtn.textContent = 'Analyze';
+        }
+        
+        // Show welcome message in unified section
+        this.showZeroState();
         
         // Show prominent analyze button
         this.showActionButtons({ 
@@ -480,42 +799,6 @@ const OverlayManager = {
           showRefresh: false,
           showDetails: false 
         });
-      },
-      
-      [this.states.CACHE_LOADED]: () => {
-        this.clearEmptyStateMessage();
-        this.updateStatus('Analysis complete', '✓');
-        this.hideSkeletons();
-        this.populateScores(data);
-        
-        // Store the data for reference
-        this.currentData = data;
-        
-        // Feature flag check
-        if (this.FEATURES.unifiedView) {
-          // NEW: Show unified view
-          this.showUnifiedView(data);
-          // In NEW UI, don't show action buttons in expanded view
-          this.showActionButtons({ showRefresh: false });
-        } else {
-          // CURRENT: Show existing separate sections
-          this.hideUnifiedView();
-          this.showMissingItems(data.completenessData);
-          if (data.recommendations) {
-            this.showRecommendations(data.recommendations);
-          } else {
-            console.log('[OverlayManager] No recommendations in data');
-            // Show a message indicating AI analysis is needed for recommendations
-            this.showNoRecommendationsMessage();
-          }
-          // In OLD UI, show re-analyze button for cached results
-          this.showActionButtons({ showRefresh: true });
-        }
-        
-        // Show timestamp
-        if (data.timestamp) {
-          this.showTimestamp(data.timestamp);
-        }
       },
       
       [this.states.SCANNING]: () => {
@@ -539,9 +822,9 @@ const OverlayManager = {
           recommendationsSection.classList.add('hidden');
         }
         
-        // Also clear unified section if in NEW mode
+        // Also clear unified section
         const unifiedSection = this.overlayElement.querySelector('.unified-section');
-        if (unifiedSection && this.FEATURES?.unifiedView) {
+        if (unifiedSection) {
           // Clear unified section safely
           while (unifiedSection.firstChild) {
             unifiedSection.removeChild(unifiedSection.firstChild);
@@ -583,39 +866,67 @@ const OverlayManager = {
         this.startElapsedTimeDisplay();
       },
       
+      [this.states.AI_RETRYING]: () => {
+        // Show retry status with attempt counter
+        const message = data.message || 'Connection issue. Retrying...';
+        const attemptInfo = data.attempt && data.maxAttempts ? 
+          ` (${data.attempt}/${data.maxAttempts})` : '';
+        this.updateStatus(message + attemptInfo, '🔄');
+        
+        // Show toast for first retry
+        if (data.attempt === 1) {
+          this.showToast('Network issue detected - retrying...', 'info', 3000);
+        }
+        
+        // Keep showing completeness
+        if (data.completeness !== undefined) {
+          this.updateCompleteness(data.completeness);
+        }
+        
+        // Don't stop elapsed time display during retries
+      },
+      
       [this.states.COMPLETE]: () => {
         this.clearEmptyStateMessage();
-        this.updateStatus('Analysis complete', '✓');
+        // Hide status indicator after analysis
+        this.hideStatusIndicator();
         this.hideSkeletons();
-        this.stopElapsedTimeDisplay();
+        
+        // Only stop elapsed time if not from cache
+        if (!data.fromCache) {
+          this.stopElapsedTimeDisplay();
+        }
+        
         this.populateScores(data);
         
         // Store the full data for reference by other methods
         this.currentData = data;
         
-        // Feature flag check for demo
-        if (this.FEATURES.unifiedView) {
-          // NEW: Show unified view (placeholder for now)
-          this.showUnifiedView(data);
-          // In NEW UI, don't show action buttons in expanded view
-          this.showActionButtons({ showRefresh: false });
-        } else {
-          // CURRENT: Show existing separate sections
-          this.hideUnifiedView();  // Make sure unified is hidden
-          this.showMissingItems(data.completenessData);
-          if (data.recommendations) {
-            this.showRecommendations(data.recommendations);
-          } else {
-            console.log('[OverlayManager] No recommendations in data');
-          }
-          // In OLD UI, show re-analyze button after fresh analysis
-          this.showActionButtons({ showRefresh: true });
-        }
+        // Show unified view
+        this.showUnifiedView(data);
+        // Don't show action buttons in expanded view
+        this.showActionButtons({ showRefresh: false });
         
         this.showInsights(data.insights);
         // Show timestamp
         if (data.timestamp) {
           this.showTimestamp(data.timestamp);
+        }
+        
+        // Ensure analyze button is enabled if compliance is set (for cached data)
+        if (data.fromCache || data.cacheRestored) {
+          const analyzeBtnCollapsed = this.overlayElement.querySelector('.analyze-btn-collapsed');
+          if (analyzeBtnCollapsed && this.hasCompliance) {
+            analyzeBtnCollapsed.disabled = false;
+            analyzeBtnCollapsed.title = '';
+          }
+        }
+        
+        // Show toast if AI failed but completeness succeeded
+        if (data.partialUpdate && data.aiFailedWithCache) {
+          this.showToast('AI analysis failed. Showing previous AI results with updated completeness.', 'warning', 7000);
+        } else if (data.apiKeyError) {
+          this.showToast('Invalid API key. Please check your settings for AI analysis.', 'error');
         }
       },
       
@@ -627,15 +938,18 @@ const OverlayManager = {
         let errorIcon = '❌';
         let errorMessage = data.message || 'Analysis failed';
         let showSettings = false;
+        let toastType = 'error';
         
         if (data.aiError) {
           switch (data.aiError.type) {
             case 'AUTH':
               errorIcon = '🔑';
               showSettings = true;
+              errorMessage = 'Invalid API key - please check your settings';
               break;
             case 'RATE_LIMIT':
               errorIcon = '⏱️';
+              toastType = 'warning';
               if (data.aiError.retryAfter) {
                 errorMessage = data.aiError.message;
                 // Start countdown timer
@@ -665,11 +979,14 @@ const OverlayManager = {
         // Show appropriate action button
         if (showSettings) {
           // Show button to open settings
-          this.showActionButtons({ showSettings: true });
+          this.showActionButtons({ showSettings: true, hasError: true });
         } else {
           // Show refresh button to retry
-          this.showActionButtons({ showRefresh: true });
+          this.showActionButtons({ showRefresh: true, hasError: true });
         }
+        
+        // Show toast notification
+        this.showToast(errorMessage, toastType);
       },
       
       [this.states.ANALYSIS_FAILED_CACHE_FALLBACK]: () => {
@@ -685,24 +1002,10 @@ const OverlayManager = {
         // Store the data with a flag indicating it's a fallback
         this.currentData = { ...data, isCacheFallback: true };
         
-        // Feature flag check for demo
-        if (this.FEATURES.unifiedView) {
-          // NEW: Show unified view with cache fallback indicator
-          this.showUnifiedView(data);
-          // In NEW UI, don't show action buttons in expanded view
-          this.showActionButtons({ showRefresh: false });
-        } else {
-          // CURRENT: Show existing separate sections
-          this.hideUnifiedView();
-          this.showMissingItems(data.completenessData);
-          if (data.recommendations) {
-            this.showRecommendations(data.recommendations);
-          } else {
-            console.log('[OverlayManager] No recommendations in data');
-          }
-          // In OLD UI, show re-analyze button
-          this.showActionButtons({ showRefresh: true });
-        }
+        // Show unified view with cache fallback indicator
+        this.showUnifiedView(data);
+        // Don't show action buttons in expanded view
+        this.showActionButtons({ showRefresh: false });
         
         // Show timestamp
         if (data.timestamp) {
@@ -735,10 +1038,10 @@ const OverlayManager = {
         warningBanner.appendChild(warningIcon);
         warningBanner.appendChild(warningText);
         
-        // Insert after status indicator
-        const statusIndicator = this.overlayElement.querySelector('.status-indicator');
-        if (statusIndicator) {
-          statusIndicator.insertAdjacentElement('afterend', warningBanner);
+        // Insert warning banner at the top of the unified section
+        const unifiedSection = this.overlayElement.querySelector('.unified-section');
+        if (unifiedSection && unifiedSection.firstChild) {
+          unifiedSection.insertBefore(warningBanner, unifiedSection.firstChild);
         }
         
         // Update status
@@ -779,6 +1082,16 @@ const OverlayManager = {
       if (icon === '⏳' || icon === '⣾') {
         statusIcon.classList.add('spinning');
       }
+    }
+  },
+  
+  /**
+   * Hide status indicator
+   */
+  hideStatusIndicator() {
+    const statusIndicator = this.overlayElement.querySelector('.status-indicator');
+    if (statusIndicator) {
+      statusIndicator.style.display = 'none';
     }
   },
   
@@ -873,7 +1186,7 @@ const OverlayManager = {
       
       // Restore the score blocks structure using DOM methods
       scoresContainer.appendChild(this.createScoreBlock('completeness', 'Profile Completeness', '%'));
-      scoresContainer.appendChild(this.createScoreBlock('quality', 'Content Quality (AI)', '/10'));
+      scoresContainer.appendChild(this.createScoreBlock('quality', 'Content Quality (AI)', '★'));
     }
   },
   
@@ -903,20 +1216,13 @@ const OverlayManager = {
     
     // Update collapsed view badge
     if (collapsedBadge) {
-      collapsedBadge.textContent = `Completeness: ${Math.round(score)}%`;
+      collapsedBadge.innerHTML = `<span class="label-full">Completeness</span><span class="label-short">Complete</span>: ${Math.round(score)}%`;
       // Remove old color classes
       collapsedBadge.classList.remove('high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
       
-      // Apply new color system if using unified UI
-      if (this.FEATURES.unifiedView) {
-        const colorClass = this.getScoreClass(score, false);
-        collapsedBadge.classList.add(colorClass);
-      } else {
-        // Keep old system for classic UI
-        if (score >= 80) collapsedBadge.classList.add('high');
-        else if (score >= 60) collapsedBadge.classList.add('medium');
-        else collapsedBadge.classList.add('low');
-      }
+      // Apply new color system
+      const colorClass = this.getScoreClass(score, false);
+      collapsedBadge.classList.add(colorClass);
     }
   },
   
@@ -927,7 +1233,7 @@ const OverlayManager = {
   populateScores(data) {
     // Log section scores if available
     if (data.sectionScores) {
-      console.log('[OverlayManager] Section scores:', data.sectionScores);
+      SmartLogger.log('AI.SCORING', 'Section scores', { sectionScores: data.sectionScores });
     }
     
     // Update completeness
@@ -939,7 +1245,7 @@ const OverlayManager = {
     const qualityBadge = this.overlayElement.querySelector('.score-badge.quality');
     
     // Debug logging
-    console.log('[OverlayManager] Quality badge update check:', {
+    SmartLogger.log('UI.RENDERING', 'Quality badge update check', {
       aiDisabled: data.aiDisabled,
       contentScore: data.contentScore,
       fromCache: data.fromCache,
@@ -947,7 +1253,7 @@ const OverlayManager = {
       qualityBadgeExists: !!qualityBadge
     });
     
-    if (data.aiDisabled || (data.contentScore === undefined || data.contentScore === null) && data.fromCache !== true) {
+    if (data.aiDisabled || ((data.contentScore === undefined || data.contentScore === null) && data.fromCache !== true)) {
       // Replace quality score block with AI disabled message
       const qualityBlock = this.overlayElement.querySelector('.score-block.quality');
       if (qualityBlock) {
@@ -969,14 +1275,40 @@ const OverlayManager = {
         
         qualityBlock.appendChild(label);
         qualityBlock.appendChild(messageDiv);
+        
+        // Clear the star suffix when AI is disabled
+        const suffixEl = this.overlayElement.querySelector('.quality .score-suffix');
+        if (suffixEl) {
+          suffixEl.textContent = '';
+        }
       }
       // Update collapsed view badge
       if (qualityBadge) {
-        if (data.apiKeyError) {
-          qualityBadge.textContent = 'Content Quality (AI): Invalid Key';
+        if (data.contentScore === 0 && data.aiError && data.settings?.enableAI) {
+          // AI is enabled but failed
+          qualityBadge.innerHTML = '<span class="label-full">Content Quality</span><span class="label-short">Quality</span>: No score';
+          qualityBadge.classList.add('ai-error');
+        } else if (data.apiKeyError) {
+          qualityBadge.textContent = '';
+          const labelHtml = '<span class="label-full">Content Quality</span><span class="label-short">Quality</span>: ';
+          qualityBadge.innerHTML = labelHtml;
+          const textNode = document.createTextNode('');
+          qualityBadge.appendChild(textNode);
+          
+          // Show empty stars with error tooltip
+          const starsElement = this.renderStars(null, 'API_KEY_ERROR');
+          qualityBadge.appendChild(starsElement);
           qualityBadge.classList.add('ai-disabled', 'error');
         } else {
-          qualityBadge.textContent = 'Content Quality (AI): Enable AI';
+          qualityBadge.textContent = '';
+          const labelHtml = '<span class="label-full">Content Quality</span><span class="label-short">Quality</span>: ';
+          qualityBadge.innerHTML = labelHtml;
+          const textNode = document.createTextNode('');
+          qualityBadge.appendChild(textNode);
+          
+          // Show empty stars with "Enable AI" tooltip
+          const starsElement = this.renderStars(null, null);
+          qualityBadge.appendChild(starsElement);
           qualityBadge.classList.add('ai-disabled');
         }
       }
@@ -987,8 +1319,15 @@ const OverlayManager = {
       const statusEl = this.overlayElement.querySelector('.ai-status');
       
       if (valueEl) {
-        valueEl.textContent = data.contentScore.toFixed(1);
+        // Convert 10-point scale to 5-star scale
+        valueEl.textContent = (data.contentScore / 2).toFixed(2);
         valueEl.classList.remove('skeleton');
+        
+        // Add the star suffix
+        const suffixEl = this.overlayElement.querySelector('.quality .score-suffix');
+        if (suffixEl) {
+          suffixEl.textContent = '★';
+        }
       }
       
       if (barEl) {
@@ -1007,20 +1346,61 @@ const OverlayManager = {
       
       // Update collapsed view badge
       if (qualityBadge) {
-        console.log('[OverlayManager] Updating quality badge with score:', data.contentScore);
-        qualityBadge.textContent = `Content Quality (AI): ${data.contentScore.toFixed(1)}/10`;
+        SmartLogger.log('UI.RENDERING', 'Updating quality badge', { contentScore: data.contentScore });
+        // Convert 10-point scale to 5-star scale
+        const starRating = Math.round(data.contentScore / 2);
+        const numericRating = (data.contentScore / 2).toFixed(1);
+        
+        // Clear the badge first
+        qualityBadge.textContent = '';
         qualityBadge.classList.remove('ai-disabled', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
         
-        // Apply new color system if using unified UI
-        if (this.FEATURES.unifiedView) {
-          const colorClass = this.getScoreClass(data.contentScore, true);
-          qualityBadge.classList.add(colorClass);
-        } else {
-          // Keep old system for classic UI
-          if (data.contentScore >= 8) qualityBadge.classList.add('high');
-          else if (data.contentScore >= 6) qualityBadge.classList.add('medium');
-          else qualityBadge.classList.add('low');
+        // Add the main text with responsive labels
+        const labelSpan = document.createElement('span');
+        labelSpan.innerHTML = '<span class="label-full">Content Quality</span><span class="label-short">Quality</span>: ';
+        qualityBadge.appendChild(labelSpan);
+        
+        // Add visual stars using renderStars
+        const starsElement = this.renderStars(starRating, data.errorType);
+        
+        // Add data attribute for responsive CSS to show numeric fallback
+        starsElement.setAttribute('data-numeric', `${numericRating}/5★`);
+        qualityBadge.appendChild(starsElement);
+        
+        // Add colored asterisk only if this is cached data after an AI failure
+        if (data.cachedContentScore || data.partialUpdate || data.aiFailedWithCache) {
+          const asteriskSpan = document.createElement('span');
+          asteriskSpan.textContent = '*';
+          asteriskSpan.style.fontWeight = 'bold';
+          asteriskSpan.style.marginLeft = '2px';
+          asteriskSpan.style.cursor = 'help';
+          
+          // If score is poor (red), make asterisk yellow; otherwise make it red
+          if (data.contentScore < 5) {
+            asteriskSpan.style.color = '#f59e0b'; // Yellow/warning color
+          } else {
+            asteriskSpan.style.color = '#ef4444'; // Red color for attention
+          }
+          
+          // Add tooltip explaining the asterisk
+          if (data.aiFailedWithCache || data.partialUpdate) {
+            asteriskSpan.title = '* AI analysis failed. Showing previous AI results. Click "Analyze" to retry.';
+          } else if (data.cachedContentScore) {
+            asteriskSpan.title = '* Showing cached AI score with updated completeness. Click "Analyze" for fresh AI analysis.';
+          } else if (data.timestamp) {
+            const date = new Date(data.timestamp);
+            const daysSince = Math.floor((Date.now() - date) / (1000 * 60 * 60 * 24));
+            asteriskSpan.title = `* This is from a cached analysis (${daysSince} days ago). Click "Analyze" to refresh.`;
+          } else {
+            asteriskSpan.title = '* This is from a previous analysis. Click "Analyze" to refresh.';
+          }
+          
+          qualityBadge.appendChild(asteriskSpan);
         }
+        
+        // Apply new color system
+        const colorClass = this.getScoreClass(data.contentScore, true);
+        qualityBadge.classList.add(colorClass);
       }
     }
   },
@@ -1052,11 +1432,10 @@ const OverlayManager = {
    * @param {Array|Object} recommendations - Recommendations data
    */
   showRecommendations(recommendations) {
-    console.log('[OverlayManager] showRecommendations called with:', recommendations);
+    SmartLogger.log('UI.RENDERING', 'showRecommendations called', { recommendations });
     
     // Add detailed logging for recommendations structure
-    console.log('[OverlayManager] Recommendations structure:', {
-      recommendations,
+    SmartLogger.log('UI.RENDERING', 'Recommendations structure', {
       type: typeof recommendations,
       isArray: Array.isArray(recommendations),
       hasCritical: recommendations?.critical !== undefined,
@@ -1070,7 +1449,7 @@ const OverlayManager = {
     });
     
     if (!recommendations) {
-      console.log('[OverlayManager] No recommendations provided');
+      SmartLogger.log('UI.RENDERING', 'No recommendations provided');
       return;
     }
     
@@ -1082,7 +1461,7 @@ const OverlayManager = {
         (recommendations.niceToHave && recommendations.niceToHave.length > 0);
       
       if (!hasAnyRecommendations) {
-        console.log('[OverlayManager] Recommendations object is empty or has no items');
+        SmartLogger.log('UI.RENDERING', 'Recommendations object is empty or has no items');
       }
     }
     
@@ -1090,7 +1469,7 @@ const OverlayManager = {
     const list = this.overlayElement.querySelector('.recommendations-list');
     
     if (!section || !list) {
-      console.log('[OverlayManager] Recommendations section or list not found');
+      SmartLogger.log('UI.ERRORS', 'Recommendations section or list not found');
       return;
     }
     
@@ -1233,8 +1612,7 @@ const OverlayManager = {
         // Ensure we have a valid 'what' string, not an object
         let what = action.what || rec.what || rec.message;
         if (!what || typeof what === 'object') {
-          console.warn('[OverlayManager] Invalid recommendation format:', {
-            rec: rec,
+          SmartLogger.log('UI.ERRORS', 'Invalid recommendation format', {
             recType: typeof rec,
             recKeys: rec ? Object.keys(rec) : 'null',
             hasAction: !!rec.action,
@@ -1294,7 +1672,7 @@ const OverlayManager = {
       list.appendChild(categoryDiv);
     });
     
-    console.log('[OverlayManager] Final recommendations list:', {
+    SmartLogger.log('UI.RENDERING', 'Final recommendations list', {
       listChildrenCount: list.children.length,
       sectionClasses: section.className,
       willShow: list.children.length > 0
@@ -1302,9 +1680,9 @@ const OverlayManager = {
     
     if (list.children.length > 0) {
       section.classList.remove('hidden');
-      console.log('[OverlayManager] Showing recommendations section');
+      SmartLogger.log('UI.RENDERING', 'Showing recommendations section');
     } else {
-      console.log('[OverlayManager] No recommendations to show, keeping section hidden');
+      // console.log('[OverlayManager] No recommendations to show, keeping section hidden');
     }
   },
   
@@ -1358,7 +1736,7 @@ const OverlayManager = {
         remaining--;
       } else {
         clearInterval(this.countdownTimer);
-        analyzeBtn.disabled = false;
+        analyzeBtn.disabled = !this.hasCompliance;
         this.updateButtonContent(analyzeBtn, '🔄', 'Retry Analysis');
         // Restore original click handler
         analyzeBtn.onclick = () => this.handleAnalyze();
@@ -1379,35 +1757,43 @@ const OverlayManager = {
     const detailsBtn = this.overlayElement.querySelector('.details-button');
     const actionsDiv = this.overlayElement.querySelector('.overlay-actions');
     
-    // For NEW UI, hide the entire actions div in expanded view
-    if (this.FEATURES.unifiedView && actionsDiv) {
-      actionsDiv.style.display = 'none';
-      return; // Don't show any buttons in NEW UI expanded view
-    }
-    
-    // For OLD UI, show the actions div
+    // Always hide the actions div in expanded view
     if (actionsDiv) {
-      actionsDiv.style.display = 'block';
+      actionsDiv.style.display = 'none';
+      return; // Don't show any buttons in expanded view
     }
     
     // Hide all buttons first
-    [analyzeBtn, refreshBtn, detailsBtn].forEach(btn => btn?.classList.add('hidden'));
+    [analyzeBtn, refreshBtn, detailsBtn].forEach(btn => {
+      if (btn) {
+        btn.classList.add('hidden');
+        btn.classList.remove('has-error');
+      }
+    });
     
     // Show appropriate buttons based on state
     if (options.showAnalyze && analyzeBtn) {
       analyzeBtn.classList.remove('hidden');
+      // Add error indicator if needed
+      if (options.hasError) {
+        analyzeBtn.classList.add('has-error');
+      }
       // Update text based on current state
       if (this.currentState === this.states.EMPTY_CACHE) {
         this.updateButtonContent(analyzeBtn, '🚀', 'Analyze Profile');
       } else {
-        this.updateButtonContent(analyzeBtn, '🔄', 'Re-analyze');
+        this.updateButtonContent(analyzeBtn, '🔄', 'Refresh');
       }
     }
     if (options.showRefresh && refreshBtn) {
       refreshBtn.classList.remove('hidden');
+      // Add error indicator if needed
+      if (options.hasError) {
+        refreshBtn.classList.add('has-error');
+      }
       // Reset button state after analysis completes
       refreshBtn.disabled = false;
-      this.updateButtonContent(refreshBtn, '🔄', 'Re-analyze');
+      this.updateButtonContent(refreshBtn, '🔄', 'Refresh');
     }
     if (options.showSettings && analyzeBtn) {
       // Repurpose analyze button for settings
@@ -1417,7 +1803,18 @@ const OverlayManager = {
       analyzeBtn.onclick = (e) => {
         e.preventDefault();
         // Open extension popup/settings
-        chrome.runtime.sendMessage({ action: 'openPopup' });
+        try {
+          if (chrome?.runtime?.id) {
+            chrome.runtime.sendMessage({ action: 'openPopup' }, () => {
+              // Check for errors but ignore them
+              if (chrome.runtime.lastError) {
+                // Silently ignore
+              }
+            });
+          }
+        } catch (error) {
+          // Silently ignore if extension context is invalid
+        }
       };
     }
   },
@@ -1428,7 +1825,7 @@ const OverlayManager = {
    */
   showProgressBar(phase) {
     // Could add a progress bar UI element if desired
-    console.log(`[OverlayManager] Progress phase: ${phase}`);
+    // console.log(`[OverlayManager] Progress phase: ${phase}`);
   },
   
   
@@ -1436,7 +1833,7 @@ const OverlayManager = {
    * Handle refresh button click (re-analysis)
    */
   handleRefresh() {
-    console.log('[OverlayManager] Refresh requested');
+    // console.log('[OverlayManager] Refresh requested');
     const btn = this.overlayElement.querySelector('.refresh-button');
     if (btn) {
       btn.disabled = true;
@@ -1450,18 +1847,26 @@ const OverlayManager = {
    * Handle view details button click
    */
   handleViewDetails() {
-    console.log('[OverlayManager] View details requested');
+    // console.log('[OverlayManager] View details requested');
     const btn = this.overlayElement.querySelector('.details-button');
     if (btn) {
       btn.disabled = true;
     }
     // Open dashboard
-    chrome.runtime.sendMessage({ action: 'openDashboard' }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error('Failed to open dashboard:', chrome.runtime.lastError);
+    try {
+      if (chrome?.runtime?.id) {
+        chrome.runtime.sendMessage({ action: 'openDashboard' }, (response) => {
+          if (chrome.runtime.lastError) {
+            // console.error('Failed to open dashboard:', chrome.runtime.lastError);
+            if (btn) btn.disabled = false;
+          }
+        });
+      } else {
         if (btn) btn.disabled = false;
       }
-    });
+    } catch (error) {
+      if (btn) btn.disabled = false;
+    }
   },
   
   /**
@@ -1644,49 +2049,8 @@ const OverlayManager = {
    * @param {number} score - Section score
    */
   updateSectionScore(section, score) {
-    // TEMPORARILY COMMENTED OUT - Section score details display
-    // Keeping for future use when we want to show progressive scoring
+    // Section score details display disabled - not currently used
     return;
-    
-    /* 
-    // Create or update section scores display
-    let scoresDisplay = this.overlayElement.querySelector('.section-scores-display');
-    if (!scoresDisplay) {
-      scoresDisplay = document.createElement('div');
-      scoresDisplay.className = 'section-scores-display';
-      scoresDisplay.style.cssText = 'margin: 16px 0; padding: 12px; background: #f3f2ef; border-radius: 6px;';
-      
-      const statusIndicator = this.overlayElement.querySelector('.status-indicator');
-      if (statusIndicator) {
-        statusIndicator.insertAdjacentElement('afterend', scoresDisplay);
-      }
-    }
-    
-    // Update or add section score
-    let sectionItem = scoresDisplay.querySelector(`[data-section="${section}"]`);
-    if (!sectionItem) {
-      sectionItem = document.createElement('div');
-      sectionItem.setAttribute('data-section', section);
-      sectionItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px;';
-      scoresDisplay.appendChild(sectionItem);
-    }
-    
-    // Format section name
-    const displayName = this.formatSectionName(section);
-    const scoreColor = score >= 8 ? '#057642' : score >= 6 ? '#f59e0b' : '#dc2626';
-    
-    sectionItem.innerHTML = `
-      <span>${displayName}</span>
-      <span style="font-weight: 600; color: ${scoreColor};">${score.toFixed(1)}/10</span>
-    `;
-    
-    // Add animation
-    sectionItem.style.opacity = '0';
-    setTimeout(() => {
-      sectionItem.style.transition = 'opacity 0.3s ease';
-      sectionItem.style.opacity = '1';
-    }, 50);
-    */
   },
   
   /**
@@ -1797,7 +2161,6 @@ const OverlayManager = {
         padding: 20px;
         color: #666;
       ">
-        <div style="font-size: 32px; margin-bottom: 12px; opacity: 0.5;">🤖</div>
         <p style="margin-bottom: 8px; font-size: 14px; font-weight: 600;">
           AI-powered recommendations not available
         </p>
@@ -1813,11 +2176,11 @@ const OverlayManager = {
           border-radius: 4px;
           cursor: pointer;
           margin-right: 8px;
-        " onclick="chrome.runtime.sendMessage({action: 'openPopup'})">
+        " onclick="try { if (chrome?.runtime?.id) { chrome.runtime.sendMessage({action: 'openPopup'}); } } catch(e) {}">
           Configure AI
         </button>
         <span style="font-size: 12px; color: #999;">
-          or click "Re-analyze" with AI enabled
+          or click "Analyze" with AI enabled
         </span>
       </div>
     `;
@@ -1838,8 +2201,17 @@ const OverlayManager = {
     
     const formatted = this.formatTimestamp(timestamp);
     
+    // Check if data is stale (older than 7 days)
+    const now = Date.now();
+    const daysSinceAnalysis = (now - timestamp) / (1000 * 60 * 60 * 24);
+    const isStale = daysSinceAnalysis > 7;
+    
     if (lastAnalyzed) {
       lastAnalyzed.textContent = `Last analyzed: ${formatted}`;
+      if (isStale) {
+        lastAnalyzed.textContent += ' ⚠️';
+        lastAnalyzed.title = 'Analysis is older than 7 days - consider re-analyzing';
+      }
       lastAnalyzed.style.opacity = '1';
     }
     
@@ -1853,6 +2225,11 @@ const OverlayManager = {
       };
       const formatted = date.toLocaleDateString('en-US', options);
       collapsedTimestamp.textContent = `Last Analyzed: ${formatted}`;
+      if (isStale) {
+        collapsedTimestamp.textContent += ' ⚠️';
+        collapsedTimestamp.title = 'Analysis is older than 7 days - consider re-analyzing';
+        collapsedTimestamp.style.color = '#f59e0b';
+      }
     }
   },
   
@@ -1894,7 +2271,7 @@ const OverlayManager = {
    * This is called after analysis completes, fails, or times out
    */
   resetButtons() {
-    console.log('[OverlayManager] Resetting all buttons');
+    // console.log('[OverlayManager] Resetting all buttons');
     
     if (!this.overlayElement) return;
     
@@ -1907,7 +2284,7 @@ const OverlayManager = {
       if (btn.classList.contains('analyze-button')) {
         btn.innerHTML = '<span class="button-icon">🚀</span>Analyze Profile';
       } else if (btn.classList.contains('refresh-button')) {
-        btn.innerHTML = '<span class="button-icon">🔄</span>Re-analyze';
+        btn.innerHTML = '<span class="button-icon">🔄</span>Refresh';
       } else if (btn.classList.contains('details-button')) {
         btn.innerHTML = '<span class="button-icon">📊</span>View Details';
       }
@@ -1917,12 +2294,8 @@ const OverlayManager = {
     const collapsedBtn = this.overlayElement.querySelector('.analyze-btn-collapsed');
     if (collapsedBtn) {
       collapsedBtn.disabled = false;
-      // Check if we have cached data to determine button text
-      if (this.currentData || this.currentState === this.states.COMPLETE) {
-        collapsedBtn.textContent = 'Re-analyze';
-      } else {
-        collapsedBtn.textContent = 'Analyze';
-      }
+      // [CRITICAL_PATH:BUTTON_STATE_MANAGEMENT] - Always show "Analyze" for consistency
+      collapsedBtn.innerHTML = 'Analyze';
     }
     
     
@@ -1937,18 +2310,29 @@ const OverlayManager = {
    * Handle analyze button click
    */
   handleAnalyze() {
-    console.log('[OverlayManager] Analyze requested');
+    // Check compliance at click time
+    if (!this.hasCompliance) {
+      console.log('[OverlayManager] Analysis blocked - no compliance');
+      // Show message to complete setup
+      const collapsedBtn = this.overlayElement.querySelector('.analyze-btn-collapsed');
+      if (collapsedBtn) {
+        collapsedBtn.title = 'Please complete setup in extension popup first';
+      }
+      return;
+    }
+    
+    // console.log('[OverlayManager] Analyze requested');
     const btn = this.overlayElement.querySelector('.analyze-button');
     const collapsedBtn = this.overlayElement.querySelector('.analyze-btn-collapsed');
     
     if (btn) {
       btn.disabled = true;
-      btn.innerHTML = '<span class="button-icon spinning">⏳</span>Analyzing...';
+      btn.innerHTML = '<span class="button-icon spinning">⏳</span><span class="btn-text-full">Analyzing</span><span class="btn-text-short">...</span>';
     }
     
     if (collapsedBtn) {
       collapsedBtn.disabled = true;
-      collapsedBtn.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">⏳</span> Analyzing';
+      collapsedBtn.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">⏳</span> <span class="btn-text-full">Analyzing</span><span class="btn-text-short">...</span>';
     }
     
     // Set failsafe timer to re-enable button after 60 seconds
@@ -1962,7 +2346,7 @@ const OverlayManager = {
    * Handle refresh button click (re-analysis)
    */
   handleRefresh() {
-    console.log('[OverlayManager] Refresh requested');
+    // console.log('[OverlayManager] Refresh requested');
     const btn = this.overlayElement.querySelector('.refresh-button');
     if (btn) {
       btn.disabled = true;
@@ -2008,7 +2392,7 @@ const OverlayManager = {
     
     // Final timeout at 3 minutes
     this.buttonResetTimer = setTimeout(() => {
-      console.log('[OverlayManager] 3-minute timeout reached');
+      // console.log('[OverlayManager] 3-minute timeout reached');
       this.resetButtons();
       
       // Don't set error state here - let the analyzer handle timeout
@@ -2018,7 +2402,7 @@ const OverlayManager = {
           this.currentState === this.states.CALCULATING || 
           this.currentState === this.states.ANALYZING || 
           this.currentState === this.states.AI_ANALYZING) {
-        console.log('[OverlayManager] Waiting for analyzer to handle timeout...');
+        // console.log('[OverlayManager] Waiting for analyzer to handle timeout...');
         // The analyzer's handleAnalysisTimeout will be called and will show partial results
       }
     }, 300000); // 5 minutes
@@ -2065,25 +2449,38 @@ const OverlayManager = {
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
       
+      // Update status text based on elapsed time
+      const statusEl = this.overlayElement.querySelector('.status-text');
+      
       if (minutes > 0) {
         elapsedDisplay.textContent = `Elapsed: ${minutes}m ${seconds}s`;
       } else {
         elapsedDisplay.textContent = `Elapsed: ${seconds}s`;
       }
       
-      // Progressive time estimates
+      // Progressive time estimates and status updates
+      // Changed from 20s/45s to 30s/60s based on alpha tester feedback
+      if (elapsed >= 60 && elapsed < 65 && statusEl) {
+        statusEl.textContent = 'Still trying to reach AI service...';
+      } else if (elapsed >= 30 && elapsed < 35 && statusEl) {
+        statusEl.textContent = 'Taking longer than expected...';
+      }
+      
+      // Additional helper messages
       if (elapsed > 120) {
         elapsedDisplay.innerHTML += ' <span style="color: #059669;">(Almost done!)</span>';
       } else if (elapsed > 90) {
         elapsedDisplay.innerHTML += ' <span style="color: #0a66c2;">(Finalizing...)</span>';
       } else if (elapsed > 60) {
         elapsedDisplay.innerHTML += ' <span style="color: #f59e0b;">(Complex analysis in progress)</span>';
+      } else if (elapsed > 30) {
+        elapsedDisplay.innerHTML += ' <span style="color: #6b7280;">(This may take a moment...)</span>';
       }
     };
     
     updateElapsed();
-    // Use longer interval to reduce performance impact
-    this.elapsedTimeInterval = setInterval(updateElapsed, 5000);
+    // Update every second for responsive feedback
+    this.elapsedTimeInterval = setInterval(updateElapsed, 1000);
   },
   
   /**
@@ -2109,10 +2506,14 @@ const OverlayManager = {
     this.viewState = this.viewState === 'collapsed' ? 'expanded' : 'collapsed';
     this.overlayElement.setAttribute('data-view-state', this.viewState);
     
-    // Update link text
-    const viewDetailsLink = this.overlayElement.querySelector('.view-details-link');
-    if (viewDetailsLink) {
-      viewDetailsLink.textContent = this.viewState === 'collapsed' ? 'View details' : 'Hide details';
+    // Update link text - preserve the responsive spans
+    const detailsTextFull = this.overlayElement.querySelector('.details-text-full');
+    const detailsTextMedium = this.overlayElement.querySelector('.details-text-medium');
+    if (detailsTextFull) {
+      detailsTextFull.textContent = this.viewState === 'collapsed' ? 'View details' : 'Hide details';
+    }
+    if (detailsTextMedium) {
+      detailsTextMedium.textContent = this.viewState === 'collapsed' ? 'Details' : 'Hide';
     }
   },
   
@@ -2120,7 +2521,7 @@ const OverlayManager = {
    * Handle cancel analysis
    */
   handleCancelAnalysis() {
-    console.log('[OverlayManager] Cancel analysis requested');
+    // console.log('[OverlayManager] Cancel analysis requested');
     
     // Reset buttons to enabled state
     this.resetButtons();
@@ -2130,19 +2531,32 @@ const OverlayManager = {
     
     // If we have cached data, restore it
     const profileId = window.location.pathname.match(/\/in\/([^\/]+)/)?.[1];
-    if (profileId) {
-      chrome.storage.local.get([`cache_${profileId}`], (data) => {
-        const cachedData = data[`cache_${profileId}`];
-        if (cachedData) {
-          // Restore to cached state
-          this.setState(this.states.CACHE_LOADED, cachedData);
-          this.updateStatus('Analysis cancelled - showing previous results', 'ℹ️');
-        } else {
-          // No cache, go back to empty state
-          this.setState(this.states.EMPTY_CACHE);
-          this.updateStatus('Analysis cancelled', 'ℹ️');
-        }
-      });
+    if (profileId && chrome?.runtime?.id) {
+      try {
+        chrome.storage.local.get([`cache_${profileId}`], (data) => {
+          if (chrome.runtime.lastError) {
+            // Go back to empty state on error
+            this.setState(this.states.EMPTY_CACHE);
+            return;
+          }
+          const cachedData = data[`cache_${profileId}`];
+          if (cachedData) {
+            // Restore to cached state
+            this.setState(this.states.COMPLETE, {
+              ...cachedData,
+              fromCache: true,
+              cacheRestored: true
+            });
+            this.updateStatus('Analysis cancelled - showing previous results', 'ℹ️');
+          } else {
+            // No cache, go back to empty state
+            this.setState(this.states.EMPTY_CACHE);
+            this.updateStatus('Analysis cancelled', 'ℹ️');
+          }
+        });
+      } catch (error) {
+        // Silently ignore storage errors
+      }
     }
   },
   
@@ -2172,81 +2586,68 @@ const OverlayManager = {
    * Show overlay
    */
   show() {
+    if (this.overlayElement) {
+      // Find the wrapper through the overlay element
+      const wrapper = this.overlayElement.closest('.elevateli-overlay-wrapper');
+      if (wrapper) {
+        wrapper.style.setProperty('display', 'block', 'important');
+        SmartLogger.log('UI.INTERACTIONS', 'Overlay shown via wrapper with !important');
+        return;
+      }
+    }
+    
+    // Fallback to document query if overlayElement not available
     const wrapper = document.querySelector('.elevateli-overlay-wrapper');
     if (wrapper) {
-      wrapper.style.display = 'block';
+      wrapper.style.setProperty('display', 'block', 'important');
+      SmartLogger.log('UI.INTERACTIONS', 'Overlay shown via fallback query with !important');
     } else {
       // Re-initialize if not present
+      SmartLogger.log('UI.INTERACTIONS', 'No overlay found, re-initializing');
       this.initialize();
     }
   },
   
   /**
    * Hide overlay
+   * Using !important due to CSS specificity conflict - some CSS rule overrides display:none
    */
   hide() {
+    if (this.overlayElement) {
+      // Find the wrapper through the overlay element
+      const wrapper = this.overlayElement.closest('.elevateli-overlay-wrapper');
+      if (wrapper) {
+        // WORKAROUND: !important needed to override conflicting CSS
+        wrapper.style.setProperty('display', 'none', 'important');
+        SmartLogger.log('UI.INTERACTIONS', 'Overlay hidden via wrapper with !important');
+        return;
+      }
+    }
+    
+    // Fallback to document query if overlayElement not available
     const wrapper = document.querySelector('.elevateli-overlay-wrapper');
     if (wrapper) {
-      wrapper.style.display = 'none';
+      // WORKAROUND: !important needed to override conflicting CSS
+      wrapper.style.setProperty('display', 'none', 'important');
+      SmartLogger.log('UI.INTERACTIONS', 'Overlay hidden via fallback query with !important');
     }
   },
   
-  /**
-   * Toggle feature flag (DEMO ONLY)
-   */
-  toggleFeature() {
-    this.FEATURES.unifiedView = !this.FEATURES.unifiedView;
-    
-    // Update CSS class on overlay element
-    if (this.overlayElement) {
-      if (this.FEATURES.unifiedView) {
-        this.overlayElement.classList.remove('classic-ui');
-        this.overlayElement.classList.add('unified-ui');
-        this.viewState = 'collapsed'; // Show collapsed view in new UI
-      } else {
-        this.overlayElement.classList.remove('unified-ui');
-        this.overlayElement.classList.add('classic-ui');
-        this.viewState = 'expanded'; // Show expanded view in old UI
-      }
-      
-      // Update data attribute for view state
-      this.overlayElement.setAttribute('data-view-state', this.viewState);
-      
-      // Update view details link text
-      const viewDetailsLink = this.overlayElement.querySelector('.view-details-link');
-      if (viewDetailsLink) {
-        viewDetailsLink.textContent = this.viewState === 'collapsed' ? 'View details' : 'Hide details';
-      }
-    }
-    
-    // Update toggle button in expanded view
-    const demoToggleExpanded = this.overlayElement?.querySelector('.demo-toggle-expanded');
-    
-    if (demoToggleExpanded) {
-      demoToggleExpanded.textContent = `Demo: ${this.FEATURES.unifiedView ? 'NEW' : 'OLD'}`;
-    }
-    
-    // If we're in complete state, refresh the view
-    if (this.currentState === this.states.COMPLETE || 
-        this.currentState === this.states.CACHE_LOADED) {
-      // Get the last data and re-render
-      const profileId = window.location.pathname.match(/\/in\/([^\/]+)/)?.[1];
-      if (profileId) {
-        chrome.storage.local.get([`cache_${profileId}`], (data) => {
-          const cachedData = data[`cache_${profileId}`];
-          if (cachedData) {
-            // Re-trigger the complete state with cached data
-            this.setState(this.states.COMPLETE, cachedData);
-          }
-        });
-      }
-    }
-  },
   
   /**
    * Show unified view with progressive improvement system
    */
   showUnifiedView(data) {
+    console.log('[OverlayManager] showUnifiedView called with data:', {
+      completeness: data?.completeness,
+      contentScore: data?.contentScore,
+      hasCompleteness: 'completeness' in (data || {}),
+      dataKeys: Object.keys(data || {}),
+      hasSectionScores: !!data?.sectionScores,
+      sectionScoreKeys: data?.sectionScores ? Object.keys(data.sectionScores) : [],
+      experienceOverall: data?.sectionScores?.experience_overall
+    });
+    
     // Hide the old sections
     const missingSection = this.overlayElement.querySelector('.missing-items-section');
     const recsSection = this.overlayElement.querySelector('.recommendations-section');
@@ -2256,9 +2657,17 @@ const OverlayManager = {
     if (recsSection) recsSection.classList.add('hidden');
     if (insightsSection) insightsSection.classList.add('hidden');
     
-    // Hide the big score blocks in NEW view for cleaner look
+    // Only hide score blocks if we have actual analysis data and recommendations to show
+    // This keeps the score blocks visible during analysis and for completeness-only results
     const scoresContainer = this.overlayElement.querySelector('.scores-container');
-    if (scoresContainer) scoresContainer.style.display = 'none';
+    const hasRecommendations = data.recommendations && data.recommendations.length > 0;
+    const hasInsights = data.insights && Object.keys(data.insights).length > 0;
+    
+    if (scoresContainer && hasRecommendations && hasInsights) {
+      scoresContainer.style.display = 'none';
+    } else if (scoresContainer) {
+      scoresContainer.style.display = '';
+    }
     
     // Create or update unified section
     let unifiedSection = this.overlayElement.querySelector('.unified-section');
@@ -2291,48 +2700,116 @@ const OverlayManager = {
     // Transform recommendations into progressive improvement format
     const progressiveData = this.transformToProgressiveFormat(data);
     
-    console.log('[OverlayManager] Progressive data generated:', {
-      hasSections: progressiveData.sections?.length > 0,
-      sectionsCount: progressiveData.sections?.length,
-      sections: progressiveData.sections,
-      coachingSummary: progressiveData.coachingSummary,
-      unifiedSectionFound: !!unifiedSection,
-      expandedViewFound: !!this.overlayElement.querySelector('.overlay-expanded-view')
+    // console.log('[OverlayManager] Progressive data generated:', {
+    //   hasSections: progressiveData.sections?.length > 0,
+    //   sectionsCount: progressiveData.sections?.length,
+    //   sections: progressiveData.sections,
+    //   coachingSummary: progressiveData.coachingSummary,
+    //   unifiedSectionFound: !!unifiedSection,
+    //   expandedViewFound: !!this.overlayElement.querySelector('.overlay-expanded-view')
+    // });
+    
+    // Debug the progressiveData right before setting innerHTML
+    console.log('[OverlayManager] About to set innerHTML, progressiveData:', {
+      hasProgressiveData: !!progressiveData,
+      hasUnifiedMessage: !!progressiveData?.unifiedMessage,
+      unifiedMessage: progressiveData?.unifiedMessage,
+      progressiveDataKeys: Object.keys(progressiveData || {})
     });
     
     // Build HTML with progressive improvements
     unifiedSection.innerHTML = `
-      <div style="margin: 16px 0;">
-        <!-- Coaching Summary -->
-        <div style="background: #f0f8ff; border-left: 3px solid #0a66c2; padding: 12px 16px; margin-bottom: 20px; border-radius: 0 6px 6px 0;">
-          <p style="font-size: 14px; line-height: 1.5; margin: 0; color: #333;">
-            ${progressiveData.coachingSummary}
+      <div style="margin: 8px 0;">
+        <!-- Unified Message (single positive message) -->
+        <div style="padding: 12px; background: #e8f5e9; border-radius: 8px; text-align: center; margin-bottom: 16px;">
+          <p style="margin: 0; font-size: 15px; color: #2e7d32; font-weight: 500;">
+            ${progressiveData.unifiedMessage}
           </p>
         </div>
         
+        ${window.elevateliDebug.enabled ? `
+          <!-- Debug Info for Mac Testing -->
+          <div style="margin: 20px 0; padding: 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; font-size: 11px;">
+            <strong style="display: block; margin-bottom: 8px;">🔧 Debug Mode Active</strong>
+            <div style="font-family: monospace; line-height: 1.4;">
+              Platform: ${navigator.platform}<br>
+              Message Length: ${progressiveData.unifiedMessage?.length || 0} chars<br>
+              Completeness: ${data.completeness}%<br>
+              Content Score: ${data.contentScore || 'N/A'}<br>
+              <button onclick="navigator.clipboard.writeText(window.elevateliDebug.getLogs()).then(() => alert('Debug logs copied to clipboard!'))" 
+                      style="margin-top: 8px; padding: 4px 12px; background: #0a66c2; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                Copy Debug Logs
+              </button>
+            </div>
+          </div>
+        ` : ''}
+        
         <!-- Progressive Improvements by Section -->
-        <div style="margin-top: 24px;">
-          ${progressiveData.sections.map(section => this.renderSection(section)).join('')}
+        <div style="margin-bottom: 16px;">
+          ${progressiveData.sections && progressiveData.sections.length > 0 
+            ? progressiveData.sections.map(section => this.renderSection(section)).join('')
+            : `<div style="padding: 20px; text-align: center; color: #666;">
+                <p style="margin: 0 0 8px 0; font-size: 14px;">No specific improvements needed for profile completeness.</p>
+                <p style="margin: 0; font-size: 13px;">Enable AI analysis for personalized content quality insights.</p>
+              </div>`
+          }
         </div>
         
-        <!-- Re-engagement Prompt -->
-        ${progressiveData.reEngagementPrompt ? `
-          <div style="margin-top: 24px; padding: 16px; background: #e8f5e9; border-radius: 8px; text-align: center;">
-            <p style="margin: 0; font-size: 14px; color: #2e7d32;">
-              ${progressiveData.reEngagementPrompt}
+        <!-- AI Coaching Summary (only if available) -->
+        ${progressiveData.coachingSummary ? `
+          <div style="background: #f0f8ff; border-left: 3px solid #0a66c2; padding: 12px 16px; border-radius: 0 6px 6px 0;">
+            <p style="font-size: 14px; line-height: 1.5; margin: 0; color: #333;">
+              ${progressiveData.coachingSummary}
             </p>
           </div>
         ` : ''}
       </div>
     `;
     
+    // Replace star placeholders with actual DOM elements
+    if (this.pendingStarElements && this.pendingStarElements.length > 0) {
+      console.log('[OverlayManager] Replacing star placeholders:', {
+        count: this.pendingStarElements.length,
+        placeholderIds: this.pendingStarElements.map(p => p.id)
+      });
+      
+      this.pendingStarElements.forEach(({ id, element }) => {
+        const placeholder = unifiedSection.querySelector(`[data-star-placeholder="${id}"]`);
+        if (placeholder && element) {
+          // Clear the placeholder and append the actual star element
+          placeholder.innerHTML = '';
+          placeholder.appendChild(element);
+          console.log('[OverlayManager] Replaced placeholder:', id);
+        } else {
+          console.warn('[OverlayManager] Could not find placeholder or element:', { id, hasPlaceholder: !!placeholder, hasElement: !!element });
+        }
+      });
+      // Clear pending elements after insertion
+      this.pendingStarElements = [];
+    } else {
+      console.log('[OverlayManager] No pending star elements to replace');
+    }
+    
     unifiedSection.classList.remove('hidden');
     
     console.log('[OverlayManager] Unified section updated:', {
-      innerHTML: unifiedSection.innerHTML.substring(0, 200) + '...',
+      innerHTML: unifiedSection.innerHTML.substring(0, 400) + '...',
       isHidden: unifiedSection.classList.contains('hidden'),
       display: window.getComputedStyle(unifiedSection).display,
-      parentElement: unifiedSection.parentElement?.className
+      parentElement: unifiedSection.parentElement?.className,
+      unifiedMessageInHTML: unifiedSection.innerHTML.includes(progressiveData.unifiedMessage || ''),
+      actualMessage: progressiveData.unifiedMessage,
+      searchFor: progressiveData.unifiedMessage,
+      foundInHTML: unifiedSection.innerHTML.indexOf(progressiveData.unifiedMessage || '')
+    });
+    
+    // Verify the element is actually in the DOM
+    const verifyElement = document.querySelector('.unified-section');
+    console.log('[OverlayManager] DOM verification:', {
+      elementExists: !!verifyElement,
+      elementVisible: verifyElement ? window.getComputedStyle(verifyElement).display !== 'none' : false,
+      hasContent: verifyElement ? verifyElement.innerHTML.length > 0 : false,
+      parentVisible: verifyElement?.parentElement ? window.getComputedStyle(verifyElement.parentElement).display !== 'none' : false
     });
   },
   
@@ -2342,7 +2819,33 @@ const OverlayManager = {
   transformToProgressiveFormat(data) {
     const completeness = data.completeness || 0;
     const contentScore = data.contentScore || 0;
-    const missingItems = data.completenessData?.missingItems || [];
+    const missingItems = data.completenessData?.recommendations || [];
+    
+    // Debug logging for unified message
+    console.log('[OverlayManager] transformToProgressiveFormat - Input data:', {
+      completeness,
+      contentScore,
+      hasMissingItems: missingItems.length > 0,
+      missingItemsCount: missingItems.length,
+      dataCompleteness: data.completeness,
+      dataContentScore: data.contentScore
+    });
+    
+    // Add to debug log
+    window.elevateliDebug.addLog('OverlayManager', 'transformToProgressiveFormat START', {
+      completeness,
+      contentScore,
+      hasData: !!data,
+      dataKeys: Object.keys(data || {})
+    });
+    
+    // Log only if experience_roles data exists (reduced verbosity)
+    if (data.sectionScores?.experience_roles?.length > 0) {
+      SmartLogger.log('UI.EXPERIENCE', 'Experience roles data available', {
+        rolesCount: data.sectionScores.experience_roles.length,
+        hasOverallAnalysis: !!data.sectionScores.experience_overall
+      });
+    }
     
     // Convert recommendations object to flat array
     let recommendationsArray = [];
@@ -2355,7 +2858,7 @@ const OverlayManager = {
         recommendationsArray = [...critical, ...important, ...niceToHave];
       }
     } else {
-      console.log('[OverlayManager] No recommendations found in data');
+      // console.log('[OverlayManager] No recommendations found in data');
     }
     
     // Apply recommendation allocation algorithm only if we have recommendations
@@ -2368,17 +2871,17 @@ const OverlayManager = {
       );
     }
     
-    console.log('[OverlayManager] transformToProgressiveFormat input:', {
-      completeness,
-      contentScore,
-      missingItemsCount: missingItems.length,
-      recommendationsCount: recommendationsArray.length,
-      recommendations: data.recommendations,
-      recommendationsArray: recommendationsArray,
-      dataKeys: Object.keys(data),
-      hasSectionScores: !!data.sectionScores,
-      sectionScoreKeys: data.sectionScores ? Object.keys(data.sectionScores) : 'none'
-    });
+    // console.log('[OverlayManager] transformToProgressiveFormat input:', {
+    //   completeness,
+    //   contentScore,
+    //   missingItemsCount: missingItems.length,
+    //   recommendationsCount: recommendationsArray.length,
+    //   recommendations: data.recommendations,
+    //   recommendationsArray: recommendationsArray,
+    //   dataKeys: Object.keys(data),
+    //   hasSectionScores: !!data.sectionScores,
+    //   sectionScoreKeys: data.sectionScores ? Object.keys(data.sectionScores) : 'none'
+    // });
     
     // Generate coaching summary
     const coachingSummary = this.generateCoachingSummary(completeness, contentScore, data);
@@ -2386,20 +2889,65 @@ const OverlayManager = {
     // Analyze sections and create improvements
     const sections = this.analyzeSections(data, missingItems, recommendationsArray || []);
     
-    // Generate re-engagement prompt
-    const reEngagementPrompt = this.generateReEngagementPrompt(completeness, contentScore, sections);
+    // Generate unified message
+    window.elevateliDebug.addLog('OverlayManager', 'Before generateUnifiedMessage', {
+      completeness,
+      contentScore,
+      sectionsLength: sections?.length,
+      sections: sections?.map(s => ({ name: s.name, rating: s.rating }))
+    });
+    
+    const unifiedMessage = this.generateUnifiedMessage(completeness, contentScore, sections, data);
+    
+    window.elevateliDebug.addLog('OverlayManager', 'After generateUnifiedMessage', {
+      unifiedMessage,
+      messageLength: unifiedMessage?.length,
+      messageType: typeof unifiedMessage,
+      isEmpty: !unifiedMessage || unifiedMessage.trim() === ''
+    });
+    
+    console.log('[OverlayManager] Generated unified message:', {
+      unifiedMessage,
+      completenessUsed: completeness,
+      contentScoreUsed: contentScore,
+      sectionsCount: sections.length
+    });
     
     return {
       coachingSummary,
       sections,
-      reEngagementPrompt
+      unifiedMessage
     };
   },
   
   /**
+   * Get improvement limit based on rating
+   */
+  getImprovementLimit(rating, sectionName = '') {
+    // Special case for Experience section - allow more recommendations
+    if (sectionName === 'Experience') {
+      if (rating >= 5) return 1;  // Only critical improvements for perfect scores
+      return 3; // Allow up to 3 for experience section for all other ratings
+    }
+    
+    // Default limits for other sections
+    // 5 stars: Max 1 improvement (only if critical)
+    // 4 stars: 1-2 improvements  
+    // 3 stars or below: 2 improvements
+    if (rating >= 5) return 1;
+    if (rating >= 4) return 2;
+    return 2;
+  },
+
+  /**
    * Convert AI score (0-10) to star rating (0-5)
    */
   scoreToRating(score) {
+    // Handle null/undefined scores (error states)
+    if (score === null || score === undefined) {
+      return null;
+    }
+    
     if (score >= 9) return 5;
     if (score >= 7) return 4;
     if (score >= 5) return 3;
@@ -2412,25 +2960,13 @@ const OverlayManager = {
    * Generate coaching summary
    */
   generateCoachingSummary(completeness, contentScore, data) {
-    // First check if we have a coaching summary from AI
+    // Only show coaching summary from AI analysis
     if (data.insights?.coachingSummary) {
       return data.insights.coachingSummary;
     }
     
-    // Fallback to default summaries if AI didn't provide one
-    if (completeness === 100 && contentScore >= 8.5) {
-      return "✨ Outstanding! Your profile demonstrates exceptional professional branding with comprehensive details and compelling content. You're in the top tier of LinkedIn profiles.";
-    } else if (completeness >= 90 && contentScore >= 7.5) {
-      return "🎯 Excellent profile! You've built a strong professional presence with clear messaging. A few strategic enhancements will maximize your visibility to recruiters and opportunities.";
-    } else if (completeness >= 80 && contentScore >= 6.5) {
-      return "💪 Strong foundation! Your profile effectively communicates your professional story. Let's focus on the details that will make you stand out in searches.";
-    } else if (completeness >= 70) {
-      return "📈 Good progress! Your profile has the essentials in place. Adding key missing sections will significantly boost your discoverability.";
-    } else if (completeness >= 50) {
-      return "🚀 Great start! You're halfway there. Let's prioritize the most impactful sections to quickly improve your profile's effectiveness.";
-    } else {
-      return "👋 Welcome! Let's build your professional presence step by step. Starting with the basics will create immediate impact.";
-    }
+    // No coaching summary without AI - avoid duplicate messaging
+    return null;
   },
   
   /**
@@ -2442,234 +2978,550 @@ const OverlayManager = {
     // Check if we have sectionScores from AI analysis
     const sectionScores = data.sectionScores || {};
     const hasAIInsights = Object.keys(sectionScores).length > 0;
+    const completeness = data.completenessScore || 0;
     
-    console.log('[OverlayManager] analyzeSections - sectionScores:', {
-      hasSectionScores: !!data.sectionScores,
-      sectionScoreKeys: Object.keys(sectionScores),
-      profileIntro: sectionScores.profile_intro,
-      experienceRoles: sectionScores.experience_roles,
-      skills: sectionScores.skills,
-      hasAIInsights
-    });
+    // MODIFIED: Skip detailed sections if high completeness without AI
+    if (completeness >= 75 && !hasAIInsights) {
+      // Return single card prompting for AI configuration
+      return [{
+        name: 'Enable AI Analysis',
+        icon: '🤖',
+        rating: null,
+        positive: 'Your profile structure meets LinkedIn best practices',
+        improvements: [
+          {
+            action: 'Click the extension icon to open settings',
+            rationale: 'Access configuration options'
+          },
+          {
+            action: 'Enable AI toggle and add your API key',
+            rationale: 'Unlock content quality analysis'
+          },
+          {
+            action: 'Set target role for personalized recommendations',
+            rationale: 'Get industry-specific insights'
+          }
+        ]
+      }];
+    }
+    
+    // console.log('[OverlayManager] analyzeSections - sectionScores:', {
+    //   hasSectionScores: !!data.sectionScores,
+    //   sectionScoreKeys: Object.keys(sectionScores),
+    //   profileIntro: sectionScores.profile_intro,
+    //   experienceRoles: sectionScores.experience_roles,
+    //   skills: sectionScores.skills,
+    //   hasAIInsights
+    // });
     
     // Log detailed section content
     if (sectionScores.profile_intro) {
-      console.log('[OverlayManager] profile_intro details:', {
-        score: sectionScores.profile_intro.score,
-        hasPositiveInsight: !!sectionScores.profile_intro.positiveInsight,
-        positiveInsightPreview: sectionScores.profile_intro.positiveInsight?.substring(0, 50),
-        hasActionItems: !!sectionScores.profile_intro.actionItems,
-        actionItemCount: sectionScores.profile_intro.actionItems?.length,
-        allKeys: Object.keys(sectionScores.profile_intro),
-        fullObject: sectionScores.profile_intro
-      });
+      // console.log('[OverlayManager] profile_intro details:', {
+      //   score: sectionScores.profile_intro.score,
+      //   hasPositiveInsight: !!sectionScores.profile_intro.positiveInsight,
+      //   positiveInsightPreview: sectionScores.profile_intro.positiveInsight?.substring(0, 50),
+      //   hasActionItems: !!sectionScores.profile_intro.actionItems,
+      //   actionItemCount: sectionScores.profile_intro.actionItems?.length,
+      //   allKeys: Object.keys(sectionScores.profile_intro),
+      //   fullObject: sectionScores.profile_intro
+      // });
     }
     
     if (sectionScores.skills) {
-      console.log('[OverlayManager] skills details:', {
-        score: sectionScores.skills.score,
-        hasPositiveInsight: !!sectionScores.skills.positiveInsight,
-        positiveInsightPreview: sectionScores.skills.positiveInsight?.substring(0, 50),
-        hasActionItems: !!sectionScores.skills.actionItems,
-        actionItemCount: sectionScores.skills.actionItems?.length
-      });
+      // console.log('[OverlayManager] skills details:', {
+      //   score: sectionScores.skills.score,
+      //   hasPositiveInsight: !!sectionScores.skills.positiveInsight,
+      //   positiveInsightPreview: sectionScores.skills.positiveInsight?.substring(0, 50),
+      //   hasActionItems: !!sectionScores.skills.actionItems,
+      //   actionItemCount: sectionScores.skills.actionItems?.length
+      // });
     }
     
-    // Profile photo section
-    const photoMissing = missingItems.some(item => item.toLowerCase().includes('photo'));
-    const photoRecs = this.findRecommendations(recommendations, ['photo', 'picture', 'headshot']);
-    sections.push({
-      name: 'Profile Photo',
-      rating: photoMissing ? 0 : (photoRecs.length > 0 ? 3 : 5),
-      positive: photoMissing ? null : "Professional photo makes a strong first impression",
-      improvements: photoMissing ? 
-        ["Add a professional headshot - profiles with photos get 21x more views"] :
-        photoRecs.slice(0, 2)
+    // Profile photo section - show if missing (completeness) or vision AI available
+    const photoMissing = missingItems.some(item => item.section === 'photo');
+    const photoRec = missingItems.find(item => item.section === 'photo');
+    
+    // Check if vision AI is available
+    // Get settings from data object if available
+    const settings = data.settings || {};
+    const hasVisionAI = settings.aiProvider === 'openai' && 
+                        settings.aiModel === 'gpt-4o' && 
+                        settings.enableAI === true;
+    
+    // Only show photo as a separate section if it's missing (for completeness)
+    // When photo exists, it's included in the First Impression section
+    if (photoMissing) {
+      let photoSection = {
+        name: 'Profile Photo',
+        priority: 'normal',
+        rating: null, // Show blank stars for missing photo
+        positive: null,
+        improvements: [{
+          text: photoRec?.message || "Add a professional photo", 
+          why: "Profiles with photos get 21x more views"
+        }]
+      };
+      
+      sections.push(photoSection);
+    }
+    // Note: If photo exists, it's analyzed as part of First Impression section below
+    // We don't show photo as a separate section when it exists
+    
+    // Banner section - only show if custom banner exists and vision AI available
+    if (hasVisionAI) {
+      // profileData should be part of the data object (extracted data from the profile)
+      const hasCustomBanner = data.extractedData?.banner?.isCustomBanner || data.profileData?.banner?.isCustomBanner || false;
+      
+      if (hasCustomBanner) {
+        let bannerSection = {
+          name: 'Profile Banner',
+          priority: 'normal'
+        };
+        
+        // Check for banner analysis results
+        const bannerScore = sectionScores.profile_banner;
+        if (bannerScore && typeof bannerScore.score === 'number') {
+          // Banner analysis completed
+          bannerSection.rating = bannerScore.score;
+          bannerSection.positive = bannerScore.positive || bannerScore.analysis;
+          bannerSection.improvements = bannerScore.improvements || [];
+          if (bannerScore._cacheInfo?.cached) {
+            bannerSection.cached = true;
+          }
+        } else {
+          // Banner analysis not yet completed - show blank stars with tooltip
+          bannerSection.rating = null;
+          bannerSection.positive = null;
+          bannerSection.improvements = [];
+          bannerSection.requiresVision = true;
+          bannerSection.tooltip = "Banner analysis requires GPT-4o vision AI";
+        }
+        
+        sections.push(bannerSection);
+      }
+    }
+    
+    // [CRITICAL_PATH:FIRST_IMPRESSION_UI] - P0: Display unified first impression
+    // Check for first impression analysis (new) or profile intro (legacy)
+    const firstImpressionScore = sectionScores.first_impression;
+    const profileIntroScore = sectionScores.profile_intro; // Legacy support
+    
+    // Debug logging
+    console.log('[OverlayManager] First Impression Check:', {
+      hasFirstImpression: !!firstImpressionScore,
+      firstImpressionScore: firstImpressionScore?.score,
+      hasProfileIntro: !!profileIntroScore,
+      sectionScoreKeys: Object.keys(sectionScores)
     });
     
-    // Headline section
-    const headlineMissing = missingItems.some(item => item.toLowerCase().includes('headline'));
-    const headlineRecs = this.findRecommendations(recommendations, ['headline', 'title']);
+    // Headline section - now part of first impression
+    const headlineMissing = missingItems.some(item => item.section === 'headline');
+    const headlineRec = missingItems.find(item => item.section === 'headline');
     
-    // Check for AI insights for profile intro (headline + about)
-    const profileIntroScore = sectionScores.profile_intro;
-    if (profileIntroScore && profileIntroScore.actionItems) {
-      // Use AI insights for headline
-      const headlineItems = profileIntroScore.actionItems.filter(item => 
-        item.what?.toLowerCase().includes('headline') || 
-        item.what?.toLowerCase().includes('title')
-      );
+    // If we have first impression analysis, use that for headline display
+    const headlineAnalysis = firstImpressionScore || profileIntroScore;
+    if (headlineAnalysis && headlineAnalysis.actionItems) {
+      // Use AI insights for headline/first impression
+      const headlineItems = headlineAnalysis.actionItems.filter(item => {
+        // For first impression, filter by element type
+        if (firstImpressionScore && item.element === 'headline') return true;
+        if (item.section === 'headline') return true;
+        // Support both old (what/how) and new (category/action) formats
+        const text = (item.category || item.what || '')?.toLowerCase();
+        return text.includes('headline') && !text.includes('about') && !text.includes('connection');
+      });
+      
+      const headlineRating = this.scoreToRating(headlineAnalysis.score);
+      sections.push({
+        name: firstImpressionScore ? 'First Impression' : 'Headline',
+        rating: headlineRating,
+        errorType: headlineAnalysis.errorType || null,
+        positive: firstImpressionScore ? 
+          headlineAnalysis.unifiedImpression || headlineAnalysis.positiveInsight :
+          headlineAnalysis.headlinePositive || headlineAnalysis.positiveInsight || headlineAnalysis.strengths?.[0] || null,
+        improvements: headlineItems.map(item => ({
+          text: item.action || item.what || 'Improvement needed',
+          why: item.impact || item.how || 'Update your profile',
+          impact: item.impact,
+          priority: item.priority
+        })).slice(0, this.getImprovementLimit(headlineRating)),
+        priority: 'normal',
+        // Add visual assessment details if available
+        visualAssessment: firstImpressionScore ? headlineAnalysis.visualAssessment : null
+      });
+      
+      // If first impression includes photo/banner info, add as sub-items
+      if (firstImpressionScore && sections.length > 0) {
+        const firstImpressionSection = sections[sections.length - 1];
+        
+        // Add missing elements as sub-items
+        const photoMissing = missingItems.some(item => item.section === 'photo');
+        const bannerDefault = data.extractedData?.banner && !data.extractedData.banner.isCustomBanner;
+        
+        if (photoMissing || bannerDefault) {
+          firstImpressionSection.subItems = [];
+          
+          if (photoMissing) {
+            firstImpressionSection.subItems.push({
+              type: 'missing',
+              text: 'Add professional photo',
+              impact: 'Profiles with photos get 21x more views'
+            });
+          }
+          
+          if (bannerDefault) {
+            firstImpressionSection.subItems.push({
+              type: 'suggestion',
+              text: 'Customize background banner',
+              impact: 'Creates cohesive visual identity'
+            });
+          }
+        }
+      }
+    } else {
+      // Fallback to old logic - add positive message if headline passes completeness
+      const headlineData = data.extractedData?.headline || 
+                          data.completenessData?.breakdown?.headline?.data;
+      let headlinePositive = null;
+      
+      if (!headlineRec && headlineData && headlineData.charCount >= 50) {
+        headlinePositive = "✓ You have a professional headline";
+      }
       
       sections.push({
-        name: 'Professional Headline',
-        rating: this.scoreToRating(profileIntroScore.score),
-        positive: profileIntroScore.positiveInsight || profileIntroScore.strengths?.[0] || null,
-        improvements: headlineItems.map(item => ({
-          text: item.what,
-          why: item.how,
-          priority: item.priority
-        })).slice(0, 2)
-      });
-    } else {
-      // Fallback to old logic
-      sections.push({
-        name: 'Professional Headline',
-        rating: headlineMissing ? 0 : (headlineRecs.length > 0 ? 3 : 4),
-        positive: headlineMissing ? null : null, // Let AI provide positive feedback
-        improvements: headlineMissing ?
-          ["Create a compelling headline that showcases your value proposition"] :
-          headlineRecs.slice(0, 2)
+        name: 'Headline',
+        rating: null, // Always show blank stars without AI
+        positive: headlinePositive,
+        improvements: headlineRec ?
+          [{text: headlineRec.message, why: "Your headline is the first thing recruiters see in search results"}] :
+          [],
+        priority: 'normal'
       });
     }
     
-    // About/Summary section
-    const aboutMissing = missingItems.some(item => item.toLowerCase().includes('about') || item.toLowerCase().includes('summary'));
-    const aboutRecs = this.findRecommendations(recommendations, ['about', 'summary']);
+    // About/Summary section - now standalone
+    const aboutMissing = missingItems.some(item => item.section === 'about');
+    const aboutRec = missingItems.find(item => item.section === 'about');
     
-    // Check for AI insights for about section (from profile_intro)
-    if (profileIntroScore && profileIntroScore.actionItems) {
-      // Filter actionItems for about section
-      const aboutItems = profileIntroScore.actionItems.filter(item => 
-        item.what?.toLowerCase().includes('about') || 
-        item.what?.toLowerCase().includes('summary') ||
-        !item.what?.toLowerCase().includes('headline')  // Items not specifically for headline
-      );
+    // Check for standalone about section analysis first, then profile_intro
+    const aboutScore = sectionScores.about;
+    
+    if (aboutScore && aboutScore.actionItems) {
+      // Use standalone about section analysis
+      const aboutRating = this.scoreToRating(aboutScore.score);
+      sections.push({
+        name: 'About Section',
+        rating: aboutRating,
+        errorType: aboutScore.errorType || null,
+        positive: aboutScore.positiveInsight || aboutScore.strengths?.[0] || null,
+        improvements: aboutScore.actionItems.map(item => ({
+          text: item.action || item.what || 'Improvement needed',
+          why: item.impact || item.how || 'Update your profile',
+          impact: item.impact,
+          priority: item.priority
+        })).slice(0, this.getImprovementLimit(aboutRating)),
+        priority: 'normal'
+      });
+    } else if (profileIntroScore && profileIntroScore.actionItems) {
+      // Filter actionItems for about section - check section tag first, then content
+      const aboutItems = profileIntroScore.actionItems.filter(item => {
+        // First check section tag if available
+        if (item.section) {
+          return item.section === 'about';
+        }
+        // Fallback to content-based filtering
+        // Support both old (what/how) and new (category/action) formats
+        const text = (item.category || item.what || '')?.toLowerCase();
+        return text.includes('about') || 
+               text.includes('opening line') ||
+               text.includes('summary') ||
+               (!text.includes('headline') && 
+                !text.includes('connection'));
+      });
+      
+      // Use About-specific positive insight if available
+      let aboutPositive = profileIntroScore.aboutPositive || profileIntroScore.positiveInsight || profileIntroScore.strengths?.[0] || null;
+      
+      // Fallback only if we don't have section-specific feedback
+      if (!profileIntroScore.aboutPositive && aboutPositive && aboutPositive.toLowerCase().includes('headline') && 
+          !aboutPositive.toLowerCase().includes('about')) {
+        aboutPositive = "Your About section provides professional context";
+      }
+      
+      // Debug logging
+      SmartLogger.log('UI.PROGRESSIVE', 'About section analysis', {
+        originalPositive: profileIntroScore.positiveInsight,
+        filteredPositive: aboutPositive,
+        aboutItemsCount: aboutItems.length,
+        aboutItems: aboutItems.map(item => ({ 
+          what: item.category || item.what, 
+          section: item.section 
+        }))
+      });
+      
+      const aboutRating = this.scoreToRating(profileIntroScore.score);
+      sections.push({
+        name: 'About Section',
+        rating: aboutRating,
+        positive: aboutPositive,
+        improvements: aboutItems.map(item => ({
+          text: item.action || item.what || 'Improvement needed',
+          why: item.impact || item.how || 'Update your profile',
+          impact: item.impact,
+          priority: item.priority
+        })).slice(0, this.getImprovementLimit(aboutRating)),
+        priority: 'normal'
+      });
+    } else {
+      // Fallback to old logic - add positive message if about passes completeness
+      const aboutData = data.extractedData?.about || 
+                       data.completenessData?.breakdown?.about?.data;
+      let aboutPositive = null;
+      
+      if (!aboutRec && aboutData && aboutData.charCount >= 800) {
+        aboutPositive = "✓ Comprehensive About section";
+      }
       
       sections.push({
         name: 'About Section',
-        rating: this.scoreToRating(profileIntroScore.score),
-        positive: profileIntroScore.positiveInsight || profileIntroScore.strengths?.[0] || null,
-        improvements: aboutItems.map(item => ({
-          text: item.what,
-          why: item.how,
-          priority: item.priority
-        })).slice(0, 2)
-      });
-    } else {
-      // Fallback to old logic
-      sections.push({
-        name: 'About Section',
-        rating: aboutMissing ? 0 : (aboutRecs.length > 0 ? 3 : 4),
-        positive: aboutMissing ? null : null,
-        improvements: aboutMissing ?
-          ["Write a compelling summary highlighting your unique value and achievements"] :
-          aboutRecs.slice(0, 2)
+        rating: null, // Always show blank stars without AI
+        positive: aboutPositive,
+        improvements: aboutRec ?
+          [{text: aboutRec.message, why: "A strong About section increases profile views by 40%"}] :
+          [],
+        priority: 'normal'
       });
     }
     
     // Experience section - check for AI analysis scores
-    const experienceMissing = missingItems.some(item => item.toLowerCase().includes('experience'));
-    const experienceRecs = this.findRecommendations(recommendations, ['experience', 'role', 'position', 'achievement', 'impact', 'description']);
+    const experienceMissing = missingItems.some(item => item.section === 'experience');
+    const experienceRec = missingItems.find(item => item.section === 'experience');
+    
+    console.log('[UI DEBUG] Experience section flow:', {
+      experienceMissing,
+      hasExperienceRec: !!experienceRec,
+      experienceRecMessage: experienceRec?.message,
+      missingItemsCount: missingItems.length,
+      missingItemsSections: missingItems.map(item => item.section),
+      hasSectionScores: !!sectionScores,
+      hasExperienceOverall: !!sectionScores.experience_overall
+    });
     
     // Check if we have experience AI scores
     let experienceRating = 0;
     let experiencePositive = null;
     let experienceImprovements = [];
     
-    if (experienceMissing) {
-      experienceRating = 0;
-      experienceImprovements = ["Add your work experience with key achievements and impact"];
-    } else {
+    // ALWAYS check for AI scores FIRST - they take priority over completeness recommendations
+    if (sectionScores.experience_overall || (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles))) {
       // Check for experience scores from AI analysis
-      const sectionScores = data.sectionScores || {};
-      const experienceScores = [];
-      let experienceActionItems = [];
       
-      // Check if we have experience_roles array
-      if (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles)) {
+      // Debug logging for experience scores
+      console.log('[UI DEBUG] Experience scoring data:', {
+        hasSectionScores: !!sectionScores,
+        sectionScoreKeys: Object.keys(sectionScores),
+        hasExperienceOverall: !!sectionScores.experience_overall,
+        experienceOverallScore: sectionScores.experience_overall?.score,
+        hasExperienceRoles: !!sectionScores.experience_roles,
+        experienceRolesLength: sectionScores.experience_roles?.length
+      });
+      
+      // Check if we have overall experience analysis
+      if (sectionScores.experience_overall) {
+        SmartLogger.log('UI.EXPERIENCE', 'Using overall experience analysis', {
+          score: sectionScores.experience_overall.score,
+          hasPositiveInsight: !!sectionScores.experience_overall.positiveInsight,
+          actionItemsCount: sectionScores.experience_overall.actionItems?.length || 0
+        });
+        
+        // Use overall experience score and feedback
+        experienceRating = this.scoreToRating(sectionScores.experience_overall.score);
+        experiencePositive = sectionScores.experience_overall.positiveInsight;
+        
+        // Use overall strategic actionItems
+        if (sectionScores.experience_overall.actionItems?.length > 0) {
+          experienceImprovements = sectionScores.experience_overall.actionItems
+            .slice(0, this.getImprovementLimit(experienceRating, 'Experience'))
+            .map(item => ({
+              text: item.action || item.what || 'Improvement needed',
+              why: item.impact || item.how || 'Update your experience',
+              priority: item.priority
+            }));
+        }
+      } else if (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles)) {
+        // Fallback: calculate from individual roles if no overall analysis
+        SmartLogger.log('UI.EXPERIENCE', 'No overall analysis, calculating from roles', {
+          rolesCount: sectionScores.experience_roles.length
+        });
+        
+        const experienceScores = [];
         sectionScores.experience_roles.forEach(role => {
           if (typeof role.score === 'number') {
             experienceScores.push(role.score);
           }
-          // Collect actionItems from each role
-          if (role.actionItems && Array.isArray(role.actionItems)) {
-            role.actionItems.forEach(item => {
-              experienceActionItems.push({
-                text: item.what,
-                why: item.how,
-                priority: item.priority,
-                score: role.score
-              });
-            });
-          }
         });
-      }
-      
-      if (experienceScores.length > 0) {
-        // Calculate average experience score
-        const avgScore = experienceScores.reduce((a, b) => a + b, 0) / experienceScores.length;
         
-        // Convert AI score (0-10) to star rating (0-5)
-        experienceRating = Math.round(avgScore / 2);
-        
-        // Get positive feedback from AI analysis
-        const avgExperienceAnalysis = sectionScores.experience_roles?.find(role => typeof role.score === 'number');
-        if (avgExperienceAnalysis?.positiveInsight) {
-          experiencePositive = avgExperienceAnalysis.positiveInsight;
-        }
-        
-        // Use AI actionItems if available, otherwise use legacy recommendations
-        if (experienceActionItems.length > 0) {
-          // Sort by priority and take top 2
-          const priorityOrder = { high: 0, medium: 1, low: 2 };
-          experienceImprovements = experienceActionItems
-            .sort((a, b) => (priorityOrder[a.priority] || 2) - (priorityOrder[b.priority] || 2))
-            .slice(0, 2)
-            .map(item => ({
-              text: item.text,
-              why: item.why,
-              priority: item.priority
-            }));
+        if (experienceScores.length > 0) {
+          const avgScore = experienceScores.reduce((a, b) => a + b, 0) / experienceScores.length;
+          experienceRating = Math.round(avgScore / 2);
+          experiencePositive = "Your experience shows a strong professional journey with diverse roles";
+          experienceImprovements = []; // Extract from AI insights when available
         } else {
-          experienceImprovements = experienceRecs.slice(0, 2);
+          experienceRating = null; // No rating without AI
+          experienceImprovements = [];
         }
       } else {
-        // No AI scores, use default logic
-        experienceRating = experienceRecs.length > 0 ? 3 : 4;
-        // Don't set generic positive feedback - let AI provide it
-        experienceImprovements = experienceRecs.slice(0, 2);
+        // No AI scores at all, no rating - add positive message if experience passes completeness
+        SmartLogger.log('UI.EXPERIENCE', 'No AI analysis available');
+        experienceRating = null; // No rating without AI
+        experienceImprovements = [];
+        
+        // Add positive message if has current role and sufficient experience
+        const experienceData = data.extractedData?.experience || 
+                             data.completenessData?.breakdown?.experience?.data;
+        if (!experienceRec && experienceData) {
+          if (experienceData.hasCurrentRole) {
+            experiencePositive = "✓ Your experience section is up to date";
+          } else if (experienceData.count >= 2) {
+            experiencePositive = `✓ ${experienceData.count} professional experiences documented`;
+          }
+        }
       }
+      
+      // If we still don't have improvements but have completeness recommendation, add it
+      if (experienceImprovements.length === 0 && experienceRec) {
+        experienceImprovements.push({text: experienceRec.message, why: "Work experience is essential for profile visibility"});
+      }
+    } else if (experienceRec) {
+      // No AI scores and we have completeness recommendation
+      experienceRating = null; // Show blank stars
+      experienceImprovements = [{text: experienceRec.message, why: "Work experience is essential for profile visibility"}];
     }
     
-    sections.push({
-      name: 'Experience',
-      rating: experienceRating,
-      positive: experiencePositive,
-      improvements: experienceImprovements
+    // Create main experience section
+    console.log('[UI DEBUG] Final experience values before pushing:', {
+      experienceRating,
+      experiencePositive,
+      experienceImprovementsCount: experienceImprovements.length,
+      hasSectionScores: !!data.sectionScores,
+      hasExperienceOverall: !!data.sectionScores?.experience_overall
     });
     
+    const experienceSection = {
+      name: 'Experience',
+      rating: experienceRating,
+      errorType: sectionScores.experience_overall?.errorType || null,
+      positive: experiencePositive,
+      improvements: experienceImprovements,
+      priority: 'normal',
+      hasSubSections: sectionScores.experience_roles && sectionScores.experience_roles.length > 0,
+      subSections: []
+    };
+    
+    // Add individual role feedback if available
+    if (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles)) {
+      // Sort roles by score (highest first) and limit to top 3 for UI clarity
+      const topRoles = sectionScores.experience_roles
+        .filter(role => role.analysis && (role.analysis.title || role.analysis.company))
+        .sort((a, b) => (b.score || 0) - (a.score || 0))
+        .slice(0, 3);
+      
+      // Smart limit: max 3 improvements total across all roles
+      let totalImprovements = 0;
+      const maxTotalImprovements = 3;
+      
+      topRoles.forEach(role => {
+        if (role.analysis && role.analysis.title && totalImprovements < maxTotalImprovements) {
+          // Calculate how many improvements this role can have
+          const remainingSlots = maxTotalImprovements - totalImprovements;
+          const roleImprovements = (role.actionItems || [])
+            .slice(0, Math.min(1, remainingSlots)) // Max 1 per role, but respect total limit
+            .map(item => ({
+              text: item.action || item.what || 'Improvement needed',
+              why: item.impact || item.how || 'Update your experience',
+              priority: item.priority
+            }));
+          
+          // Only add the role section if it has improvements or positive feedback
+          if (roleImprovements.length > 0 || role.positiveInsight) {
+            const roleSection = {
+              name: `${role.analysis.title} at ${role.analysis.company || 'Unknown Company'}`,
+              rating: this.scoreToRating(role.score || 0),
+              errorType: role.errorType || null,
+              positive: role.positiveInsight,
+              improvements: roleImprovements,
+              isSubSection: true
+            };
+            
+            experienceSection.subSections.push(roleSection);
+            totalImprovements += roleImprovements.length;
+          }
+        }
+      });
+    }
+    
+    SmartLogger.log('UI.EXPERIENCE', 'Final experience section', {
+      mainRating: experienceSection.rating,
+      hasPositive: !!experienceSection.positive,
+      mainImprovementsCount: experienceSection.improvements.length,
+      hasSubSections: experienceSection.hasSubSections,
+      subSectionsCount: experienceSection.subSections.length,
+      subSectionDetails: experienceSection.subSections.map(sub => ({
+        name: sub.name,
+        rating: sub.rating,
+        hasPositive: !!sub.positive,
+        improvementsCount: sub.improvements.length
+      }))
+    });
+    
+    sections.push(experienceSection);
+    
     // Skills section
-    const skillsMissing = missingItems.some(item => item.toLowerCase().includes('skill'));
-    const skillsRecs = this.findRecommendations(recommendations, ['skill', 'expertise']);
+    const skillsMissing = missingItems.some(item => item.section === 'skills');
+    const skillsRec = missingItems.find(item => item.section === 'skills');
     
     // Check for AI insights for skills
     const skillsScore = sectionScores.skills;
     if (skillsScore && skillsScore.actionItems) {
+      const skillsRating = this.scoreToRating(skillsScore.score);
       sections.push({
         name: 'Skills & Expertise',
-        rating: this.scoreToRating(skillsScore.score),
+        rating: skillsRating,
+        errorType: skillsScore.errorType || null,
         positive: skillsScore.positiveInsight || skillsScore.strengths?.[0] || null,
         gapAnalysis: skillsScore.gapAnalysis,
-        improvements: skillsScore.actionItems.slice(0, 2).map(item => ({
-          text: item.what,
-          why: item.how,
+        improvements: skillsScore.actionItems.slice(0, this.getImprovementLimit(skillsRating)).map(item => ({
+          text: item.action || item.what || 'Improvement needed',
+          why: item.impact || item.how || 'Update your skills',
+          impact: item.impact,
           priority: item.priority
-        }))
+        })),
+        priority: 'normal'
       });
     } else {
+      // Add positive message if skills pass completeness
+      const skillsData = data.extractedData?.skills || 
+                        data.completenessData?.breakdown?.skills?.data;
+      let skillsPositive = null;
+      
+      if (!skillsRec && skillsData && skillsData.count >= 10) {
+        skillsPositive = `✓ Strong skills section with ${skillsData.count} skills`;
+      }
+      
       sections.push({
         name: 'Skills & Expertise',
-        rating: skillsMissing ? 0 : (skillsRecs.length > 0 ? 3 : 4),
-        positive: skillsMissing ? null : null, // Let AI provide positive feedback
-        improvements: skillsMissing ?
-          ["Add at least 5 relevant skills to improve search visibility"] :
-          skillsRecs.slice(0, 2)
+        rating: null, // Always show blank stars without AI
+        positive: skillsPositive,
+        improvements: skillsRec ?
+          [{text: skillsRec.message, why: "Profiles with skills appear in 13x more searches"}] :
+          [],
+        priority: 'normal'
       });
     }
     
     // Recommendations section - analyze HOW they're perceived
-    const recommendationsMissing = missingItems.some(item => item.toLowerCase().includes('recommendation'));
-    const recommendationsRecs = this.findRecommendations(recommendations, ['recommendation', 'endorsement', 'testimonial']);
+    const recommendationsMissing = missingItems.some(item => item.section === 'recommendations');
+    const recommendationsRec = missingItems.find(item => item.section === 'recommendations');
     
     // Get recommendations data from various possible locations
     const recommendationsData = data.extractedData?.recommendations || 
@@ -2686,18 +3538,52 @@ const OverlayManager = {
     let recommendationsPositive = null;
     let recommendationsRating = 0;
     let recommendationsImprovements = [];
-    let isDefaultRating = false;
     
-    if (recommendationsMissing || !hasRecommendations) {
-      recommendationsRating = 0;
-      recommendationsImprovements = ["Request recommendations to build credibility - profiles with 2+ get 5x more inquiries"];
+    if (recommendationsRec) {
+      recommendationsRating = null; // Show blank stars
+      recommendationsImprovements = [{
+        text: recommendationsRec.message,
+        why: "Profiles with recommendations get 5x more inquiries"
+      }];
+    } else if (!hasRecommendations) {
+      // Old logic for when we detect no recommendations through data
+      recommendationsRating = null;
+      recommendationsImprovements = [{
+        text: "Request at least one recommendation",
+        why: "Start with recent colleagues who can speak to your specific achievements"
+      }];
     } else {
-      // We have recommendations - analyze their quality from AI insights
-      const recAnalysis = this.analyzeRecommendationPerception(recommendationsRecs, recommendationsData);
-      recommendationsRating = recAnalysis.rating;
-      recommendationsPositive = recAnalysis.positive;
-      recommendationsImprovements = recAnalysis.improvements;
-      isDefaultRating = recAnalysis.isDefaultRating || false;
+      // [CRITICAL_PATH:RECOMMENDATIONS_AI_DISPLAY] - P0: Must show AI analysis for recommendations
+      // We have recommendations - check for AI insights
+      const recommendationsScore = sectionScores.recommendations;
+      
+      if (recommendationsScore && typeof recommendationsScore.score === 'number') {
+        // Use AI insights for recommendations
+        recommendationsRating = this.scoreToRating(recommendationsScore.score);
+        recommendationsPositive = recommendationsScore.positiveInsight || recommendationsScore.strengths?.[0] || null;
+        
+        // Extract improvements from AI analysis
+        if (recommendationsScore.actionItems && recommendationsScore.actionItems.length > 0) {
+          recommendationsImprovements = recommendationsScore.actionItems
+            .slice(0, this.getImprovementLimit(recommendationsRating))
+            .map(item => ({
+              text: item.action || item.what || 'Improvement needed',
+              why: item.impact || item.how || 'Update your recommendations',
+              impact: item.impact,
+              priority: item.priority
+            }));
+        }
+      } else {
+        // No AI insights - show completeness only
+        recommendationsRating = null; // No rating without AI
+        recommendationsPositive = null;
+        recommendationsImprovements = [];
+        
+        // Add positive message if has recommendations
+        if (hasRecommendations && recommendationsData.count > 0) {
+          recommendationsPositive = `✓ You have ${recommendationsData.count} recommendation${recommendationsData.count > 1 ? 's' : ''}`;
+        }
+      }
     }
     
     sections.push({
@@ -2705,17 +3591,56 @@ const OverlayManager = {
       rating: recommendationsRating,
       positive: recommendationsPositive,
       improvements: recommendationsImprovements,
-      isDefaultRating: isDefaultRating
+      // Removed isDefaultRating - use null rating instead
+      priority: 'high'  // Always show recommendations section
     });
     
-    // If no sections need improvement, show at least the first 3 sections
-    const needsImprovement = sections.filter(section => section.rating < 5);
-    if (needsImprovement.length > 0) {
-      return needsImprovement;
-    } else {
-      // Show top 3 sections even if they're perfect
-      return sections.slice(0, 3);
+    // Sort sections to match LinkedIn's visual hierarchy
+    const sectionOrder = [
+      'First Impression', // Includes photo + headline when photo exists
+      'Profile Photo',    // Only shown when missing
+      'Profile Banner',    // Only with vision AI
+      'Headline',         // Only shown if no First Impression
+      'About Section',
+      'Experience',
+      'Recommendations',
+      'Skills & Expertise'
+    ];
+    
+    sections.sort((a, b) => {
+      const indexA = sectionOrder.indexOf(a.name);
+      const indexB = sectionOrder.indexOf(b.name);
+      // If section not in order list, put it at the end
+      return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
+    });
+    
+    // Priority-based filtering:
+    // 1. Always include high-priority sections
+    // 2. Include all sections that need improvement (rating < 5)
+    // 3. If space remains, include other sections up to a limit
+    
+    const highPrioritySections = sections.filter(section => section.priority === 'high');
+    const needsImprovement = sections.filter(section => section.rating < 5 && section.priority !== 'high');
+    const perfectSections = sections.filter(section => section.rating >= 5 && section.priority !== 'high');
+    
+    // Combine sections with priority order
+    let finalSections = [...highPrioritySections, ...needsImprovement];
+    
+    // Add perfect sections if we have room (max 6-8 total sections)
+    const maxSections = 8;
+    const remainingSlots = maxSections - finalSections.length;
+    if (remainingSlots > 0) {
+      finalSections = [...finalSections, ...perfectSections.slice(0, remainingSlots)];
     }
+    
+    // Re-sort final sections to maintain LinkedIn order
+    finalSections.sort((a, b) => {
+      const indexA = sectionOrder.indexOf(a.name);
+      const indexB = sectionOrder.indexOf(b.name);
+      return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
+    });
+    
+    return finalSections;
   },
   
   /**
@@ -2726,8 +3651,16 @@ const OverlayManager = {
       rating: 3, // Default middle rating
       positive: null,
       improvements: [],
-      isDefaultRating: false
+      // Removed isDefaultRating
     };
+    
+    // Debug logging
+    console.log('[Recommendations Debug]', {
+      aiRecs: aiRecs,
+      aiRecsLength: aiRecs?.length,
+      recData: recData,
+      recDataCount: recData?.count
+    });
     
     // Check if we have AI analysis scores for recommendations
     const aiSectionScores = this.currentData?.sectionScores || {};
@@ -2759,23 +3692,67 @@ const OverlayManager = {
                text.includes('validate') || text.includes('strong');
       });
       
+      console.log('[Recommendations Debug] perceptionFeedback:', {
+        found: perceptionFeedback.length,
+        items: perceptionFeedback
+      });
+      
       if (perceptionFeedback.length > 0) {
         // Use AI's specific feedback about how recommendations are perceived
         result.improvements = perceptionFeedback.slice(0, 2).map(rec => ({
-          text: rec.text,
+          text: rec.text || "Improve recommendation quality",
           why: rec.why || "Enhances how your profile is perceived by recruiters",
           example: rec.example
         }));
       } else if (recommendationsScore.actionItems && recommendationsScore.actionItems.length > 0) {
-        // Use AI actionItems
-        result.improvements = recommendationsScore.actionItems.slice(0, 2).map(item => ({
-          text: item.what,
-          why: item.how,
-          priority: item.priority
-        }));
+        console.log('[Recommendations Debug] Using actionItems:', recommendationsScore.actionItems);
+        // Use AI actionItems - handle both string and object formats
+        // Limit improvements based on rating (5 stars = 1 improvement)
+        const improvementLimit = result.rating >= 5 ? 1 : 2;
+        result.improvements = recommendationsScore.actionItems.slice(0, improvementLimit).map(item => {
+          if (typeof item === 'string') {
+            // AI returned plain strings instead of objects
+            // Try to parse the string to extract what and why
+            const sentences = item.split(/\.(?=\s|$)/).filter(s => s.trim());
+            const firstSentence = sentences[0] ? sentences[0].trim() + '.' : item;
+            const remainingSentences = sentences.slice(1).join('. ').trim();
+            
+            console.log('[Recommendations Debug] Parsing string item:', {
+              original: item,
+              firstSentence: firstSentence,
+              remainingSentences: remainingSentences
+            });
+            
+            return {
+              text: firstSentence, // AI now handles length (150-200 chars)
+              why: remainingSentences || "This will enhance your profile's credibility and visibility"
+            };
+          } else {
+            // Expected object format
+            console.log('[Recommendations Debug] Processing object item:', item);
+            return {
+              text: item.action || item.what || item.text || "Improve recommendations",
+              why: item.impact || item.how || item.why || "To enhance profile credibility",
+              impact: item.impact,
+              priority: item.priority
+            };
+          }
+        });
       } else {
+        console.log('[Recommendations Debug] Using fallback improvements');
         // Fallback to general improvements
-        result.improvements = this.generateRecommendationImprovements(score, recData.count);
+        const fallbackImprovements = this.generateRecommendationImprovements(score, recData.count);
+        console.log('[Recommendations Debug] Fallback improvements:', fallbackImprovements);
+        result.improvements = fallbackImprovements;
+      }
+      
+      // Ensure improvements is always an array with valid objects
+      if (!Array.isArray(result.improvements) || result.improvements.length === 0) {
+        console.log('[Recommendations Debug] No improvements found, using default');
+        result.improvements = [{
+          text: "Request specific recommendations that highlight your achievements",
+          why: "Specific examples are more impactful than generic praise"
+        }];
       }
     } else {
       // No AI analysis - check if we have any recommendation data
@@ -2785,8 +3762,11 @@ const OverlayManager = {
         // No recommendations at all
         result.rating = 0;
         result.positive = null;
-        result.improvements = ["Request recommendations to build credibility - profiles with 2+ get 5x more inquiries"];
-        result.isDefaultRating = false; // This is accurate, not a default
+        result.improvements = [{
+          text: "Request recommendations to build credibility - profiles with 2+ get 5x more inquiries",
+          why: "Start with recent colleagues who can speak to your specific achievements"
+        }];
+        // No default ratings - either proper rating or null
       } else {
         // We have recommendations but limited AI analysis
         const qualityInsights = aiRecs.filter(rec => {
@@ -2822,26 +3802,37 @@ const OverlayManager = {
             example: rec.example
           }));
         } else {
-          // No specific AI feedback AND we have recommendations - parsing likely failed
-          result.isDefaultRating = true;
-          result.rating = 1; // Low rating when we can't analyze quality
-          result.positive = "Unable to analyze recommendation quality";
-          
-          // When analysis fails, always show it as a limitation
-          result.improvements = [
-            "Recommendation content wasn't fully visible to analyze quality",
-            "This is a known LinkedIn limitation - try re-analyzing in a few minutes"
-          ];
-          
-          // If we're showing cached data due to analysis failure, mention it
-          if (this.currentData?.isCacheFallback) {
-            result.positive = "Showing previous analysis results";
-            result.improvements[0] = "Current analysis incomplete - showing cached results";
-          }
+          // No AI analysis available - set rating to null to show "AI required"
+          result.rating = null;
+          result.positive = "";
+          result.improvements = [];
         }
       }
     }
     
+    // Final validation to ensure improvements array is valid
+    if (!Array.isArray(result.improvements)) {
+      console.log('[Recommendations Debug] CRITICAL: improvements is not an array!', result.improvements);
+      result.improvements = [];
+    }
+    
+    // Ensure each improvement has required properties
+    result.improvements = result.improvements.map((imp, index) => {
+      if (typeof imp === 'string') {
+        console.log(`[Recommendations Debug] Converting string improvement ${index} to object:`, imp);
+        return { text: imp, why: "To enhance your profile effectiveness" };
+      }
+      if (!imp || typeof imp !== 'object') {
+        console.log(`[Recommendations Debug] Invalid improvement ${index}:`, imp);
+        return { text: "Enhance recommendation quality", why: "To improve profile credibility" };
+      }
+      return {
+        text: imp.text || "Improve recommendations",
+        why: imp.why || "To enhance profile effectiveness"
+      };
+    });
+    
+    console.log('[Recommendations Debug] Final result:', result);
     return result;
   },
   
@@ -2850,23 +3841,47 @@ const OverlayManager = {
    */
   generateRecommendationImprovements(score, count) {
     if (score && score >= 8) {
-      return ["Consider adding a C-level recommendation to further boost executive presence"];
+      return [{
+        text: "Consider adding a C-level recommendation to further boost executive presence",
+        why: "Senior endorsements significantly enhance credibility for leadership roles"
+      }];
     } else if (score && score >= 6) {
       return [
-        "Request recommendations that quantify your specific business impact",
-        "Seek a recommendation from a cross-functional partner to show collaboration"
+        {
+          text: "Request recommendations that quantify your specific business impact",
+          why: "Numbers and metrics make your achievements more credible and memorable"
+        },
+        {
+          text: "Seek a recommendation from a cross-functional partner to show collaboration",
+          why: "Demonstrates your ability to work effectively across teams"
+        }
       ];
     } else if (count >= 5) {
-      return ["Review older recommendations - update or request fresh ones highlighting recent wins"];
+      return [{
+        text: "Review older recommendations - update or request fresh ones highlighting recent wins",
+        why: "Recent recommendations (last 1-2 years) carry more weight with recruiters"
+      }];
     } else if (count >= 2) {
       return [
-        "Coach future recommenders to include specific metrics and outcomes",
-        "Request recommendations from different perspectives (client, peer, manager)"
+        {
+          text: "Coach future recommenders to include specific metrics and outcomes",
+          why: "Specific examples are 3x more impactful than generic praise"
+        },
+        {
+          text: "Request recommendations from different perspectives (client, peer, manager)",
+          why: "Diverse viewpoints demonstrate well-rounded leadership capabilities"
+        }
       ];
     } else {
       return [
-        "Request 2-3 recommendations focusing on concrete achievements with numbers",
-        "Provide recommenders with bullet points of your key accomplishments to reference"
+        {
+          text: "Request 2-3 recommendations focusing on concrete achievements with numbers",
+          why: "Profiles with 2+ recommendations receive 5x more inquiries"
+        },
+        {
+          text: "Provide recommenders with bullet points of your key accomplishments to reference",
+          why: "Makes it easier for them to write specific, impactful recommendations"
+        }
       ];
     }
   },
@@ -2900,39 +3915,81 @@ const OverlayManager = {
    * Render a section with star rating
    */
   renderSection(section) {
+    // Generate a unique placeholder ID for this section's stars
+    const starPlaceholderId = `star-placeholder-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Store the star element to insert later
+    if (!this.pendingStarElements) {
+      this.pendingStarElements = [];
+    }
+    this.pendingStarElements.push({
+      id: starPlaceholderId,
+      element: this.renderStars(section.rating, section.errorType)
+    });
+    
     return `
-      <div style="margin-bottom: 20px; padding: 16px; background: #f8f9fa; border-radius: 8px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+      <div style="margin-bottom: 12px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
           <h5 style="margin: 0; font-size: 14px; font-weight: 600; color: #333;">
             ${section.name}
-            ${section.isDefaultRating ? `
-              <span style="font-size: 11px; color: #666; font-weight: normal; margin-left: 8px;">
-                (Limited data - default rating)
-              </span>
-            ` : ''}
           </h5>
-          <div class="star-rating" style="font-size: 16px;">${this.renderStars(section.rating)}</div>
+          <div class="star-rating" style="font-size: 16px;" data-star-placeholder="${starPlaceholderId}"></div>
         </div>
         ${section.positive ? `
-          <p style="margin: 0 0 8px 0; font-size: 13px; color: #057642;">
-            ✓ ${section.positive}
-          </p>
-        ` : ''}
-        ${section.isDefaultRating && section.name === 'Recommendations' ? `
-          <p style="margin: 0 0 8px 0; font-size: 12px; color: #f59e0b; background: #fef3c7; padding: 8px; border-radius: 4px;">
-            ⚠️ Recommendation quality couldn't be fully analyzed. ${section.positive && section.positive.includes('previous') ? 'Using cached data.' : 'Limited visibility of recommendation content.'}
+          <p style="margin: 0 0 8px 0; font-size: 12px; color: #057642;">
+            ${section.positive}
           </p>
         ` : ''}
         ${section.improvements.length > 0 ? `
           <ul style="margin: 8px 0 0 0; padding-left: 20px; list-style: none;">
             ${section.improvements.map(imp => `
-              <li style="margin-bottom: 6px; position: relative; padding-left: 8px; font-size: 13px; color: #666;">
+              <li style="margin-bottom: 6px; position: relative; padding-left: 8px; font-size: 12px; color: #666;">
                 <span style="position: absolute; left: -8px;">→</span>
                 ${typeof imp === 'string' ? imp : imp.text}
-                ${imp.why ? `<div style="font-size: 12px; color: #999; margin-top: 2px; margin-left: 8px;">${imp.why}</div>` : ''}
+                ${imp.why ? `<div style="font-size: 11px; color: #999; margin-top: 2px; margin-left: 8px;">${imp.why}</div>` : ''}
               </li>
             `).join('')}
           </ul>
+        ` : ''}
+        
+        <!-- Sub-sections for Experience roles -->
+        ${section.hasSubSections && section.subSections && section.subSections.length > 0 ? `
+          <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb;">
+            <p style="margin: 0 0 12px 0; font-size: 12px; color: #666; font-weight: 600;">Individual Role Analysis:</p>
+            ${section.subSections.map(subSection => `
+              <div style="margin-bottom: 12px; padding: 12px; background: white; border-radius: 6px; border-left: 3px solid ${this.getRatingColor(subSection.rating)};">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                  <h6 style="margin: 0; font-size: 13px; font-weight: 600; color: #333;">
+                    ${subSection.name}
+                  </h6>
+                  <div class="star-rating" style="font-size: 14px;" data-star-placeholder="${(() => {
+                    const subStarId = `star-placeholder-${Math.random().toString(36).substr(2, 9)}`;
+                    this.pendingStarElements.push({
+                      id: subStarId,
+                      element: this.renderStars(subSection.rating, subSection.errorType)
+                    });
+                    return subStarId;
+                  })()}"></div>
+                </div>
+                ${subSection.positive ? `
+                  <p style="margin: 0 0 6px 0; font-size: 12px; color: #057642;">
+                    ${subSection.positive}
+                  </p>
+                ` : ''}
+                ${subSection.improvements && subSection.improvements.length > 0 ? `
+                  <ul style="margin: 4px 0 0 0; padding-left: 16px; list-style: none;">
+                    ${subSection.improvements.map(imp => `
+                      <li style="margin-bottom: 4px; position: relative; padding-left: 6px; font-size: 12px; color: #666;">
+                        <span style="position: absolute; left: -6px;">→</span>
+                        ${typeof imp === 'string' ? imp : imp.text}
+                        ${imp.why ? `<div style="font-size: 11px; color: #999; margin-top: 1px; margin-left: 6px;">${imp.why}</div>` : ''}
+                      </li>
+                    `).join('')}
+                  </ul>
+                ` : ''}
+              </div>
+            `).join('')}
+          </div>
         ` : ''}
       </div>
     `;
@@ -2941,21 +3998,86 @@ const OverlayManager = {
   /**
    * Render star rating
    */
-  renderStars(rating) {
+  renderStars(rating, errorType = null) {
     const filled = '★';
     const empty = '☆';
-    let stars = '';
     
-    for (let i = 1; i <= 5; i++) {
-      const delay = i * 0.1; // Stagger star animations
-      if (i <= rating) {
-        stars += `<span style="color: #f59e0b; animation-delay: ${delay}s">${filled}</span>`;
-      } else {
-        stars += `<span style="color: #d1d5db; animation-delay: ${delay}s">${empty}</span>`;
-      }
+    // Create wrapper span
+    const wrapper = document.createElement('span');
+    
+    // If no rating (no AI analysis), show responsive display
+    if (rating === null || rating === undefined) {
+      const tooltip = this.getFailureTooltip(errorType);
+      wrapper.title = tooltip;
+      wrapper.style.cssText = 'cursor: help; opacity: 0.5;';
+      
+      // Visual stars span
+      const visualSpan = document.createElement('span');
+      visualSpan.className = 'stars-visual';
+      visualSpan.textContent = empty.repeat(5);
+      
+      // Numeric span
+      const numericSpan = document.createElement('span');
+      numericSpan.className = 'stars-numeric';
+      numericSpan.textContent = '0/5★';
+      
+      wrapper.appendChild(visualSpan);
+      wrapper.appendChild(numericSpan);
+      return wrapper;
     }
     
-    return stars;
+    // Calculate numerical rating for tooltip
+    const numericalRating = rating.toFixed(1);
+    let qualityText = '';
+    if (rating >= 5) qualityText = 'Excellent';
+    else if (rating >= 4) qualityText = 'Good';
+    else if (rating >= 3) qualityText = 'Average';
+    else if (rating >= 2) qualityText = 'Below Average';
+    else qualityText = 'Needs Improvement';
+    
+    const tooltip = `${numericalRating}/5.0 - ${qualityText}`;
+    wrapper.title = tooltip;
+    
+    // Create individual star spans with animation
+    for (let i = 1; i <= 5; i++) {
+      const starSpan = document.createElement('span');
+      const delay = i * 0.1; // Stagger star animations
+      if (i <= rating) {
+        starSpan.style.cssText = `color: #f59e0b; animation-delay: ${delay}s`;
+        starSpan.textContent = filled;
+      } else {
+        starSpan.style.cssText = `color: #d1d5db; animation-delay: ${delay}s`;
+        starSpan.textContent = empty;
+      }
+      wrapper.appendChild(starSpan);
+    }
+    
+    wrapper.style.cursor = 'help';
+    return wrapper;
+  },
+  
+  /**
+   * Get tooltip for failure scenarios
+   */
+  getFailureTooltip(errorType) {
+    const tooltipMap = {
+      'ANALYSIS_FAILED': 'AI was unable to analyze this section',
+      'RESPONSE_PARSE_ERROR': 'AI response could not be read',
+      'DATA_READ_ERROR': 'AI was unable to read data for this section',
+      'API_KEY_ERROR': 'Invalid API key - check settings',
+      'DEFAULT': 'Enable AI analysis for quality insights'
+    };
+    
+    return tooltipMap[errorType] || tooltipMap['DEFAULT'];
+  },
+  
+  /**
+   * Get color based on rating
+   */
+  getRatingColor(rating) {
+    if (rating >= 4) return '#057642'; // Green
+    if (rating >= 3) return '#f59e0b'; // Yellow/Orange
+    return '#dc2626'; // Red
   },
   
   /**
@@ -2983,7 +4105,7 @@ const OverlayManager = {
     
     // Guard against undefined or null recommendations
     if (!recommendations || !Array.isArray(recommendations)) {
-      console.log('[OverlayManager] No valid recommendations array to filter');
+      // console.log('[OverlayManager] No valid recommendations array to filter');
       return [];
     }
     
@@ -2994,12 +4116,12 @@ const OverlayManager = {
       
       // Check if this is a completeness recommendation
       const isCompletenessRec = 
-        missingItems.some(item => action.includes(item.toLowerCase())) ||
+        missingItems.some(item => action.includes(item.section?.toLowerCase() || '')) ||
         action.includes('add') ||
         action.includes('missing') ||
         action.includes('create') ||
         action.includes('include') ||
-        (section && missingItems.some(item => item.toLowerCase().includes(section)));
+        (section && missingItems.some(item => (item.section?.toLowerCase() || '').includes(section)));
       
       if (isCompletenessRec) {
         completenessRecs.push(rec);
@@ -3015,42 +4137,166 @@ const OverlayManager = {
     // Combine and limit to 8 total
     const combined = [...selectedCompleteness, ...selectedQuality].slice(0, 8);
     
-    console.log('[OverlayManager] Recommendation allocation:', {
-      total: recommendations.length,
-      completenessFound: completenessRecs.length,
-      qualityFound: qualityRecs.length,
-      completenessSelected: selectedCompleteness.length,
-      qualitySelected: selectedQuality.length,
-      finalCount: combined.length,
-      allocation
-    });
+    // console.log('[OverlayManager] Recommendation allocation:', {
+    //   total: recommendations.length,
+    //   completenessFound: completenessRecs.length,
+    //   qualityFound: qualityRecs.length,
+    //   completenessSelected: selectedCompleteness.length,
+    //   qualitySelected: selectedQuality.length,
+    //   finalCount: combined.length,
+    //   allocation
+    // });
     
     return combined;
   },
   
   /**
-   * Generate re-engagement prompt
+   * Generate unified positive message
    */
-  generateReEngagementPrompt(completeness, contentScore, sections) {
-    const totalStars = sections.reduce((sum, section) => sum + section.rating, 0);
-    const maxStars = sections.length * 5;
-    const progress = Math.round((totalStars / maxStars) * 100);
+  generateUnifiedMessage(completeness, contentScore, sections, data) {
+    // Add platform detection for debugging
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     
-    if (progress >= 80) {
-      return "🏆 You're almost there! Complete these final improvements to achieve an elite profile.";
-    } else if (progress >= 60) {
-      return "🎯 Great momentum! You're " + (100 - progress) + "% away from a standout profile.";
-    } else if (progress >= 40) {
-      return "📈 You're making excellent progress! Each improvement increases your visibility.";
-    } else {
-      return "🚀 Start with one section today - small improvements create big impact!";
+    console.log('[OverlayManager] generateUnifiedMessage called with:', {
+      completeness,
+      contentScore,
+      sectionsLength: sections?.length,
+      completenessType: typeof completeness,
+      completenessValue: completeness,
+      hasData: !!data,
+      aiError: data?.aiError,
+      settings: data?.settings,
+      platform: navigator.platform,
+      isMac
+    });
+    
+    try {
+      // Force safe type conversion
+      const safeCompleteness = Number(completeness) || 0;
+      const safeContentScore = Number(contentScore) || 0;
+      
+      // Initialize message parts array for safer concatenation
+      const messageParts = [];
+      
+      // Check for AI failures first
+      if (safeContentScore === 0 && data?.aiError && data?.settings?.enableAI) {
+        // AI is enabled but analysis failed
+        if (safeCompleteness >= 100) {
+          return "✅ Your profile is 100% complete! ⚠️ AI analysis failed. Please try again.";
+        } else {
+          return `⚠️ AI analysis failed. Profile ${safeCompleteness}% complete. Please try again.`;
+        }
+      }
+      
+      // Check if this is from cache after AI failure
+      if (data?.aiFailedWithCache && data?.cachedContentScore) {
+        if (safeCompleteness >= 100) {
+          return "✅ Your profile is 100% complete! AI analysis failed - showing previous results. Click 'Analyze' to retry.";
+        } else {
+          return `Profile ${safeCompleteness}% complete. AI analysis failed - showing previous results. Click 'Analyze' to retry.`;
+        }
+      }
+      
+      // Check if AI analysis has been run
+      const hasAIAnalysis = sections && sections.some(section => section.rating !== null && section.rating !== undefined);
+      
+      // MODIFIED: Check for high completeness without AI first
+      if (safeCompleteness >= 75 && !hasAIAnalysis) {
+        // High completeness but no AI - prompt to enable AI
+        if (safeCompleteness >= 100) {
+          return "🎉 Your profile structure is perfect! Configure and Enable AI for comprehensive content quality analysis.";
+        } else if (safeCompleteness >= 90) {
+          return `🎯 Excellent profile structure! ${safeCompleteness}% complete. Configure and Enable AI for comprehensive content quality analysis.`;
+        } else {
+          return `📈 Strong profile foundation! ${safeCompleteness}% complete. Configure and Enable AI for comprehensive content quality analysis.`;
+        }
+      }
+      
+      // Build completeness message for < 75% or with AI
+      let completenessMessage = "";
+      
+      // Completeness part with safe string concatenation
+      if (safeCompleteness >= 100) {
+        completenessMessage = "🎉 Your profile is 100% complete!";
+      } else if (safeCompleteness >= 90) {
+        completenessMessage = `🎯 Almost there! ${safeCompleteness}% complete.`;
+      } else if (safeCompleteness >= 70) {
+        completenessMessage = `📈 Great progress! ${safeCompleteness}% complete.`;
+      } else if (safeCompleteness >= 50) {
+        completenessMessage = `🚀 Good start! ${safeCompleteness}% complete.`;
+      } else {
+        completenessMessage = `💪 Let's build your profile! ${safeCompleteness}% complete.`;
+      }
+      
+      messageParts.push(completenessMessage);
+      
+      // Add content quality if AI is enabled
+      if (hasAIAnalysis) {
+        try {
+          const totalStars = sections.reduce((sum, section) => sum + (section.rating || 0), 0);
+          const maxStars = sections.length * 5;
+          const starProgress = Math.round((totalStars / maxStars) * 100);
+          
+          let qualityMessage = "";
+          if (starProgress >= 80) {
+            qualityMessage = " Content quality: Excellent.";
+          } else if (starProgress >= 60) {
+            qualityMessage = " Content quality: Good.";
+          } else if (starProgress >= 40) {
+            qualityMessage = " Content quality: Fair.";
+          } else {
+            qualityMessage = " Content quality: Needs improvement.";
+          }
+          messageParts.push(qualityMessage);
+        } catch (e) {
+          console.error('[OverlayManager] Error calculating star progress:', e);
+          messageParts.push(" AI analysis complete.");
+        }
+      } else {
+        // Only show AI nudge if completeness is < 75% - otherwise it's handled above
+        // When < 75%, focus on structure first
+        if (safeCompleteness < 75) {
+          // Don't distract with AI - focus on completeness
+          const structureMessage = " Focus on completing missing sections first.";
+          messageParts.push(structureMessage);
+        }
+      }
+      
+      // Join all parts safely
+      const finalMessage = messageParts.filter(Boolean).join('');
+      
+      console.log('[OverlayManager] generateUnifiedMessage returning:', {
+        finalMessage,
+        messageParts,
+        partsLength: messageParts.length,
+        finalLength: finalMessage.length,
+        isMac
+      });
+      
+      // Ensure we never return empty string
+      return finalMessage || "Profile analysis complete.";
+      
+    } catch (error) {
+      console.error('[OverlayManager] Error in generateUnifiedMessage:', error, {
+        completeness,
+        contentScore,
+        platform: navigator.platform
+      });
+      
+      // Fallback message that always works
+      const fallbackCompleteness = Number(completeness) || 0;
+      return `Profile ${fallbackCompleteness}% complete. Analysis results available above.`;
     }
   },
   
   /**
    * Show zero state for new users
+   * @param {boolean} isAfterReset - True if showing after reset, false for initial setup
    */
-  showZeroState() {
+  showZeroState(isAfterReset = false) {
+    // Keep current view state - don't force expansion
+    // Users can expand if they want to see the welcome message
+    
     // Hide old sections
     const missingSection = this.overlayElement.querySelector('.missing-items-section');
     const recsSection = this.overlayElement.querySelector('.recommendations-section');
@@ -3061,6 +4307,18 @@ const OverlayManager = {
     // Hide score blocks
     const scoresContainer = this.overlayElement.querySelector('.scores-container');
     if (scoresContainer) scoresContainer.style.display = 'none';
+    
+    // Determine text based on context AND compliance
+    let actionText = "Click the extension icon to get started";
+    let timeText = "⏱️ Setup takes 30 seconds";
+    let afterText = "After setup, you'll get:";
+    
+    // Check if setup is complete (has compliance)
+    if (isAfterReset || this.hasCompliance) {
+      actionText = "Click Analyze to analyze your profile";
+      timeText = "⏱️ Analysis takes 30-60 seconds";
+      afterText = "After analysis, you'll get:";
+    }
     
     // Create or update unified section with welcome message
     let unifiedSection = this.overlayElement.querySelector('.unified-section');
@@ -3079,53 +4337,66 @@ const OverlayManager = {
     }
     
     unifiedSection.innerHTML = `
-      <div style="margin: 16px 0;">
-        <div style="background: #f0f8ff; border: 1px solid #e7f3ff; padding: 32px; border-radius: 8px; text-align: center;">
-          <h3 style="margin: 0 0 16px 0; font-size: 24px; color: #0a66c2;">
-            👋 Welcome to ElevateLI!
+      <div style="margin: 8px 0;">
+        <div style="background: #f0f8ff; border: 1px solid #e7f3ff; padding: 20px; border-radius: 8px; text-align: center;">
+          <h3 style="margin: 0 0 12px 0; font-size: 22px; color: #0a66c2;">
+            Welcome to ElevateLI! 🚀
           </h3>
-          <p style="font-size: 16px; line-height: 1.6; color: #333; margin-bottom: 24px;">
-            Analyze your LinkedIn profile to discover:
+          <p style="font-size: 15px; line-height: 1.5; color: #333; margin-bottom: 16px;">
+            Get data-driven insights for your LinkedIn profile
           </p>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; max-width: 600px; margin: 0 auto 24px;">
-            <div style="text-align: left; padding: 16px; background: white; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-              <div style="color: #0a66c2; font-size: 20px; margin-bottom: 8px;">✓</div>
-              <h4 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 600;">Profile Completeness</h4>
-              <p style="margin: 0; font-size: 13px; color: #666;">Free analysis of missing sections</p>
-            </div>
-            <div style="text-align: left; padding: 16px; background: white; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-              <div style="color: #0a66c2; font-size: 20px; margin-bottom: 8px;">🎯</div>
-              <h4 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 600;">Content Quality Score</h4>
-              <p style="margin: 0; font-size: 13px; color: #666;">AI-powered content analysis</p>
-            </div>
-            <div style="text-align: left; padding: 16px; background: white; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-              <div style="color: #0a66c2; font-size: 20px; margin-bottom: 8px;">💡</div>
-              <h4 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 600;">Smart Recommendations</h4>
-              <p style="margin: 0; font-size: 13px; color: #666;">Personalized improvement tips</p>
-            </div>
+          <div style="text-align: center; margin: 16px 0;">
+            <p style="font-size: 14px; color: #666; margin: 8px 0;">${actionText}</p>
+            <p style="font-size: 12px; color: #888; margin: 4px 0;">${timeText}</p>
           </div>
-          <button style="
-            background: #0a66c2;
-            color: white;
-            border: none;
-            padding: 12px 32px;
-            border-radius: 24px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            margin-bottom: 12px;
-          " onclick="window.postMessage({ type: 'ELEVATE_REFRESH' }, '*')">
-            Analyze Your Profile
-          </button>
-          <p style="margin: 0; font-size: 13px; color: #666;">
-            💡 Tip: Configure your API key in settings for AI-powered insights
-          </p>
+          
+          <div style="background: #fff; padding: 16px 0; margin: 16px 0; border-top: 1px solid #e1e9ee;">
+            <p style="margin: 0 0 12px 0; font-size: 14px; color: #666; text-align: center;">${afterText}</p>
+            <div class="feature-tiles" style="display: flex; justify-content: center; gap: 16px;">
+              <div style="display: flex; align-items: center; padding: 10px 14px; background: #f0f8ff; border-radius: 6px;">
+                <span style="color: #0a66c2; font-size: 18px; margin-right: 6px;">📊</span>
+                <span style="font-size: 12px; color: #333;">Instant completeness analysis</span>
+              </div>
+              <div style="display: flex; align-items: center; padding: 10px 14px; background: #f0f8ff; border-radius: 6px;">
+                <span style="color: #0a66c2; font-size: 18px; margin-right: 6px;">✨</span>
+                <span style="font-size: 12px; color: #333;">Enhanced AI insights*</span>
+              </div>
+              <div style="display: flex; align-items: center; padding: 10px 14px; background: #f0f8ff; border-radius: 6px;">
+                <span style="color: #0a66c2; font-size: 18px; margin-right: 6px;">🎯</span>
+                <span style="font-size: 12px; color: #333;">Personalized recommendations*</span>
+              </div>
+            </div>
+            <p style="margin: 8px 0 0 0; font-size: 10px; color: #888; text-align: center;">* AI setup unlocks enhanced features</p>
+          </div>
+          
         </div>
       </div>
     `;
     
     unifiedSection.classList.remove('hidden');
+    
+    // Also update collapsed view to show zero state values
+    const completenessBadge = this.overlayElement.querySelector('.score-badge.completeness');
+    const qualityBadge = this.overlayElement.querySelector('.score-badge.quality');
+    const lastAnalyzedSpan = this.overlayElement.querySelector('.last-analyzed-collapsed');
+    const analyzeBtn = this.overlayElement.querySelector('.analyze-btn-collapsed');
+    
+    if (completenessBadge) {
+      completenessBadge.innerHTML = '<span class="label-full">Completeness</span><span class="label-short">Complete</span>: —';
+      completenessBadge.classList.remove('high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
+    }
+    if (qualityBadge) {
+      qualityBadge.innerHTML = '<span class="label-full">Content Quality</span><span class="label-short">Quality</span>: —';
+      qualityBadge.classList.remove('ai-disabled', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
+    }
+    if (lastAnalyzedSpan) lastAnalyzedSpan.textContent = 'Not analyzed';
+    if (analyzeBtn) analyzeBtn.textContent = 'Analyze';
+    
+    // Update the status indicator with more informative text
+    const statusText = this.overlayElement.querySelector('.status-text');
+    if (statusText) {
+      statusText.textContent = 'Ready to analyze • Click extension icon to set up';
+    }
   },
   
   /**
@@ -3151,6 +4422,366 @@ const OverlayManager = {
     }
     if (recsSection && recsSection.querySelector('.recommendations-list').children.length > 0) {
       recsSection.classList.remove('hidden');
+    }
+  },
+
+  /**
+   * Show toast notification
+   * @param {string} message - Message to display
+   * @param {string} type - Type of toast: 'info', 'success', 'warning', 'error'
+   * @param {number} duration - Duration in milliseconds (default: 5000)
+   */
+  showToast(message, type = 'info', duration = 5000) {
+    // Remove any existing toasts
+    const existingToasts = document.querySelectorAll('.elevateli-toast');
+    existingToasts.forEach(toast => toast.remove());
+    
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `elevateli-toast elevateli-toast-${type}`;
+    
+    // Create icon based on type
+    const icons = {
+      info: 'ℹ️',
+      success: '✅',
+      warning: '⚠️',
+      error: '❌'
+    };
+    
+    // Create content
+    const icon = document.createElement('span');
+    icon.className = 'elevateli-toast-icon';
+    icon.textContent = icons[type] || icons.info;
+    
+    const text = document.createElement('span');
+    text.className = 'elevateli-toast-text';
+    text.textContent = message;
+    
+    toast.appendChild(icon);
+    toast.appendChild(text);
+    
+    // Add to body
+    document.body.appendChild(toast);
+    
+    // Trigger animation
+    requestAnimationFrame(() => {
+      toast.classList.add('elevateli-toast-show');
+    });
+    
+    // Auto-dismiss
+    const dismissTimer = setTimeout(() => {
+      toast.classList.add('elevateli-toast-hide');
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+    
+    // Click to dismiss
+    toast.addEventListener('click', () => {
+      clearTimeout(dismissTimer);
+      toast.classList.add('elevateli-toast-hide');
+      setTimeout(() => toast.remove(), 300);
+    });
+    
+    return toast;
+  },
+
+  // ============================================================================
+  // CENTRAL STATE RESTORATION SYSTEM
+  // ============================================================================
+
+  /**
+   * Promise-based compliance check helper
+   * @returns {Promise<Object|null>} Compliance data or null
+   */
+  async getCompliance() {
+    return new Promise((resolve) => {
+      try {
+        if (!chrome?.storage?.local) {
+          resolve(null);
+          return;
+        }
+        
+        chrome.storage.local.get(['compliance'], (data) => {
+          if (chrome.runtime.lastError) {
+            SmartLogger.log('STATE.RESTORATION', 'Failed to get compliance', { error: chrome.runtime.lastError });
+            resolve(null);
+            return;
+          }
+          resolve(data.compliance);
+        });
+      } catch (error) {
+        SmartLogger.error('STATE.RESTORATION', 'Error getting compliance', error);
+        resolve(null);
+      }
+    });
+  },
+
+  /**
+   * Promise-based settings check helper
+   * @returns {Promise<Object>} Settings object (empty if failed)
+   */
+  async getSettings() {
+    return new Promise((resolve) => {
+      try {
+        if (!chrome?.storage?.local) {
+          resolve({});
+          return;
+        }
+        
+        chrome.storage.local.get(['enableAI', 'apiKey', 'encryptedApiKey', 'aiProvider', 'aiModel'], (data) => {
+          if (chrome.runtime.lastError) {
+            SmartLogger.log('STATE.RESTORATION', 'Failed to get settings', { error: chrome.runtime.lastError });
+            resolve({});
+            return;
+          }
+          resolve(data);
+        });
+      } catch (error) {
+        SmartLogger.error('STATE.RESTORATION', 'Error getting settings', error);
+        resolve({});
+      }
+    });
+  },
+
+  /**
+   * Pure function to determine overlay state from data and context
+   * @param {Object|null} cachedData - Cached analysis data
+   * @param {Object} settings - Current settings
+   * @param {Object} compliance - Compliance status
+   * @param {Object} context - Additional context (error info, etc.)
+   * @returns {Object} State and data to set
+   */
+  /**
+   * Get cached data for a profile
+   * @param {string} profileId - Profile ID
+   * @returns {Promise<Object|null>} Cached data or null
+   */
+  async getCachedData(profileId) {
+    if (!profileId || !chrome?.storage?.local) {
+      return null;
+    }
+    
+    const cacheKey = `cache_${profileId}`;
+    return new Promise((resolve) => {
+      chrome.storage.local.get([cacheKey], (data) => {
+        if (chrome.runtime.lastError) {
+          resolve(null);
+        } else {
+          resolve(data[cacheKey] || null);
+        }
+      });
+    });
+  },
+  
+  determineStateFromData(cachedData, settings, compliance, context = {}) {
+    // Check compliance first
+    if (!compliance?.hasAcknowledged) {
+      return {
+        state: this.states.INITIALIZING,
+        data: null
+      };
+    }
+
+    // If we have cached data, restore it
+    if (cachedData && cachedData.completeness !== undefined) {
+      const hasApiKey = settings.apiKey || settings.encryptedApiKey;
+      const enableAI = settings.enableAI && hasApiKey && settings.aiProvider;
+      
+      const stateData = {
+        completeness: cachedData.completeness,
+        contentScore: cachedData.contentScore,
+        completenessData: cachedData.completenessData,
+        recommendations: cachedData.recommendations,
+        sectionScores: cachedData.sectionScores,
+        timestamp: cachedData.timestamp,
+        fromCache: true,
+        aiDisabled: !enableAI,
+        settings: {
+          enableAI: settings.enableAI,
+          aiProvider: settings.aiProvider,
+          aiModel: settings.aiModel
+        },
+        ...context // Include any additional context (error messages, etc.)
+      };
+
+      // Choose appropriate state based on context
+      if (context.isErrorFallback) {
+        return {
+          state: this.states.ANALYSIS_FAILED_CACHE_FALLBACK,
+          data: {
+            ...stateData,
+            analysisError: context.error || 'Analysis error',
+            message: context.message || 'Analysis failed. Showing cached results.'
+          }
+        };
+      } else {
+        return {
+          state: this.states.COMPLETE,
+          data: {
+            ...stateData,
+            fromCache: true,
+            cacheRestored: true
+          }
+        };
+      }
+    }
+
+    // No cache available - show empty state
+    return {
+      state: this.states.EMPTY_CACHE,
+      data: null
+    };
+  },
+
+  /**
+   * Central method to restore appropriate overlay state
+   * Replaces duplicate cache restoration logic throughout the codebase
+   * @param {string|null} profileId - Profile ID (will extract from URL if not provided)
+   * @param {Object} context - Additional context for state determination
+   * @returns {Promise<boolean>} Success status
+   */
+  async restoreAppropriateState(profileId = null, context = {}) {
+    try {
+      // Prevent duplicate restoration attempts
+      if (this.isRestoringState) {
+        SmartLogger.log('STATE.RESTORATION', 'Restoration already in progress, skipping duplicate call', {
+          profileId,
+          lastRestoredProfile: this.lastRestoredProfile
+        });
+        return true;
+      }
+      
+      // Skip restoration if we're already in a final state with data
+      if (this.currentState === this.states.COMPLETE) {
+        // Check if we have actual data displayed
+        const hasScores = this.overlayElement?.querySelector('.completeness-score')?.textContent;
+        if (hasScores && hasScores !== '0') {
+          SmartLogger.log('STATE.RESTORATION', 'Already in COMPLETE state with data, skipping restoration', {
+            currentState: this.currentState,
+            hasScores: !!hasScores
+          });
+          return true;
+        }
+      }
+      
+      // Only skip restoration if actively analyzing
+      if (this.currentState === this.states.AI_ANALYZING ||
+          this.currentState === this.states.ANALYZING ||
+          this.currentState === this.states.SCANNING ||
+          this.currentState === this.states.EXTRACTING ||
+          this.currentState === this.states.CALCULATING) {
+        SmartLogger.log('STATE.RESTORATION', 'Skipping restoration - analysis in progress', {
+          currentState: this.currentState,
+          profileId
+        });
+        return true; // Don't interrupt active analysis
+      }
+      
+      // Get profile ID if not provided
+      if (!profileId) {
+        // Try to extract profile ID from URL
+        try {
+          profileId = extractProfileIdFromUrl();
+        } catch (error) {
+          SmartLogger.log('STATE.RESTORATION', 'Error extracting profile ID', { error: error.message });
+          // Don't fail restoration just because of profile ID extraction
+          // The function might be temporarily unavailable
+        }
+        
+        if (!profileId) {
+          SmartLogger.log('STATE.RESTORATION', 'No profile ID available for state restoration');
+          // Don't return false here - let restoration continue without profile ID
+          // Some operations might still work
+        }
+      }
+      
+      // Set restoration flag to prevent duplicates
+      this.isRestoringState = true;
+
+      // Get compliance, settings and cached data in parallel with individual error handling
+      let compliance = null;
+      let settings = null;
+      let cachedData = null;
+      
+      try {
+        [compliance, settings, cachedData] = await Promise.all([
+          this.getCompliance().catch(err => {
+            SmartLogger.log('STATE.RESTORATION', 'Failed to get compliance', err);
+            return null;
+          }),
+          this.getSettings().catch(err => {
+            SmartLogger.log('STATE.RESTORATION', 'Failed to get settings', err);
+            return {};
+          }),
+          this.getCachedData(profileId).catch(err => {
+            SmartLogger.log('STATE.RESTORATION', 'Failed to get cached data', err);
+            return null;
+          })
+        ]);
+      } catch (promiseError) {
+        SmartLogger.log('STATE.RESTORATION', 'Promise.all failed', promiseError);
+        // Continue with null values
+      }
+      
+      SmartLogger.log('STATE.RESTORATION', 'Data loaded', {
+        profileId,
+        hasCache: !!cachedData,
+        hasCompliance: !!compliance?.hasAcknowledged
+      });
+      
+      // Determine appropriate state
+      const stateInfo = this.determineStateFromData(cachedData, settings, compliance, context) || 
+                        { state: this.states.EMPTY_CACHE, data: null };
+      
+      const { state, data } = stateInfo;
+
+      // Set the determined state
+      this.setState(state, data);
+      
+      SmartLogger.log('STATE.RESTORATION', 'Restoration complete', {
+        state: state,
+        profileId: profileId
+      });
+      
+      // Update last restored profile and clear restoration flag
+      this.lastRestoredProfile = profileId;
+      this.isRestoringState = false;
+
+      return true;
+
+    } catch (error) {
+      // Create a proper error object if needed
+      const errorObj = error instanceof Error ? error : 
+        new Error(typeof error === 'string' ? error : 'Unknown restoration error');
+      
+      SmartLogger.error('STATE.RESTORATION', 'Restoration failed', errorObj, {
+        profileId: profileId,
+        currentState: this.currentState
+      });
+      
+      // Only fallback to empty cache if we're not already in a good state
+      // Don't overwrite COMPLETE state with EMPTY_CACHE
+      if (this.currentState !== this.states.COMPLETE && 
+          this.currentState !== this.states.AI_ANALYZING &&
+          this.currentState !== this.states.ANALYZING) {
+        try {
+          this.setState(this.states.EMPTY_CACHE);
+        } catch (fallbackError) {
+          const fallbackErrorObj = fallbackError instanceof Error ? fallbackError : 
+            new Error(typeof fallbackError === 'string' ? fallbackError : 'Fallback state setting failed');
+          SmartLogger.error('STATE.RESTORATION', 'Fallback state setting failed', fallbackErrorObj, {
+            profileId: profileId
+          });
+        }
+      } else {
+        SmartLogger.log('STATE.RESTORATION', 'Keeping current state - already in valid state', {
+          currentState: this.currentState
+        });
+      }
+      
+      // Clear restoration flag on error
+      this.isRestoringState = false;
+      
+      return false;
     }
   }
 };

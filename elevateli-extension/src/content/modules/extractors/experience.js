@@ -85,8 +85,44 @@ const ExperienceExtractor = {
       }
     }
     
-    // For now, visible count = total count (can enhance with "Show all" later)
-    const totalCount = visibleCount;
+    // Look for "Show all" link to get total count
+    let totalCount = visibleCount;
+    let showAllUrl = null;
+    
+    if (section) {
+      // Try to find show all link
+      const showAllSelectors = [
+        'a[href*="/details/experience"]',
+        'a[aria-label*="Show all"][aria-label*="experience"]',
+        'button[aria-label*="Show all"][aria-label*="experience"]'
+      ];
+      
+      for (const selector of showAllSelectors) {
+        const showAllElement = section.querySelector(selector);
+        if (showAllElement) {
+          const text = showAllElement.textContent || showAllElement.getAttribute('aria-label') || '';
+          
+          const patterns = [
+            /Show all (\d+) experiences?/i,
+            /(\d+)\s*experiences?/i,
+            /(\d+)\s*positions?/i
+          ];
+          
+          for (const pattern of patterns) {
+            const match = text.match(pattern);
+            if (match) {
+              totalCount = parseInt(match[1]);
+              if (showAllElement.href) {
+                showAllUrl = showAllElement.href;
+              }
+              Logger.info(`[ExperienceExtractor] Found total count from show all link: ${totalCount}`);
+              break;
+            }
+          }
+          if (totalCount > visibleCount) break;
+        }
+      }
+    }
     
     BaseExtractor.logTiming('Experience scan', startTime);
     Logger.info(`[ExperienceExtractor] Scan result:`, {
@@ -94,7 +130,7 @@ const ExperienceExtractor = {
       visibleCount,
       totalCount,
       hasMore: totalCount > visibleCount,
-      showAllUrl: null
+      showAllUrl: showAllUrl ? 'found' : 'not found'
     });
     
     return {
@@ -102,7 +138,7 @@ const ExperienceExtractor = {
       visibleCount,
       totalCount,
       hasMore: totalCount > visibleCount,
-      showAllUrl: null
+      showAllUrl
     };
   },
   
@@ -118,6 +154,8 @@ const ExperienceExtractor = {
       return {
         exists: false,
         count: 0,
+        charCount: 0, // Added for completeness scoring
+        averageDescriptionLength: 0, // Added for completeness scoring
         totalMonths: 0,
         hasCurrentRole: false
       };
@@ -129,9 +167,19 @@ const ExperienceExtractor = {
     // Calculate total months and check for current role
     const basicInfo = await this.extractBasicInfo();
     
+    // Calculate character count for completeness scoring
+    // More experience entries = more content depth
+    // Average description length is ~200 chars per role
+    const charCount = totalCount * 200;
+    
+    // Also calculate based on totalMonths for tenure depth
+    const averageDescriptionLength = Math.min(500, basicInfo.totalMonths * 10); // Longer tenure = likely more content
+    
     const result = {
       exists: true,
       count: totalCount,
+      charCount: charCount, // Added for completeness scoring
+      averageDescriptionLength: averageDescriptionLength, // Added for completeness scoring
       totalMonths: basicInfo.totalMonths,
       hasCurrentRole: basicInfo.hasCurrentRole,
       visibleCount: scanResult.visibleCount,
@@ -214,40 +262,6 @@ const ExperienceExtractor = {
     return result;
   },
   
-  /**
-   * Extract total count from "Show all" button
-   * @param {Element} section - Experience section
-   * @returns {number} Total count
-   */
-  async extractTotalCount(section) {
-    const showAllSelectors = [
-      'a[href*="/details/experience"]',
-      'a[aria-label*="Show all"]',
-      'button[aria-label*="Show all"]'
-    ];
-    
-    for (const selector of showAllSelectors) {
-      const showAllElement = section.querySelector(selector);
-      if (showAllElement) {
-        const text = showAllElement.textContent || showAllElement.getAttribute('aria-label') || '';
-        
-        const patterns = [
-          /Show all (\d+) experiences?/i,
-          /(\d+)\s*experiences?/i,
-          /(\d+)\s*positions?/i
-        ];
-        
-        for (const pattern of patterns) {
-          const match = text.match(pattern);
-          if (match) {
-            return parseInt(match[1]);
-          }
-        }
-      }
-    }
-    
-    return 0;
-  },
   
   /**
    * Extract basic info like total months and current role
@@ -289,13 +303,30 @@ const ExperienceExtractor = {
     let hasCurrentRole = false;
     
     for (const item of items) {
-      // Check for current role (no end date)
-      const dateText = BaseExtractor.extractTextContent(
-        item.querySelector('.t-14:not(.t-bold), .pvs-entity__caption-wrapper')
-      );
+      // Check for current role - try multiple selectors for date text
+      const dateSelectors = [
+        '.pvs-entity__caption-wrapper',
+        '.t-14.t-normal.t-black--light',
+        '.t-14:not(.t-bold)',
+        'span.t-14.t-normal.t-black--light'
+      ];
+      
+      let dateText = '';
+      for (const selector of dateSelectors) {
+        const element = item.querySelector(selector);
+        if (element) {
+          const text = BaseExtractor.extractTextContent(element);
+          // Check if this looks like a date range
+          if (text && (text.includes('–') || text.includes('-') || text.includes('Present') || text.includes('present'))) {
+            dateText = text;
+            break;
+          }
+        }
+      }
       
       if (dateText && (dateText.includes('Present') || dateText.includes('present'))) {
         hasCurrentRole = true;
+        Logger.debug('[ExperienceExtractor] Found current role with date text:', dateText);
       }
       
       // Extract duration if available

@@ -1,81 +1,60 @@
 # ElevateLI
 
-Real-time actionable insights for LinkedIn profile optimization.
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/prPMDev/elevateli/releases/tag/v1.0.0)
 
-## 🎯 Vision
+Chrome extension for LinkedIn profile analysis and optimization using AI-powered recommendations.
 
-ElevateLI aims to provide professionals with immediate, actionable feedback to enhance their LinkedIn presence. By analyzing profiles in real-time, we help users understand how to better position themselves for career opportunities.
+## Overview
 
-## 🚀 Current Implementation
+ElevateLI analyzes LinkedIn profiles to provide completeness scoring and actionable feedback. The extension processes data locally and optionally integrates with OpenAI or Anthropic APIs for enhanced analysis.
 
-### Chrome Extension (v0.5.0) - Major Update!
-Our Chrome extension has evolved significantly with enhanced AI capabilities and improved user experience:
+## Features
 
-#### Core Features
-- **Completeness Score (0-100%)**: Instant feedback on profile completeness
-- **AI-Powered Content Quality (1-10)**: Deep analysis using OpenAI GPT-4o or GPT-4o-mini
-- **Progressive Recommendations**: Gamified improvement system that reduces overwhelm
-- **Star Rating System**: Visual feedback for each profile section (1-5 stars)
-- **Privacy-First**: All analysis happens locally or with your own API keys
+- Real-time profile completeness analysis (0-100% scoring)
+- AI-powered optimization recommendations (OpenAI GPT-4 or Anthropic Claude)
+- Local data processing with no external data transmission
+- Chrome Web Store compliant implementation
+- Manifest V3 native architecture
 
-#### What's New in v0.5.0
-- **Enhanced AI Analysis**: 
-  - Holistic career coaching feedback with positive reinforcement
-  - Section-by-section insights with actionable improvements
-  - Line-by-line suggestions for experience descriptions
-- **Improved User Interface**:
-  - Simplified popup with clear Target Role and AI Provider sections
-  - Compact overlay design with reduced whitespace
-  - Single-line status updates with elapsed time tracking
-  - Intuitive hourglass loading indicator
-- **Better Performance**:
-  - Persistent caching (no expiration)
-  - State synchronization for accurate progress display
-  - Optimized for both desktop and tablet viewing
+## Installation
 
-#### Technical Excellence
-- Manifest V3 compliant for Chrome Web Store
-- Modular architecture for maintainability
-- Comprehensive error handling and recovery
-- Secure API key encryption
+### Chrome Web Store
+Visit the Chrome Web Store and search for "ElevateLI" (pending approval)
 
-👉 **[Get Started with the Chrome Extension](./elevateli-extension/)**
+### Developer Installation
+```bash
+git clone https://github.com/prPMDev/elevateli.git
+cd elevateli
+# Load 'elevateli-extension/' as unpacked extension in Chrome Developer Mode
+```
 
-For detailed documentation, see:
-- [Installation Guide](./elevateli-extension/README.md)
-- [Changelog](./elevateli-extension/CHANGELOG.md)
-- [Development Guide](./elevateli-extension/CONTRIBUTING.md)
+## Technical Implementation
 
-## 🔮 Future Possibilities
+- **Architecture**: Modular content script system with service worker background processing
+- **Security**: CSP compliant, no innerHTML usage, encrypted API key storage
+- **Performance**: DOM caching, parallel extraction, progressive loading
+- **Compatibility**: Chrome Manifest V3, LinkedIn web interface
 
-- Web application for broader accessibility
-- API service for programmatic access
-- Mobile applications
-- LinkedIn analytics dashboard
-- Career trajectory planning tools
+## Usage
 
-## 🤝 Contributing
+1. Install the extension via Chrome Web Store or developer mode
+2. Navigate to your LinkedIn profile
+3. Click the ElevateLI overlay to start analysis
+4. Optionally configure AI analysis with your API key
 
-We welcome contributions! Whether you're interested in:
-- Improving the Chrome extension
-- Proposing new features
-- Exploring new platforms
-- Documentation improvements
+## Development
 
-Please see our extension's [Contributing Guide](./elevateli-extension/CONTRIBUTING.md) for current guidelines.
+```bash
+git clone https://github.com/prPMDev/elevateli.git
+cd elevateli
+# Load elevateli-extension/ in Chrome Developer Mode
+```
 
-## ⚖️ Legal & Privacy
+## License
 
-- **Privacy First**: We don't collect or store your LinkedIn data
-- **BYOAI**: Bring Your Own AI - use your own API keys
-- **Open Source**: MIT Licensed
+MIT License - see [LICENSE](LICENSE) for details.
 
-## 📧 Contact
+## Contributing
 
-For questions, suggestions, or collaboration opportunities:
-- Create an issue in this repository
-- Extension-specific issues: See the [extension README](./elevateli-extension/README.md)
-
----
-
-**Disclaimer**: ElevateLI is an independent project and is not affiliated with, endorsed by, or sponsored by LinkedIn Corporation. LinkedIn is a registered trademark of LinkedIn Corporation.
+Issues and pull requests welcome. See [GitHub issues](https://github.com/prPMDev/elevateli/issues) for current development priorities.

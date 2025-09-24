@@ -1,28 +1,67 @@
-# ElevateLI Project Changelog
+# Changelog
 
-## Project Evolution
+All notable changes to ElevateLI will be documented in this file.
 
-### Late June 2025 - Project Inception
-- Started as a concept for LinkedIn profile optimization
-- Initial focus on automated profile analysis
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### Early July 2025 - Chrome Extension Pivot
-- Pivoted from standalone tool to Chrome Extension
-- Published on GitHub as open source project
-- Shifted from closed-source to open-source development
+## [1.0.0] - 2025-09-23
 
-### July 2025 - Democratization & Privacy Focus
-- Major philosophical pivot: "Bring Your Own AI" (BYOAI) approach
-- Empowering users to analyze their own LinkedIn data using their own API keys
-- Core principle: User data never leaves their browser
-- No third-party data collection or analysis
+### Added
+- Chrome Web Store compliance implementation
+- Manifest V3 native architecture
+- Security-hardened DOM manipulation (zero innerHTML usage)
+- Content Security Policy compliance
+- Encrypted API key storage using Web Crypto API
+- Professional error handling and recovery mechanisms
+- DOM caching for improved performance
+- Open source release with MIT license
 
-### Current State
-- Chrome Extension for LinkedIn profile optimization
-- Users provide their own OpenAI/Anthropic API keys
-- Complete privacy: all analysis happens locally
-- Open source: Community-driven development
+### Changed
+- Complete removal of innerHTML for Chrome Web Store approval
+- Enhanced AI prompt engineering for better recommendations
+- Improved profile extraction reliability
+- Optimized bundle size and performance metrics
+- Professional code documentation and structure
 
-## Version History
+### Fixed
+- Profile ownership detection across LinkedIn UI variations
+- Cache restoration race conditions
+- Extension context validation for reliability
+- Skills extraction consistency between scan and extract phases
+- AI response format validation
 
-For detailed technical changes, see [elevateli-extension/CHANGELOG.md](elevateli-extension/CHANGELOG.md)
+### Security
+- Implemented CSP compliance for extension security
+- Added input validation and sanitization
+- Removed all console.log statements from production build
+- Enhanced Chrome API availability checks
+- Secure message passing between content script and service worker
+
+## [0.5.0] - 2025-08-05
+
+### Added
+- Enhanced AI Analysis and UI Improvements
+- Real-time profile completeness scoring
+- AI-powered content quality analysis
+- Progressive recommendation system
+
+### Changed
+- Improved user interface design
+- Enhanced LinkedIn DOM pattern recognition
+- Optimized analysis performance
+
+### Fixed
+- LinkedIn selector compatibility issues
+- Storage persistence problems
+- Cache synchronization improvements
+
+## [0.4.0] - 2025-07-20
+
+### Added
+- Initial profile completeness analysis
+- Basic LinkedIn profile extraction
+- Local data storage and caching
+- Basic overlay interface
+- Manifest V3 foundation
+- Modular architecture setup

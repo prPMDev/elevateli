@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to ElevateLI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+            line-height: 1.4;
+            color: rgba(0, 0, 0, 0.9);
+            background: #f3f2ef;
+        }
+        
+        .header {
+            background: white;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            padding: 16px 0;
+        }
+        
+        .header-content {
+            max-width: 1024px;
+            margin: 0 auto;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .logo {
+            width: 40px;
+            height: 40px;
+        }
+        
+        .header-text h1 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #0a66c2;
+        }
+        
+        .version-badge {
+            background: #0a66c2;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        
+        .main-content {
+            max-width: 1024px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        
+        .hero-section {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 16px;
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+        }
+        
+        .hero-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+        
+        .hero-text {
+            flex: 1;
+        }
+        
+        .hero-title {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: rgba(0, 0, 0, 0.9);
+        }
+        
+        .hero-subtitle {
+            font-size: 16px;
+            color: rgba(0, 0, 0, 0.6);
+        }
+        
+        .ai-highlight {
+            background: #fff3cd;
+            border: 1px solid #ffeeba;
+            border-radius: 6px;
+            padding: 12px 16px;
+            max-width: 280px;
+            font-size: 13px;
+        }
+        
+        .ai-highlight strong {
+            display: block;
+            margin-bottom: 4px;
+            color: #856404;
+        }
+        
+        .value-props {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+        
+        .value-prop {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        
+        .value-icon {
+            flex-shrink: 0;
+            width: 32px;
+            height: 32px;
+            background: #e7f3ff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #0a66c2;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .value-text strong {
+            display: block;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+        
+        .value-text span {
+            color: rgba(0, 0, 0, 0.6);
+            font-size: 13px;
+            line-height: 1.3;
+        }
+        
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        
+        .section-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+        }
+        
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: rgba(0, 0, 0, 0.9);
+        }
+        
+        .steps {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .step {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        
+        .step-number {
+            flex-shrink: 0;
+            width: 24px;
+            height: 24px;
+            background: #e7f3ff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: #0a66c2;
+            font-size: 12px;
+        }
+        
+        .step-text {
+            font-size: 13px;
+            color: rgba(0, 0, 0, 0.7);
+        }
+        
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: rgba(0, 0, 0, 0.7);
+        }
+        
+        .check {
+            color: #057642;
+            font-weight: bold;
+        }
+        
+        .ai-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+            border-left: 4px solid #ffc107;
+        }
+        
+        .ai-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+        
+        .ai-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: rgba(0, 0, 0, 0.9);
+        }
+        
+        .ai-badge {
+            background: #fff3cd;
+            color: #856404;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .ai-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .ai-info {
+            font-size: 13px;
+            color: rgba(0, 0, 0, 0.7);
+            line-height: 1.5;
+        }
+        
+        .ai-providers {
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        
+        .ai-link {
+            color: #0a66c2;
+            text-decoration: none;
+        }
+        
+        .ai-link:hover {
+            text-decoration: underline;
+        }
+        
+        .cta-footer {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        
+        .privacy-note {
+            font-size: 13px;
+            color: rgba(0, 0, 0, 0.6);
+            flex: 1;
+        }
+        
+        .cta-button {
+            background: #0a66c2;
+            color: white;
+            padding: 10px 24px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+            border: none;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        
+        .cta-button:hover {
+            background: #084a87;
+            transform: translateY(-1px);
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 16px;
+            font-size: 13px;
+        }
+        
+        .footer a {
+            color: #0a66c2;
+            text-decoration: none;
+            margin: 0 12px;
+        }
+        
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        
+        @media (max-width: 768px) {
+            .hero-header {
+                flex-direction: column;
+                gap: 16px;
+            }
+            
+            .ai-highlight {
+                max-width: 100%;
+            }
+            
+            .value-props {
+                grid-template-columns: 1fr;
+                gap: 16px;
+            }
+            
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+            
+            .ai-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .cta-footer {
+                flex-direction: column;
+                gap: 16px;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="header-left">
+                <img src="src/images/icon48.png" alt="ElevateLI" class="logo">
+                <div class="header-text">
+                    <h1>ElevateLI</h1>
+                </div>
+            </div>
+            <span class="version-badge">Version 1.0</span>
+        </div>
+    </header>
+    
+    <main class="main-content">
+        <div class="hero-section">
+            <div class="hero-header">
+                <div class="hero-text">
+                    <h2 class="hero-title">Your LinkedIn Profile, Optimized</h2>
+                    <p class="hero-subtitle">Instant completeness scoring. See what's missing, right away!</p>
+                </div>
+                <div class="ai-highlight">
+                    <strong>🎯 Want personalized advice?</strong>
+                    Plug in your own AI for private personalized advice!
+                </div>
+            </div>
+            
+            <div class="value-props">
+                <div class="value-prop">
+                    <div class="value-icon">🔒</div>
+                    <div class="value-text">
+                        <strong>100% Private</strong>
+                        <span>All processing in your browser</span>
+                    </div>
+                </div>
+                
+                <div class="value-prop">
+                    <div class="value-icon">🤖</div>
+                    <div class="value-text">
+                        <strong>Use Your Own AI</strong>
+                        <span>Your API key, your control</span>
+                    </div>
+                </div>
+                
+                <div class="value-prop">
+                    <div class="value-icon">📋</div>
+                    <div class="value-text">
+                        <strong>No Copy-Paste Needed</strong>
+                        <span>Direct analysis on LinkedIn</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="two-column">
+            <div class="section-card">
+                <h3 class="section-title">Quick Start</h3>
+                <div class="steps">
+                    <div class="step">
+                        <div class="step-number">1</div>
+                        <div class="step-text">Visit any LinkedIn profile</div>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">2</div>
+                        <div class="step-text">Click the blue ElevateLI banner</div>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">3</div>
+                        <div class="step-text">Review your completeness score</div>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">4</div>
+                        <div class="step-text">Fix red sections first (biggest impact)</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section-card">
+                <h3 class="section-title">Core Features</h3>
+                <div class="feature-list">
+                    <div class="feature-item">
+                        <span class="check">✓</span>
+                        <span>Real-time completeness %</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="check">✓</span>
+                        <span>Section-by-section breakdown</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="check">✓</span>
+                        <span>Works on any profile</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="check">✓</span>
+                        <span>Dark mode support</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="check">✓</span>
+                        <span>Zero data collection</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="ai-section">
+            <div class="ai-header">
+                <h3 class="ai-title">AI-Powered Recommendations</h3>
+                <span class="ai-badge">Optional</span>
+            </div>
+            <div class="ai-content">
+                <div class="ai-info">
+                    <strong>Use YOUR OWN API key to unlock:</strong>
+                    <ul style="margin: 8px 0 0 20px; padding: 0;">
+                        <li>Role-specific content suggestions</li>
+                        <li>Industry-tailored keywords</li>
+                        <li>Personalized improvement tips</li>
+                        <li>Content quality scoring (1-10)</li>
+                    </ul>
+                </div>
+                <div class="ai-providers">
+                    <strong>AI Integration:</strong><br>
+                    ✓ Compatible with major AI providers<br>
+                    ✓ Use your own API credentials<br>
+                    ✓ Direct provider connection<br>
+                    ✓ You control your usage<br><br>
+                    <em style="color: #666; font-size: 12px;">All API costs are charged directly by your chosen provider</em>
+                </div>
+            </div>
+        </div>
+        
+        <div class="cta-footer">
+            <p class="privacy-note">
+                <strong>100% Private.</strong> All analysis happens in your browser. We never see your data.
+            </p>
+        </div>
+    </main>
+    
+    <footer class="footer">
+        <a href="privacy-terms.html#privacy">Privacy Policy</a>
+        <a href="privacy-terms.html#terms">Terms of Service</a>
+        <a href="https://github.com/prPMDev/elevateli/issues" target="_blank">Contact & Support</a>
+    </footer>
+</body>
+</html>

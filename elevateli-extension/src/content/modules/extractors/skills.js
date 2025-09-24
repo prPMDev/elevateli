@@ -32,22 +32,18 @@ const SkillsExtractor = {
     'div.pvs-entity',
     'li.pvs-list__item--line-separated'
   ],
-  
+
   /**
-   * Quick scan for skills section existence
-   * @returns {Object} Scan results
+   * Unified skills section finder using proven custom logic
+   * Extracted from working scan() implementation for consistency between scan() and extract()
+   * @returns {Element|null} Skills section element with actual skill data
    */
-  async scan() {
-    const startTime = Date.now();
-    
-    Logger.info('[SkillsExtractor] Starting scan v3 - CUSTOM SECTION FINDER');
-    
+  findSkillsSection() {
     // Custom section finding for skills - look for anchor and get the right sibling
     const anchor = document.querySelector('div#skills.pv-profile-card__anchor');
-    let section = null;
     
     if (anchor) {
-      Logger.info('[SkillsExtractor] Found skills anchor, checking siblings');
+      Logger.debug('[SkillsExtractor] Found skills anchor, checking siblings');
       let sibling = anchor.nextElementSibling;
       let siblingIndex = 0;
       
@@ -55,13 +51,12 @@ const SkillsExtractor = {
         const skillLinks = sibling.querySelectorAll('[data-field="skill_card_skill_topic"]');
         const showAllLink = sibling.querySelector('a[href*="/details/skills"]');
         
-        Logger.info(`[SkillsExtractor] Sibling ${siblingIndex}: ${skillLinks.length} skill links, showAll: ${!!showAllLink}`);
+        Logger.debug(`[SkillsExtractor] Sibling ${siblingIndex}: ${skillLinks.length} skill links, showAll: ${!!showAllLink}`);
         
         // We want the sibling with actual skill items
         if (skillLinks.length > 0) {
-          section = sibling;
-          Logger.info(`[SkillsExtractor] Found skills section at sibling ${siblingIndex} with ${skillLinks.length} skills`);
-          break;
+          Logger.debug(`[SkillsExtractor] Unified finder: Found skills section at sibling ${siblingIndex} with ${skillLinks.length} skills`);
+          return sibling;
         }
         
         sibling = sibling.nextElementSibling;
@@ -70,10 +65,21 @@ const SkillsExtractor = {
     }
     
     // Fallback to BaseExtractor if custom method fails
-    if (!section) {
-      Logger.info('[SkillsExtractor] Custom section finder failed, using BaseExtractor');
-      section = BaseExtractor.findSection(this.selectors, 'Skills');
-    }
+    Logger.info('[SkillsExtractor] Custom section finder failed, using BaseExtractor fallback');
+    return BaseExtractor.findSection(this.selectors, 'Skills');
+  },
+  
+  /**
+   * Quick scan for skills section existence
+   * @returns {Object} Scan results
+   */
+  async scan() {
+    const startTime = Date.now();
+    
+    Logger.info('[SkillsExtractor] Starting scan v4 - UNIFIED SECTION FINDER');
+    
+    // Use unified section finder (same logic as extract() will use)
+    const section = this.findSkillsSection();
     
     const exists = !!section;
     
@@ -90,7 +96,7 @@ const SkillsExtractor = {
     if (exists) {
       // Debug: log the section HTML structure
       Logger.info('[SkillsExtractor] Section EXISTS, checking for skill items');
-      Logger.info('[SkillsExtractor] Section HTML preview (first 500 chars):', section.innerHTML.substring(0, 500).replace(/\s+/g, ' '));
+      Logger.info('[SkillsExtractor] Section found, checking structure');
       
       // Check section structure
       const sectionId = section.getAttribute('id');
@@ -146,8 +152,7 @@ const SkillsExtractor = {
         Logger.info('[SkillsExtractor] No items found with standard selectors, trying broader search');
         
         // Log the section structure for debugging
-        const sectionHTML = section.innerHTML.substring(0, 1000);
-        Logger.info('[SkillsExtractor] Section HTML preview:', sectionHTML);
+        Logger.info('[SkillsExtractor] Section structure analysis in progress');
         
         // Try finding any list items
         const allListItems = section.querySelectorAll('li');
@@ -256,11 +261,20 @@ const SkillsExtractor = {
       return {
         exists: false,
         count: 0,
+        charCount: 0, // Added for completeness scoring
         skills: []
       };
     }
     
-    const section = BaseExtractor.findSection(this.selectors, 'Skills');
+    // Use unified section finder (same logic as scan() uses)
+    const section = this.findSkillsSection();
+    
+    // Add validation logging to verify section consistency
+    Logger.info('[SkillsExtractor] Extract using unified section finder:', {
+      sectionFound: !!section,
+      sectionType: section?.tagName || 'none',
+      skillLinksFound: section ? section.querySelectorAll('[data-field="skill_card_skill_topic"]').length : 0
+    });
     
     // Use totalCount from scan (already extracted from "Show all")
     const totalCount = scanResult.totalCount || scanResult.visibleCount;
@@ -268,9 +282,14 @@ const SkillsExtractor = {
     // Extract visible skills for basic data
     const visibleSkills = await this.extractVisibleSkills(section);
     
+    // Calculate character count for completeness scoring
+    // Each skill contributes to content depth
+    const charCount = totalCount * 30; // Average skill name length * count
+    
     const result = {
       exists: true,
       count: totalCount,
+      charCount: charCount, // Added for completeness scoring
       visibleCount: scanResult.visibleCount,
       hasMoreSkills: totalCount > scanResult.visibleCount,
       skills: visibleSkills.slice(0, 5), // Just top 5 for basic extraction
@@ -293,7 +312,8 @@ const SkillsExtractor = {
     
     if (!basicData.exists) return basicData;
     
-    const section = BaseExtractor.findSection(this.selectors, 'Skills');
+    // Use unified section finder (same logic as scan() and extract() use)
+    const section = this.findSkillsSection();
     
     // Expand section if needed
     if (basicData.hasMoreSkills) {
@@ -307,27 +327,41 @@ const SkillsExtractor = {
     // Extract all skills after expansion
     const allSkills = await this.extractAllSkills(section);
     
+    // Add visibility tier information
+    const skillsWithTiers = allSkills.map((skill, index) => ({
+      ...skill,
+      visibilityTier: index < 3 ? 'top3' : 
+                      index < basicData.visibleCount ? 'visible' : 
+                      'expanded',
+      requiresExpansion: index >= basicData.visibleCount
+    }));
+    
     const result = {
       ...basicData,
       count: allSkills.length,
-      skills: allSkills,
+      skills: skillsWithTiers,
       
       // Analysis features
-      skillsByCategory: this.categorizeSkills(allSkills),
-      topEndorsedSkills: this.getTopEndorsedSkills(allSkills),
-      skillKeywords: this.extractSkillKeywords(allSkills),
-      technicalSkills: allSkills.filter(s => this.isTechnicalSkill(s.name)),
-      softSkills: allSkills.filter(s => this.isSoftSkill(s.name)),
+      skillsByCategory: this.categorizeSkills(skillsWithTiers),
+      topEndorsedSkills: this.getTopEndorsedSkills(skillsWithTiers),
+      skillKeywords: this.extractSkillKeywords(skillsWithTiers),
+      technicalSkills: skillsWithTiers.filter(s => this.isTechnicalSkill(s.name)),
+      softSkills: skillsWithTiers.filter(s => this.isSoftSkill(s.name)),
       
       // Metrics
-      totalEndorsements: allSkills.reduce((sum, s) => sum + s.endorsementCount, 0),
-      averageEndorsements: allSkills.length > 0 
-        ? Math.round(allSkills.reduce((sum, s) => sum + s.endorsementCount, 0) / allSkills.length)
+      totalEndorsements: skillsWithTiers.reduce((sum, s) => sum + s.endorsementCount, 0),
+      averageEndorsements: skillsWithTiers.length > 0 
+        ? Math.round(skillsWithTiers.reduce((sum, s) => sum + s.endorsementCount, 0) / skillsWithTiers.length)
         : 0,
-      endorsedSkillsCount: allSkills.filter(s => s.endorsementCount > 0).length,
+      endorsedSkillsCount: skillsWithTiers.filter(s => s.endorsementCount > 0).length,
+      
+      // Visibility metrics
+      top3Skills: skillsWithTiers.filter(s => s.visibilityTier === 'top3'),
+      visibleSkillsCount: basicData.visibleCount,
+      expandedSkillsCount: skillsWithTiers.filter(s => s.requiresExpansion).length,
       
       // For AI processing
-      skillGroups: this.groupSkillsForAI(allSkills)
+      skillGroups: this.groupSkillsForAI(skillsWithTiers)
     };
     
     Logger.info(`[SkillsExtractor] Deep extraction completed in ${Date.now() - startTime}ms`, {
@@ -402,21 +436,38 @@ const SkillsExtractor = {
       }
     }
     
-    // Extract skill data from elements
-    for (const element of skillElements) {
+    // Extract skill data from elements with position tracking
+    for (let i = 0; i < skillElements.length; i++) {
+      const element = skillElements[i];
+      
       if (element.tagName === 'A' && element.hasAttribute('data-field')) {
-        // Direct skill link
-        const skillName = element.querySelector('span[aria-hidden="true"]')?.textContent?.trim();
-        if (skillName) {
-          skills.push({
-            name: skillName,
-            endorsementCount: 0,
-            hasEndorsements: false
-          });
+        // Direct skill link - find parent li for full context
+        const parentLi = element.closest('li.artdeco-list__item, li');
+        if (parentLi) {
+          const skill = await this.extractSkillItem(parentLi, i);
+          if (skill.name) {
+            skills.push(skill);
+          }
+        } else {
+          // Fallback for direct link without parent
+          const skillName = element.querySelector('span[aria-hidden="true"]')?.textContent?.trim();
+          if (skillName) {
+            skills.push({
+              name: skillName,
+              position: i + 1,
+              endorsementCount: 0,
+              hasEndorsements: false,
+              endorsementRecency: null,
+              experienceContext: null,
+              educationContext: [],
+              hasDetails: false,
+              detailsCount: 0
+            });
+          }
         }
       } else {
         // Li element containing skill
-        const skill = await this.extractSkillItem(element);
+        const skill = await this.extractSkillItem(element, i);
         if (skill.name) {
           skills.push(skill);
         }
@@ -443,8 +494,9 @@ const SkillsExtractor = {
     
     Logger.debug(`[SkillsExtractor] Found ${skillElements.length} skill elements after expansion`);
     
-    for (const element of skillElements) {
-      const skill = await this.extractSkillItem(element);
+    for (let i = 0; i < skillElements.length; i++) {
+      const element = skillElements[i];
+      const skill = await this.extractSkillItem(element, i);
       if (skill.name) {
         skills.push(skill);
       }
@@ -456,13 +508,20 @@ const SkillsExtractor = {
   /**
    * Extract single skill item
    * @param {Element} element - Skill element
+   * @param {number} index - Skill position in the list
    * @returns {Object} Skill data
    */
-  async extractSkillItem(element) {
+  async extractSkillItem(element, index = 0) {
     const skill = {
       name: '',
+      position: index + 1, // 1-based position
       endorsementCount: 0,
-      hasEndorsements: false
+      hasEndorsements: false,
+      endorsementRecency: null,
+      experienceContext: null,
+      educationContext: [],
+      hasDetails: false,
+      detailsCount: 0
     };
     
     // Extract skill name
@@ -482,7 +541,68 @@ const SkillsExtractor = {
       }
     }
     
-    // Extract endorsement count
+    // Extract sub-components for rich context
+    const subComponents = element.querySelector('.pvs-entity__sub-components');
+    if (subComponents) {
+      Logger.debug(`[SkillsExtractor] Found sub-components for skill: ${skill.name}`);
+      
+      // Look for all list items in sub-components
+      const subItems = subComponents.querySelectorAll('li');
+      
+      subItems.forEach(item => {
+        const itemText = BaseExtractor.extractTextContent(item);
+        
+        // Check for endorsement recency (e.g., "Endorsed by 1 person in the last 6 months")
+        if (itemText.includes('Endorsed by') && itemText.includes('in the last')) {
+          skill.endorsementRecency = itemText.trim();
+          
+          // Extract the endorsement count from the recency text
+          const endorsementMatch = itemText.match(/Endorsed by (\d+) (?:person|people)/i);
+          if (endorsementMatch) {
+            skill.endorsementCount = parseInt(endorsementMatch[1]);
+            skill.hasEndorsements = true;
+            Logger.debug(`[SkillsExtractor] Found endorsement recency with count: ${skill.endorsementCount} - ${skill.endorsementRecency}`);
+          } else {
+            Logger.debug(`[SkillsExtractor] Found endorsement recency: ${skill.endorsementRecency}`);
+          }
+        }
+        
+        // Check for experience context (e.g., "7 experiences across Avalara and 6 other companies")
+        if (itemText.includes('experiences across')) {
+          const experienceMatch = itemText.match(/(\d+)\s+experiences?\s+across\s+([^and]+?)(?:\s+and\s+(\d+)\s+other\s+compan(?:y|ies))?/i);
+          if (experienceMatch) {
+            skill.experienceContext = {
+              text: itemText.trim(),
+              totalExperiences: parseInt(experienceMatch[1]),
+              primaryCompany: experienceMatch[2].trim(),
+              otherCompaniesCount: experienceMatch[3] ? parseInt(experienceMatch[3]) : 0
+            };
+            Logger.debug(`[SkillsExtractor] Found experience context:`, skill.experienceContext);
+          }
+        }
+        
+        // Check for education context (institution names)
+        if (item.querySelector('img[alt="Company logo"]') && !itemText.includes('experiences')) {
+          const educationName = itemText.trim();
+          if (educationName && !educationName.includes('Show all')) {
+            skill.educationContext.push(educationName);
+            Logger.debug(`[SkillsExtractor] Found education context: ${educationName}`);
+          }
+        }
+        
+        // Check for "Show all X details" link
+        if (itemText.includes('Show all') && itemText.includes('details')) {
+          skill.hasDetails = true;
+          const detailsMatch = itemText.match(/Show all (\d+) details/);
+          if (detailsMatch) {
+            skill.detailsCount = parseInt(detailsMatch[1]);
+          }
+          Logger.debug(`[SkillsExtractor] Skill has ${skill.detailsCount} expandable details`);
+        }
+      });
+    }
+    
+    // Extract endorsement count (existing logic)
     const endorsementEl = element.querySelector('.pv-skill-entity__endorsement-count');
     if (endorsementEl) {
       const text = endorsementEl.textContent || '';

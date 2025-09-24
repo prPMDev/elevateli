@@ -97,8 +97,12 @@ const AboutExtractor = {
           .join(' ');
         
         if (text.length > 0) {
-          Logger.debug(`[AboutExtractor] Found text with selector: ${selector}`);
-          break;
+          // Clean the text to remove UI elements
+          text = this.cleanAboutText(text);
+          if (text.length > 0) {
+            Logger.debug(`[AboutExtractor] Found text with selector: ${selector}`);
+            break;
+          }
         }
       }
     }
@@ -108,27 +112,28 @@ const AboutExtractor = {
       const container = section.querySelector('.pvs-list__outer-container, .pv-about__summary-text');
       if (container) {
         text = BaseExtractor.extractTextContent(container);
+        // Clean the extracted text
+        text = this.cleanAboutText(text);
       }
     }
     
     // Strategy 3: Last resort - get all visible text
     if (!text) {
       const visibleText = section.innerText || section.textContent || '';
-      // Remove common UI elements
-      text = visibleText
-        .replace(/About\s*$/i, '')
-        .replace(/Show\s+more\s*/gi, '')
-        .replace(/Show\s+less\s*/gi, '')
-        .trim();
+      // Use cleanAboutText to remove all UI elements including "Top skills"
+      text = this.cleanAboutText(visibleText);
     }
+    
+    // Check if the cleaned text is essentially empty (just "About" or whitespace)
+    const isEffectivelyEmpty = text.length <= 5 || text.toLowerCase() === 'about' || text.trim() === '';
     
     const result = {
       exists: true,
-      charCount: text.length,
-      text: text.substring(0, 500), // Limit for basic extraction
+      charCount: isEffectivelyEmpty ? 0 : text.length,
+      text: isEffectivelyEmpty ? '' : text.substring(0, 500), // Limit for basic extraction
       hasShowMore: scanResult.hasShowMore,
-      wordCount: text.split(/\s+/).filter(w => w.length > 0).length,
-      paragraphs: text.split(/\n\n+/).filter(p => p.trim()).length
+      wordCount: isEffectivelyEmpty ? 0 : text.split(/\s+/).filter(w => w.length > 0).length,
+      paragraphs: isEffectivelyEmpty ? 0 : text.split(/\n\n+/).filter(p => p.trim()).length
     };
     
     Logger.info(`[AboutExtractor] Extracted ${result.charCount} characters in ${Date.now() - startTime}ms`);
@@ -247,6 +252,7 @@ const AboutExtractor = {
       .replace(/^About\s*/i, '')
       .replace(/Show\s+more\s*/gi, '')
       .replace(/Show\s+less\s*/gi, '')
+      .replace(/Top\s+skills[\s\S]*/i, '') // Remove everything from "Top skills" onward
       .replace(/\s+/g, ' ')
       .trim();
   },

@@ -75,7 +75,7 @@ export function cleanup() {
     try {
       obs.disconnect();
     } catch (e) {
-      console.error('Error disconnecting observer:', e);
+      // console.error('Error disconnecting observer:', e);
     }
   });
   ExtensionState.observers = [];
@@ -85,7 +85,7 @@ export function cleanup() {
     try {
       element.removeEventListener(event, handler, options);
     } catch (e) {
-      console.error('Error removing event listener:', e);
+      // console.error('Error removing event listener:', e);
     }
   });
   ExtensionState.eventListeners = [];
@@ -95,7 +95,7 @@ export function cleanup() {
     try {
       clearTimeout(timeoutId);
     } catch (e) {
-      console.error('Error clearing timeout:', e);
+      // console.error('Error clearing timeout:', e);
     }
   });
   ExtensionState.timeouts = [];
@@ -105,7 +105,7 @@ export function cleanup() {
     try {
       clearInterval(intervalId);
     } catch (e) {
-      console.error('Error clearing interval:', e);
+      // console.error('Error clearing interval:', e);
     }
   });
   ExtensionState.intervals = [];
