@@ -3131,8 +3131,8 @@ const OverlayManager = {
     // Check if vision AI is available
     // Get settings from data object if available
     const settings = data.settings || {};
-    const hasVisionAI = settings.aiProvider === 'openai' && 
-                        settings.aiModel === 'gpt-4o' && 
+    const visionModels = ['gpt-4o', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'];
+    const hasVisionAI = visionModels.includes(settings.aiModel) &&
                         settings.enableAI === true;
     
     // Only show photo as a separate section if it's missing (for completeness)

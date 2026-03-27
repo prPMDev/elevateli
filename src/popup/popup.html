@@ -113,10 +113,21 @@
           <div id="aiConfigSection" class="ai-config-section hidden">
             <select id="settingsAiModel" class="settings-select">
               <option value="">Select AI model...</option>
-              <option value="openai:gpt-4o-mini">OpenAI GPT-4o-mini | Fast & Affordable</option>
-              <option value="openai:gpt-4o">OpenAI GPT-4o | Best Quality</option>
-              <option value="anthropic:claude-3-5-sonnet" disabled>Anthropic Claude 3.5 Sonnet (coming soon)</option>
-              <option value="anthropic:claude-3-opus" disabled>Anthropic Claude 3 Opus (coming soon)</option>
+              <optgroup label="Google Gemini">
+                <option value="gemini:gemini-2.5-flash-lite">Gemini 2.5 Flash Lite | Free Tier</option>
+                <option value="gemini:gemini-2.5-flash">Gemini 2.5 Flash | Fast & Affordable</option>
+                <option value="gemini:gemini-2.5-pro">Gemini 2.5 Pro | Best Quality</option>
+              </optgroup>
+              <optgroup label="OpenAI">
+                <option value="openai:gpt-4.1-nano">GPT-4.1 Nano | Cheapest ($0.10/1M)</option>
+                <option value="openai:gpt-4.1-mini">GPT-4.1 Mini | Balanced</option>
+                <option value="openai:gpt-4.1">GPT-4.1 | Best Quality (1M context)</option>
+              </optgroup>
+              <optgroup label="Anthropic">
+                <option value="anthropic:claude-haiku-4-5-20251001">Claude Haiku 4.5 | Fast</option>
+                <option value="anthropic:claude-sonnet-4-6">Claude Sonnet 4.6 | Balanced</option>
+                <option value="anthropic:claude-opus-4-6">Claude Opus 4.6 | Best</option>
+              </optgroup>
             </select>
             <input type="password" id="settingsApiKey" placeholder="Enter your API key" class="settings-input">
             <div id="apiKeyError" class="error-text">API key required</div>
@@ -124,7 +135,7 @@
             <div id="apiKeyExpirationStatus" style="margin: 4px 0 8px 0; font-size: 12px; color: #666; display: none;">
               <span id="expirationText">✓ Key expires in 7 days</span>
             </div>
-            <p class="cost-hint"><span id="costHint">~$0.02-0.07/analysis</span> • <a id="getKeyLink" href="https://platform.openai.com/api-keys" target="_blank">Get key →</a></p>
+            <p class="cost-hint"><span id="costHint">Free with Gemini Flash Lite</span> • <a id="getKeyLink" href="https://aistudio.google.com/apikey" target="_blank">Get key →</a></p>
             
             <!-- Target Role & Custom Instructions (moved inside AI config) -->
             <div class="ai-subsection">

@@ -299,7 +299,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (settingsShowAnalysisToggle) settingsShowAnalysisToggle.checked = settings.showAnalysis !== false;
     if (settingsEnableAIToggle) settingsEnableAIToggle.checked = settings.enableAI === true;
     if (settingsAiModelSelect && settings.aiProvider) {
-      const modelValue = settings.aiModel || 'gpt-4o-mini';
+      const modelValue = settings.aiModel || 'gemini-2.5-flash-lite';
       settingsAiModelSelect.value = `${settings.aiProvider}:${modelValue}`;
     }
     if (settingsApiKeyInput && (settings.apiKey || settings.encryptedApiKey)) {
@@ -853,6 +853,35 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   settingsAiModelSelect?.addEventListener('change', () => {
     clearFieldError(settingsAiModelSelect, null);
+
+    // Update cost hint and "Get key" link based on selected model
+    const providerModel = settingsAiModelSelect.value;
+    if (providerModel) {
+      const [selectedProvider] = providerModel.split(':');
+      const costHint = document.getElementById('costHint');
+      const getKeyLink = document.getElementById('getKeyLink');
+
+      const providerLinks = {
+        'openai': 'https://platform.openai.com/api-keys',
+        'anthropic': 'https://console.anthropic.com/settings/keys',
+        'gemini': 'https://aistudio.google.com/apikey'
+      };
+
+      const modelCosts = {
+        'gemini:gemini-2.5-flash-lite': 'Free with Gemini Flash Lite',
+        'gemini:gemini-2.5-flash': '~$0.01-0.03/analysis',
+        'gemini:gemini-2.5-pro': '~$0.03-0.10/analysis',
+        'openai:gpt-4.1-nano': '~$0.01-0.02/analysis',
+        'openai:gpt-4.1-mini': '~$0.02-0.05/analysis',
+        'openai:gpt-4.1': '~$0.05-0.15/analysis',
+        'anthropic:claude-haiku-4-5-20251001': '~$0.02-0.05/analysis',
+        'anthropic:claude-sonnet-4-6': '~$0.05-0.15/analysis',
+        'anthropic:claude-opus-4-6': '~$0.10-0.30/analysis'
+      };
+
+      if (getKeyLink) getKeyLink.href = providerLinks[selectedProvider] || providerLinks['gemini'];
+      if (costHint) costHint.textContent = modelCosts[providerModel] || '~$0.02-0.07/analysis';
+    }
   });
   
   // Handle Save Settings button
@@ -907,7 +936,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           const testResponse = await chrome.runtime.sendMessage({
             action: 'testApiKey',
             provider,
-            apiKey
+            apiKey,
+            model
           });
           
           if (!testResponse || !testResponse.success) {
@@ -940,7 +970,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             await chrome.storage.local.set({
               encryptedApiKey: encryptResponse.encryptedApiKey,
               aiProvider: provider,
-              aiModel: model || 'gpt-4o-mini'
+              aiModel: model || 'gemini-2.5-flash-lite'
             });
             await chrome.storage.local.remove('apiKey');
           } else {
@@ -1017,7 +1047,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Just save the provider and model if key wasn't changed (placeholder shown)
         await chrome.storage.local.set({ 
           aiProvider: provider,
-          aiModel: model || 'gpt-4o-mini'
+          aiModel: model || 'gemini-2.5-flash-lite'
         });
       }
     }
@@ -1056,7 +1086,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (settingsEnableAIToggle.checked && !isPlaceholder && apiKey) {
       settings.encryptedApiKey = true; // Mark that we have an encrypted key
       settings.aiProvider = provider;
-      settings.aiModel = model || 'gpt-4o-mini';
+      settings.aiModel = model || 'gemini-2.5-flash-lite';
     }
     
     await SettingsManager.updateAndSync(settings);  // Pass full settings

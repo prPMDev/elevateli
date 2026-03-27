@@ -932,11 +932,12 @@ async function handleVisionAnalysis(request, sender, sendResponse) {
     
     // Get provider info and check vision support
     const { aiProvider, aiModel } = await chrome.storage.local.get(['aiProvider', 'aiModel']);
-    if (!aiProvider || aiProvider !== 'openai' || aiModel !== 'gpt-4o') {
-      SmartLogger.log('AI.PROMPTS', 'Vision analysis requires GPT-4o');
-      sendResponse({ 
-        success: false, 
-        error: 'Vision analysis requires OpenAI GPT-4o',
+    const visionModels = ['gpt-4o', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'];
+    if (!aiProvider || !visionModels.includes(aiModel)) {
+      SmartLogger.log('AI.PROMPTS', 'Vision analysis requires a vision-capable model');
+      sendResponse({
+        success: false,
+        error: 'Vision analysis requires a vision-capable model (GPT-4.1 or Gemini)',
         type: 'VISION_UNSUPPORTED'
       });
       return;
@@ -2511,11 +2512,15 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
   }
   
   // Get model from storage if not provided
-  if (!model && provider === 'openai') {
-    const settings = await chrome.storage.local.get('aiModel');
-    model = settings.aiModel || 'gpt-4o-mini';
+  if (!model) {
+    const settings = await chrome.storage.local.get(['aiModel', 'aiProvider']);
+    model = settings.aiModel;
+    if (!model) {
+      const defaults = { openai: 'gpt-4.1-nano', anthropic: 'claude-haiku-4-5-20251001', gemini: 'gemini-2.5-flash-lite' };
+      model = defaults[provider] || 'gemini-2.5-flash-lite';
+    }
   }
-  
+
   const config = {
     openai: {
       url: 'https://api.openai.com/v1/chat/completions',
@@ -2524,9 +2529,9 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
         'Content-Type': 'application/json'
       },
       body: {
-        model: model || 'gpt-4o-mini',
+        model: model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: model === 'gpt-4o' ? 4000 : 3200,  // gpt-4o supports more tokens
+        max_tokens: 4000,
         temperature: 0.1
       }
     },
@@ -2538,10 +2543,23 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
         'anthropic-version': '2023-06-01'
       },
       body: {
-        model: 'claude-3-haiku-20240307',
+        model: model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 3200,  // 80% of context window
+        max_tokens: 4000,
         temperature: 0.1
+      }
+    },
+    gemini: {
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanApiKey}`,
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 4000
+        }
       }
     }
   };
@@ -2587,26 +2605,28 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
   
   // Helper function to process provider response
   function processProviderResponse(provider, data, model) {
-    // Log token usage for OpenAI
-    if (provider === 'openai' && data.usage) {
+    // Log token usage
+    if (data.usage || data.usageMetadata) {
+      const usage = data.usage || {};
+      const geminiUsage = data.usageMetadata || {};
       SmartLogger.log('AI.COSTS', 'Token usage', {
-        prompt_tokens: data.usage.prompt_tokens,
-        completion_tokens: data.usage.completion_tokens,
-        total_tokens: data.usage.total_tokens,
-        model: model || 'gpt-4o-mini',
-        estimated_cost: model === 'gpt-4o' ? 
-          `$${((data.usage.prompt_tokens / 1000) * 0.01 + (data.usage.completion_tokens / 1000) * 0.03).toFixed(4)}` :
-          `$${((data.usage.prompt_tokens / 1000) * 0.00015 + (data.usage.completion_tokens / 1000) * 0.0006).toFixed(4)}`
+        prompt_tokens: usage.prompt_tokens || geminiUsage.promptTokenCount || 0,
+        completion_tokens: usage.completion_tokens || geminiUsage.candidatesTokenCount || 0,
+        total_tokens: usage.total_tokens || geminiUsage.totalTokenCount || 0,
+        model: model,
+        provider: provider
       });
     }
-    
+
     // Extract content based on provider
     if (provider === 'openai') {
       return data.choices?.[0]?.message?.content || '';
     } else if (provider === 'anthropic') {
       return data.content?.[0]?.text || '';
+    } else if (provider === 'gemini') {
+      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     }
-    
+
     return '';
   }
 }
@@ -2876,17 +2896,17 @@ async function testApiKey(provider, apiKey, model) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: model || 'gpt-4o-mini',
+          model: model || 'gpt-4.1-nano',
           messages: [{ role: 'user', content: testPrompt }],
           max_tokens: 20,
           temperature: 0.1
         })
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json();
         SmartLogger.error('AI.PROMPTS', 'OpenAI test failed', new Error(JSON.stringify(errorData)), { status: response.status });
-        
+
         if (response.status === 401) {
           return { success: false, error: 'Invalid API key' };
         } else if (response.status === 429) {
@@ -2897,10 +2917,42 @@ async function testApiKey(provider, apiKey, model) {
           return { success: false, error: errorData.error?.message || 'API request failed' };
         }
       }
-      
+
       const data = await response.json();
       return { success: true, message: 'OpenAI API key is valid' };
-      
+
+    } else if (provider === 'gemini') {
+      const testModel = model || 'gemini-2.5-flash-lite';
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${testModel}:generateContent?key=${cleanApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: testPrompt }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 20 }
+          })
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        SmartLogger.error('AI.PROMPTS', 'Gemini test failed', new Error(JSON.stringify(errorData)), { status: response.status });
+
+        if (response.status === 400 && errorData.error?.message?.includes('API key')) {
+          return { success: false, error: 'Invalid API key' };
+        } else if (response.status === 403) {
+          return { success: false, error: 'Invalid API key or Gemini API not enabled' };
+        } else if (response.status === 429) {
+          return { success: false, error: 'Rate limit exceeded' };
+        } else {
+          return { success: false, error: errorData.error?.message || 'API request failed' };
+        }
+      }
+
+      const data = await response.json();
+      return { success: true, message: 'Gemini API key is valid' };
+
     } else if (provider === 'anthropic') {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -2910,7 +2962,7 @@ async function testApiKey(provider, apiKey, model) {
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: model || 'claude-3-haiku-20240307',
+          model: model || 'claude-haiku-4-5-20251001',
           messages: [{ role: 'user', content: testPrompt }],
           max_tokens: 20,
           temperature: 0.1
