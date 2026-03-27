@@ -113,20 +113,24 @@
           <div id="aiConfigSection" class="ai-config-section hidden">
             <select id="settingsAiModel" class="settings-select">
               <option value="">Select AI model...</option>
-              <optgroup label="Google Gemini">
-                <option value="gemini:gemini-2.5-flash-lite">Gemini 2.5 Flash Lite | Free Tier</option>
-                <option value="gemini:gemini-2.5-flash">Gemini 2.5 Flash | Fast & Affordable</option>
-                <option value="gemini:gemini-2.5-pro">Gemini 2.5 Pro | Best Quality</option>
+              <optgroup label="--- Quick &amp; Free ---">
+                <option value="gemini:gemini-2.5-flash-lite">Gemini 2.5 Flash Lite | Free (Recommended to start)</option>
+                <option value="openai:gpt-4.1-nano">GPT-4.1 Nano | $0.10/1M</option>
               </optgroup>
-              <optgroup label="OpenAI">
-                <option value="openai:gpt-4.1-nano">GPT-4.1 Nano | Cheapest ($0.10/1M)</option>
-                <option value="openai:gpt-4.1-mini">GPT-4.1 Mini | Balanced</option>
-                <option value="openai:gpt-4.1">GPT-4.1 | Best Quality (1M context)</option>
+              <optgroup label="--- Balanced ---">
+                <option value="gemini:gemini-2.5-flash">Gemini 2.5 Flash | $0.15/1M</option>
+                <option value="openai:gpt-4.1-mini">GPT-4.1 Mini | $0.40/1M</option>
+                <option value="anthropic:claude-haiku-4-5-20251001">Claude Haiku 4.5 | $1/1M</option>
+                <option value="openai:gpt-5.4-nano">GPT-5.4 Nano | $0.20/1M</option>
               </optgroup>
-              <optgroup label="Anthropic">
-                <option value="anthropic:claude-haiku-4-5-20251001">Claude Haiku 4.5 | Fast</option>
-                <option value="anthropic:claude-sonnet-4-6">Claude Sonnet 4.6 | Balanced</option>
-                <option value="anthropic:claude-opus-4-6">Claude Opus 4.6 | Best</option>
+              <optgroup label="--- Deep Analysis ---">
+                <option value="gemini:gemini-2.5-pro">Gemini 2.5 Pro | $1.25/1M</option>
+                <option value="openai:gpt-4.1">GPT-4.1 | $2/1M (1M context)</option>
+                <option value="anthropic:claude-sonnet-4-6">Claude Sonnet 4.6 | $3/1M</option>
+                <option value="openai:gpt-5.4-mini">GPT-5.4 Mini | $0.75/1M</option>
+                <option value="gemini:gemini-3.1-pro-preview">Gemini 3.1 Pro | $2/1M (Latest)</option>
+                <option value="openai:gpt-5.4">GPT-5.4 | $2.50/1M (Flagship)</option>
+                <option value="anthropic:claude-opus-4-6">Claude Opus 4.6 | $5/1M (Most capable)</option>
               </optgroup>
             </select>
             <input type="password" id="settingsApiKey" placeholder="Enter your API key" class="settings-input">

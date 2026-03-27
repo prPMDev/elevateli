@@ -3131,7 +3131,7 @@ const OverlayManager = {
     // Check if vision AI is available
     // Get settings from data object if available
     const settings = data.settings || {};
-    const visionModels = ['gpt-4o', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'];
+    const visionModels = ['gpt-4o', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-3.1-pro-preview'];
     const hasVisionAI = visionModels.includes(settings.aiModel) &&
                         settings.enableAI === true;
     
