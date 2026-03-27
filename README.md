@@ -1,60 +1,72 @@
 # ElevateLI
 
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/prPMDev/elevateli/releases/tag/v1.0.0)
+**Optimize your LinkedIn profile with AI-powered analysis and actionable suggestions.**
 
-Chrome extension for LinkedIn profile analysis and optimization using AI-powered recommendations.
+ElevateLI is a Chrome extension that analyzes your LinkedIn profile and gives you a completeness score, content quality rating, and specific recommendations to improve your professional presence.
 
-## Overview
+## What It Does
 
-ElevateLI analyzes LinkedIn profiles to provide completeness scoring and actionable feedback. The extension processes data locally and optionally integrates with OpenAI or Anthropic APIs for enhanced analysis.
-
-## Features
-
-- Real-time profile completeness analysis (0-100% scoring)
-- AI-powered optimization recommendations (OpenAI GPT-4 or Anthropic Claude)
-- Local data processing with no external data transmission
-- Chrome Web Store compliant implementation
-- Manifest V3 native architecture
+- **Completeness Score (0-100%)** - Checks every section of your profile and tells you what's missing or incomplete. Runs locally, no API needed.
+- **Content Quality Score (1-10)** - AI-powered analysis of your headline, about section, experience, skills, and more. Gives specific, actionable feedback.
+- **Section-by-Section Breakdown** - Star ratings and recommendations for each profile section.
+- **Works on Your Profile** - Analyzes your own LinkedIn profile. Visit your profile page to get started.
 
 ## Installation
 
-### Chrome Web Store
-Visit the Chrome Web Store and search for "ElevateLI" (pending approval)
+1. Download or clone this repository
+2. Open Chrome and go to `chrome://extensions`
+3. Enable **Developer mode** (toggle in the top-right corner)
+4. Click **Load unpacked**
+5. Select the folder you downloaded (the one containing `manifest.json`)
+6. The ElevateLI icon will appear in your Chrome toolbar
 
-### Developer Installation
-```bash
-git clone https://github.com/prPMDev/elevateli.git
-cd elevateli
-# Load 'elevateli-extension/' as unpacked extension in Chrome Developer Mode
-```
+## How to Use
 
-## Technical Implementation
+1. Navigate to **your own** LinkedIn profile page
+2. Click the ElevateLI icon in the toolbar
+3. Click **Analyze** to run the completeness scan
+4. Review your scores and recommendations in the overlay that appears on your profile
 
-- **Architecture**: Modular content script system with service worker background processing
-- **Security**: CSP compliant, no innerHTML usage, encrypted API key storage
-- **Performance**: DOM caching, parallel extraction, progressive loading
-- **Compatibility**: Chrome Manifest V3, LinkedIn web interface
+### AI-Powered Analysis (Optional)
 
-## Usage
+For deeper content quality analysis:
 
-1. Install the extension via Chrome Web Store or developer mode
-2. Navigate to your LinkedIn profile
-3. Click the ElevateLI overlay to start analysis
-4. Optionally configure AI analysis with your API key
+1. Click the ElevateLI icon and go to **Settings**
+2. Enable **AI Enhancement**
+3. Add your OpenAI API key (GPT-4o or GPT-4o-mini)
+4. Set your target role and level for personalized recommendations
+5. Run the analysis again to get AI-powered feedback
 
-## Development
+Your API key is encrypted locally and never leaves your browser except to make API calls.
 
-```bash
-git clone https://github.com/prPMDev/elevateli.git
-cd elevateli
-# Load elevateli-extension/ in Chrome Developer Mode
-```
+## Privacy
+
+- All profile data is processed locally in your browser
+- No data is sent to any server (except OpenAI if you enable AI analysis)
+- API keys are encrypted with AES-GCM and stored in Chrome's local storage
+- No tracking, no analytics, no data collection
+- See `privacy-terms.html` for the full privacy policy
+
+## Permissions
+
+| Permission | Why |
+|------------|-----|
+| `storage` | Save your settings and cached analysis results |
+| `activeTab` | Read your LinkedIn profile page content |
+| `scripting` | Inject the analysis overlay on LinkedIn |
+| `tabs` | Detect navigation between LinkedIn pages |
+| `alarms` | Schedule periodic cache cleanup |
+
+Host permission is limited to `https://www.linkedin.com/*` only.
+
+## Tech Stack
+
+- Chrome Extension Manifest V3
+- Vanilla JavaScript (no frameworks)
+- Chrome Storage API for persistence
+- Web Crypto API for key encryption
+- OpenAI API for content analysis (optional)
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Contributing
-
-Issues and pull requests welcome. See [GitHub issues](https://github.com/prPMDev/elevateli/issues) for current development priorities.
+MIT License. See the extension's privacy and terms page for details.
