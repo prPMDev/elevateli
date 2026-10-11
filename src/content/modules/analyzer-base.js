@@ -129,7 +129,7 @@ class Analyzer {
       this.analysisResults = result;
       
       // Run AI analysis if enabled
-      const hasApiKey = this.settings.apiKey || this.settings.encryptedApiKey;
+      const hasApiKey = this.settings.encryptedApiKey;
       
       
       if (this.settings.enableAI && hasApiKey && this.settings.aiProvider) {
@@ -721,15 +721,6 @@ class Analyzer {
         recentRoleSkills: Object.keys(skillsInRoles).filter(skill => 
           skillsInRoles[skill].some(role => role.roleIndex < 3)
         )
-      };
-      
-      
-      // Enhanced skills data for AI analysis
-      
-      // UNCONDITIONAL DEBUG: Log final skills section data
-      const skillsSectionData = {
-        data: skillsData,
-        context: careerContext
       };
       
       sections.push({

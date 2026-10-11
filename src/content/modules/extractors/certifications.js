@@ -25,8 +25,6 @@ const CertificationsExtractor = {
    * @returns {Object} Scan results
    */
   async scan() {
-    const startTime = Date.now();
-    
     // Custom section finding for certifications - check multiple anchor IDs
     let section = null;
     const anchorIds = ['licenses_and_certifications', 'certifications', 'licenses-and-certifications'];
@@ -122,7 +120,6 @@ const CertificationsExtractor = {
    * @returns {Object} Basic certifications data
    */
   async extract() {
-    const startTime = Date.now();
     const scanResult = await this.scan();
     
     if (!scanResult.exists) {

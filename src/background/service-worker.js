@@ -321,7 +321,6 @@ NOTE: This is a fallback analysis. Individual role analysis would provide better
 
 // Create specialized prompt for overall experience analysis
 function createExperienceOverallPrompt(experienceData, config, context = {}) {
-  const currentYear = new Date().getFullYear();
   const totalMonths = experienceData.totalMonths || 0;
   const yearsOfExperience = Math.floor(totalMonths / 12);
   const totalRoles = experienceData.totalRoles || experienceData.count || 0;
@@ -430,7 +429,6 @@ Fill in these fields:
 // Create specialized prompt for recommendations using Anthropic best practices
 function createRecommendationsPrompt(recommendationsData, config, context = {}) {
   const recommendationCount = recommendationsData.count || recommendationsData.receivedCount || 0;
-  const currentYear = new Date().getFullYear();
   
   
   const prompt = `You are an expert LinkedIn profile optimizer analyzing recommendations for ${config.targetRole} positions at the ${config.seniorityLevel} level.
@@ -700,8 +698,7 @@ function createSkillsPrompt(skillsData, config, context = {}) {
   // Add completeness context for conditional generic advice
   const completenessScore = context.completenessScore || 100;
   const hasCompletenessIssues = completenessScore < 95;
-  const visibleSkillsCount = skillsData.skills?.filter(s => s.visibilityTier === 'top3' || s.visibilityTier === 'visible').length || skillsData.visibleCount || 0;
-  const hasEndorsementIssues = visibleSkillsCount > 0 && skillsData.endorsedSkillsCount === 0;
+  const visibleSkillsCount = skillsData.visibleCount || 0;
   
   const prompt = `You are an expert LinkedIn profile optimizer analyzing skills for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
@@ -740,7 +737,6 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
 <profile_status>
 Completeness Score: ${completenessScore}%
 Has Major Gaps: ${hasCompletenessIssues ? 'YES - Focus on critical issues only' : 'NO - Can provide strategic advice'}
-Endorsement Status: ${hasEndorsementIssues ? 'CRITICAL - Visible skills lack endorsements' : 'OK'}
 Visible Skills Count: ${visibleSkillsCount} (without clicking "Show all")
 </profile_status>
 
@@ -753,8 +749,6 @@ Years of Experience: ${context.yearsOfExperience || 0} years
 Total Skills: ${skillsData.count || skillsData.skills?.length || 0}
 Visible Without Clicking: ${visibleSkillsCount}
 Hidden Behind "Show all": ${Math.max(0, (skillsData.count || 0) - visibleSkillsCount)}
-Total Endorsements: ${skillsData.totalEndorsements || 0}
-Skills with Endorsements: ${skillsData.endorsedSkillsCount || 0}
 </skills_overview>
 
 <top_3_most_visible_skills>
@@ -1578,7 +1572,7 @@ async function handleSectionAnalysis(request, sendResponse) {
 
 // Handle synthesis analysis request
 async function handleSynthesisAnalysis(request, sendResponse) {
-  const { sectionScores, sectionRecommendations, targetRole, seniorityLevel, customInstructions } = request;
+  const { sectionScores, targetRole, seniorityLevel, customInstructions } = request;
   
   try {
     

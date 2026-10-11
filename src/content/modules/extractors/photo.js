@@ -21,8 +21,6 @@ const PhotoExtractor = {
    * @returns {Object} Scan results
    */
   async scan() {
-    const startTime = Date.now();
-    
     let exists = false;
     let photoUrl = null;
     

@@ -36,7 +36,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const customInstructionsStatus = document.getElementById('customInstructionsStatus');
   
   // Other elements
-  const apiKeyHelp = document.getElementById('apiKeyHelp');
   const complianceCheck = document.getElementById('complianceCheck');
   const acknowledgeComplianceBtn = document.getElementById('acknowledgeCompliance');
   const confirmDialog = document.getElementById('confirmDialog');
@@ -79,7 +78,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     'aiProvider',
     'aiModel',
     'aiBaseUrl',
-    'apiKey',
     'encryptedApiKey',
     'enableAI',
     'showAnalysis',
@@ -93,8 +91,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Check configuration states
   const hasCompliance = settings.compliance?.hasAcknowledged;
-  const hasApiKey = !!(settings.apiKey || settings.encryptedApiKey);
-  const hasProvider = !!settings.aiProvider;
   
   // Sync settings across popup instances and tabs
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -110,8 +106,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
   });
-  const isAIConfigured = hasApiKey && hasProvider;
-  const hasUserProfile = !!settings.userProfile?.profileId;
   
   // View management functions
   function showView(viewName) {
@@ -261,7 +255,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (analysisStatus) analysisStatus.textContent = settings.showAnalysis !== false ? 'On' : 'Off';
     if (targetRoleStatus) targetRoleStatus.textContent = settings.targetRole || 'Not set';
     if (aiAnalysisStatus) {
-      const hasApiKey = !!(settings.apiKey || settings.encryptedApiKey);
+      const hasApiKey = !!settings.encryptedApiKey;
       const hasProvider = !!settings.aiProvider;
       aiAnalysisStatus.textContent = (hasApiKey && hasProvider && settings.enableAI) ? 'Configured' : 'Not configured';
     }
@@ -277,7 +271,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Update all settings controls with current values
     if (settingsShowAnalysisToggle) settingsShowAnalysisToggle.checked = settings.showAnalysis !== false;
     if (settingsEnableAIToggle) settingsEnableAIToggle.checked = settings.enableAI === true;
-    if (settingsApiKeyInput && (settings.apiKey || settings.encryptedApiKey)) {
+    if (settingsApiKeyInput && settings.encryptedApiKey) {
       settingsApiKeyInput.value = '••••••••••••';
     }
     if (settingsTargetRoleSelect) {
@@ -542,7 +536,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   settingsClearApiKeyLink?.addEventListener('click', async (e) => {
     e.preventDefault();
     if (await showConfirmDialog('Clear API key? You\'ll need to re-enter it.')) {
-      await chrome.storage.local.remove(['apiKey', 'encryptedApiKey', 'installationId']);
+      await chrome.storage.local.remove(['encryptedApiKey', 'installationId']);
       settingsApiKeyInput.value = '';
       // Update UI state
       await SettingsManager.updateAndSync({ enableAI: false });
@@ -768,7 +762,6 @@ document.addEventListener('DOMContentLoaded', async () => {
               aiModel: model,
               aiBaseUrl: baseUrl
             });
-            await chrome.storage.local.remove('apiKey');
           } else {
             throw new Error('Failed to encrypt API key');
           }

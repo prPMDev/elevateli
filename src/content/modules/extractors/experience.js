@@ -38,8 +38,6 @@ const ExperienceExtractor = {
    * @returns {Object} Scan results
    */
   async scan() {
-    const startTime = Date.now();
-    
     // Use BaseExtractor's findSection method like other extractors
     const section = await BaseExtractor.findSection(this.selectors);
     
@@ -114,8 +112,6 @@ const ExperienceExtractor = {
       }
     }
     
-    BaseExtractor.logTiming('Experience scan', startTime);
-    
     return {
       exists: visibleCount > 0,
       visibleCount,
@@ -130,7 +126,6 @@ const ExperienceExtractor = {
    * @returns {Object} Basic experience data with total count
    */
   async extract() {
-    const startTime = Date.now();
     const scanResult = await this.scan();
     
     if (!scanResult.exists) {
@@ -170,7 +165,6 @@ const ExperienceExtractor = {
       showAllUrl: scanResult.showAllUrl
     };
     
-    BaseExtractor.logTiming('Experience extract', startTime);
     return result;
   },
   
@@ -179,8 +173,6 @@ const ExperienceExtractor = {
    * @returns {Object} Detailed experience data
    */
   async extractDeep() {
-    const startTime = Date.now();
-    
     const basicData = await this.extract();
     
     if (!basicData.exists) {
@@ -218,8 +210,6 @@ const ExperienceExtractor = {
       // For AI processing
       experienceChunks: this.prepareForAI(experiences)
     };
-    
-    BaseExtractor.logTiming('Experience deep extract', startTime);
     
     return result;
   },
@@ -625,37 +615,6 @@ const ExperienceExtractor = {
   },
   
   /**
-   * Expand all "Show more" buttons within experience descriptions
-   * @param {Element} section - Experience section
-   */
-  async expandAllDescriptions(section) {
-    const showMoreSelectors = [
-      'button.inline-show-more-text__button',
-      'button[aria-label*="more"][aria-label*="description"]',
-      'button[data-control-name="see_more"]',
-      '.see-more-inline button',
-      '.inline-show-more-text__button--light'
-    ];
-    
-    let expandedCount = 0;
-    for (const selector of showMoreSelectors) {
-      const buttons = section.querySelectorAll(selector);
-      
-      for (const button of buttons) {
-        if (button && button.offsetParent !== null && !button.getAttribute('aria-expanded')) {
-          button.click();
-          expandedCount++;
-          await BaseExtractor.wait(300);
-        }
-      }
-    }
-    
-    if (expandedCount > 0) {
-      await BaseExtractor.wait(500); // Wait for content to load
-    }
-  },
-  
-  /**
    * Calculate average description length
    * @param {Array<Object>} experiences - Experience items
    * @returns {number} Average length
@@ -786,23 +745,6 @@ const ExperienceExtractor = {
   },
   
   /**
-   * Check if a bullet point is an achievement vs responsibility
-   * @param {string} text - Bullet text
-   * @returns {boolean}
-   */
-  isAchievement(text) {
-    // Achievements often have metrics, results, or action verbs indicating completion
-    const achievementPatterns = [
-      /\d+[%\$kKmMbB]/,  // Numbers with units
-      /increased|improved|reduced|saved|generated|achieved|delivered|launched/i,
-      /resulted in|leading to|drove|contributed to/i,
-      /award|recognition|promoted/i
-    ];
-    
-    return achievementPatterns.some(pattern => pattern.test(text));
-  },
-  
-  /**
    * Extract mentioned skills from text
    * @param {string} text - Content to analyze
    * @returns {Array<string>}
@@ -833,30 +775,5 @@ const ExperienceExtractor = {
     });
     
     return Array.from(skills);
-  },
-  
-  /**
-   * Calculate content quality score
-   * @param {Object} experience - Experience object
-   * @returns {number} Score 0-10
-   */
-  calculateContentQualityScore(experience) {
-    let score = 5; // Base score
-    
-    // Positive factors
-    if (experience.achievements.length > 0) score += 1;
-    if (experience.hasQuantifiedAchievements) score += 1.5;
-    if (experience.description && experience.description.length > 300) score += 1;
-    if (experience.hasTechStack) score += 0.5;
-    if (experience.mentionedSkills.length > 3) score += 0.5;
-    if (experience.description.length > 200) score += 0.5;
-    
-    // Negative factors
-    if (!experience.description || experience.description.length === 0) score -= 2;
-    if (experience.description.length < 50) score -= 1;
-    if (!experience.employment.startDate) score -= 0.5;
-    
-    // Cap between 0-10
-    return Math.max(0, Math.min(10, score));
   }
 };

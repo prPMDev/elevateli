@@ -12,8 +12,6 @@ const HeadlineExtractor = {
    * @returns {Object} Scan results
    */
   async scan() {
-    const startTime = Date.now();
-    
     const selectors = [
       // New selector based on actual LinkedIn HTML
       '.text-body-medium[data-generated-suggestion-target]',
@@ -50,7 +48,6 @@ const HeadlineExtractor = {
    * @returns {Object} Basic headline data
    */
   async extract() {
-    const startTime = Date.now();
     const scanResult = await this.scan();
     
     if (!scanResult.exists) {
