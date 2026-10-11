@@ -1266,7 +1266,7 @@ const OverlayManager = {
         shortSpan.textContent = 'Complete';
         
         const separator = document.createTextNode(': ');
-        const remaining = document.createTextNode('${Math.round(score)}%`');
+        const remaining = document.createTextNode(`${Math.round(score)}%`);
         
         fragment.appendChild(fullSpan);
         fragment.appendChild(shortSpan);
