@@ -2452,7 +2452,7 @@ const OverlayManager = {
     if (collapsedBtn) {
       collapsedBtn.disabled = false;
       // [CRITICAL_PATH:BUTTON_STATE_MANAGEMENT] - Always show "Analyze" for consistency
-      collapsedBtn.textContent = Analyze;
+      collapsedBtn.textContent = 'Analyze';
     }
     
     
