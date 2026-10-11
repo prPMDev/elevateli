@@ -2552,8 +2552,9 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
       }
     },
     gemini: {
-      url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanApiKey}`,
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       headers: {
+        'x-goog-api-key': cleanApiKey,
         'Content-Type': 'application/json'
       },
       body: {
@@ -2926,10 +2927,10 @@ async function testApiKey(provider, apiKey, model) {
     } else if (provider === 'gemini') {
       const testModel = model || 'gemini-2.5-flash-lite';
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${testModel}:generateContent?key=${cleanApiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${testModel}:generateContent`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'x-goog-api-key': cleanApiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: testPrompt }] }],
             generationConfig: { temperature: 0.1, maxOutputTokens: 20 }
