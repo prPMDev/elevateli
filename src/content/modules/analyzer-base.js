@@ -539,14 +539,28 @@ class Analyzer {
     // [CRITICAL_PATH:FIRST_IMPRESSION_EXTRACTION] - P0: Extract all first impression data
     // 1. First Impression (Headline + Photo + Banner)
     if (extractedData.headline || extractedData.photo || extractedData.banner) {
-      
-      const firstImpressionData = FirstImpressionAnalyzer.buildFirstImpressionData(extractedData);
-      
-      
       sections.push({
         type: 'first_impression',
         name: 'First Impression',
-        data: firstImpressionData
+        data: {
+          headline: extractedData.headline?.text || '',
+          headlineCharCount: extractedData.headline?.charCount || 0,
+          photo: {
+            exists: extractedData.photo?.exists || false,
+            hasPhoto: extractedData.photo?.exists || false
+          },
+          banner: {
+            exists: extractedData.banner?.exists || false,
+            isCustomBanner: extractedData.banner?.isCustomBanner || false
+          },
+          metadata: {
+            openToWork: extractedData.openToWork?.enabled || false,
+            openToWorkDetails: extractedData.openToWork?.details || null,
+            creatorMode: extractedData.creatorMode?.enabled || false,
+            connectionCount: extractedData.connections?.count || 0,
+            verified: extractedData.verified || false
+          }
+        }
       });
     }
     

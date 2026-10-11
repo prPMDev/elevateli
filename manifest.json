@@ -38,7 +38,6 @@
         "src/content/modules/extractors/projects.js",
         "src/content/modules/extractors/featured.js",
         "src/content/modules/scoring/completeness-scorer.js",
-        "src/content/modules/analysis/first-impression-analyzer.js",
         "src/content/modules/ui/overlay-manager.js",
         "src/content/modules/analyzer-base.js",
         "src/content/modules/analyzer-main.js"
