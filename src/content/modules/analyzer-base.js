@@ -1000,7 +1000,6 @@ class Analyzer {
         } else {
           // Fallback: calculate weighted average
           const weights = {
-            profile_intro: 0.25,
             experience: 0.40,
             skills: 0.20,
             recommendations: 0.15

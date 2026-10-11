@@ -1689,7 +1689,6 @@ async function handleSynthesisAnalysis(request, sendResponse) {
     const weights = {
       first_impression: 0.20,   // 20% - First impression (headline + photo + banner)
       about: 0.25,              // 25% - Standalone about section
-      profile_intro: 0.30,      // 30% - Profile intro (headline + about) - LEGACY FALLBACK
       experience_role: 0.30,    // 30% - All experience roles combined
       experience_overall: 0.30, // 30% - Overall experience (alternative to role-by-role)
       skills: 0.15,             // 15% - Skills

@@ -1656,7 +1656,6 @@ const OverlayManager = {
       'certifications': 'Certifications',
       'projects': 'Projects',
       'featured': 'Featured',
-      'profile_intro': 'Profile Intro',
       'experience_role': 'Experience'
     };
     
@@ -2420,9 +2419,8 @@ const OverlayManager = {
     }
     
     // [CRITICAL_PATH:FIRST_IMPRESSION_UI] - P0: Display unified first impression
-    // Check for first impression analysis (new) or profile intro (legacy)
+    // Check for first impression analysis
     const firstImpressionScore = sectionScores.first_impression;
-    const profileIntroScore = sectionScores.profile_intro; // Legacy support
     
     
     // Headline section - now part of first impression
@@ -2430,7 +2428,7 @@ const OverlayManager = {
     const headlineRec = missingItems.find(item => item.section === 'headline');
     
     // If we have first impression analysis, use that for headline display
-    const headlineAnalysis = firstImpressionScore || profileIntroScore;
+    const headlineAnalysis = firstImpressionScore;
     if (headlineAnalysis && headlineAnalysis.actionItems) {
       // Use AI insights for headline/first impression
       const headlineItems = headlineAnalysis.actionItems.filter(item => {
@@ -2514,7 +2512,7 @@ const OverlayManager = {
     const aboutMissing = missingItems.some(item => item.section === 'about');
     const aboutRec = missingItems.find(item => item.section === 'about');
     
-    // Check for standalone about section analysis first, then profile_intro
+    // Check for standalone about section analysis
     const aboutScore = sectionScores.about;
     
     if (aboutScore && aboutScore.actionItems) {
@@ -2526,46 +2524,6 @@ const OverlayManager = {
         errorType: aboutScore.errorType || null,
         positive: aboutScore.positiveInsight || aboutScore.strengths?.[0] || null,
         improvements: aboutScore.actionItems.map(item => ({
-          text: item.action || item.what || 'Improvement needed',
-          why: item.impact || item.how || 'Update your profile',
-          impact: item.impact,
-          priority: item.priority
-        })).slice(0, this.getImprovementLimit(aboutRating)),
-        priority: 'normal'
-      });
-    } else if (profileIntroScore && profileIntroScore.actionItems) {
-      // Filter actionItems for about section - check section tag first, then content
-      const aboutItems = profileIntroScore.actionItems.filter(item => {
-        // First check section tag if available
-        if (item.section) {
-          return item.section === 'about';
-        }
-        // Fallback to content-based filtering
-        // Support both old (what/how) and new (category/action) formats
-        const text = (item.category || item.what || '')?.toLowerCase();
-        return text.includes('about') || 
-               text.includes('opening line') ||
-               text.includes('summary') ||
-               (!text.includes('headline') && 
-                !text.includes('connection'));
-      });
-      
-      // Use About-specific positive insight if available
-      let aboutPositive = profileIntroScore.aboutPositive || profileIntroScore.positiveInsight || profileIntroScore.strengths?.[0] || null;
-      
-      // Fallback only if we don't have section-specific feedback
-      if (!profileIntroScore.aboutPositive && aboutPositive && aboutPositive.toLowerCase().includes('headline') && 
-          !aboutPositive.toLowerCase().includes('about')) {
-        aboutPositive = "Your About section provides professional context";
-      }
-      
-      
-      const aboutRating = this.scoreToRating(profileIntroScore.score);
-      sections.push({
-        name: 'About Section',
-        rating: aboutRating,
-        positive: aboutPositive,
-        improvements: aboutItems.map(item => ({
           text: item.action || item.what || 'Improvement needed',
           why: item.impact || item.how || 'Update your profile',
           impact: item.impact,
