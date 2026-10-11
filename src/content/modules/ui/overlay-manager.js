@@ -12,8 +12,6 @@ window.elevateliDebug = {
   init() {
     // Enable debug mode if URL contains debug=true
     this.enabled = window.location.href.includes('debug=true');
-    if (this.enabled) {
-    }
   },
   
   addLog(component, message, data = {}) {
@@ -93,16 +91,13 @@ const OverlayManager = {
    * @returns {OverlayManager} Self for chaining
    */
   async initialize() {
-    SmartLogger.log('UI.STATES', 'Initializing overlay');
     
     // Check if extension context is still valid
     try {
       if (!chrome?.runtime?.id) {
-        SmartLogger.log('UI.STATES', 'Extension context invalid, skipping initialization');
         return this;
       }
     } catch (e) {
-      SmartLogger.log('UI.STATES', 'Extension context check failed, skipping initialization');
       return this;
     }
     
@@ -111,7 +106,6 @@ const OverlayManager = {
       const settings = await new Promise((resolve) => {
         chrome.storage.local.get(['showAnalysis', 'compliance'], (data) => {
           if (chrome.runtime.lastError) {
-            SmartLogger.log('UI.STATES', 'Chrome storage error:', chrome.runtime.lastError.message);
             resolve({});
             return;
           }
@@ -120,7 +114,6 @@ const OverlayManager = {
       });
       
       if (settings.showAnalysis === false) {
-        SmartLogger.log('UI.STATES', 'Show analysis is disabled, skipping initialization');
         return this;
       }
       
@@ -128,7 +121,6 @@ const OverlayManager = {
       this.hasCompliance = settings.compliance?.hasAcknowledged || false;
     } catch (error) {
       // Continue with initialization on error
-      SmartLogger.log('UI.STATES', 'Error checking settings:', error);
       this.hasCompliance = false;
     }
     
@@ -142,12 +134,10 @@ const OverlayManager = {
     
     // If injection failed, retry with delays
     if (!this.overlayElement) {
-      SmartLogger.log('UI.ERRORS', 'Initial injection failed, scheduling retries');
       
       // Retry after DOM settles
       setTimeout(() => {
         if (!this.overlayElement) {
-          SmartLogger.log('UI.STATES', 'Retrying injection (attempt 2)');
           this.createAndInject();
         }
       }, 1000);
@@ -155,7 +145,6 @@ const OverlayManager = {
       // Final retry after LinkedIn finishes loading
       setTimeout(() => {
         if (!this.overlayElement) {
-          SmartLogger.log('UI.STATES', 'Final injection attempt (attempt 3)');
           this.createAndInject();
         }
       }, 3000);
@@ -169,20 +158,17 @@ const OverlayManager = {
     // 3. Has compliance and cache - restore cached data
     if (this.overlayElement) {
       if (this.hasCompliance) {
-        SmartLogger.log('UI.STATES', 'User has compliance, checking for cached data on initialization');
         // Use setTimeout to ensure DOM is fully ready
         setTimeout(async () => {
           // Check if we already have scores displayed (from popup-triggered analysis)
           const hasScores = this.overlayElement?.querySelector('.completeness-score')?.textContent;
           if (hasScores && hasScores !== '0' && hasScores !== '') {
-            SmartLogger.log('UI.STATES', 'Scores already displayed, skipping restoration on init');
             return;
           }
           // This will check for cache and either restore it or show EMPTY_CACHE state
           await this.restoreAppropriateState();
         }, 100);
       } else {
-        SmartLogger.log('UI.STATES', 'No compliance yet, showing zero state with disabled analyze button');
         // The INITIALIZING state handler will show zero state for no compliance
         // No need to call restoreAppropriateState
       }
@@ -417,20 +403,6 @@ const OverlayManager = {
     // Find the right place to inject
     let injected = false;
     
-    // Log available elements for debugging
-    Logger.debug('[OverlayManager] Looking for injection points...', {
-      profileCard: !!document.querySelector('section.artdeco-card[data-member-id]'),
-      profileSection: !!document.querySelector('.pv-top-card'),
-      aboutSection: !!document.querySelector('#about'),
-      mainContent: !!document.querySelector('main'),
-      scaffoldMain: !!document.querySelector('.scaffold-layout__main'),
-      profileWrapper: !!document.querySelector('[data-generated-suggestion-target]'),
-      profileMain: !!document.querySelector('.profile-detail'),
-      bodyContainer: !!document.querySelector('.body-container'),
-      applicationBody: !!document.querySelector('.application-outlet'),
-      profileContentMain: !!document.querySelector('.pv-oc'),
-      profileViewContainer: !!document.querySelector('[data-view-name="profile-view"]')
-    });
     
     // Strategy 0: Look for main profile content container first
     const profileMainContent = document.querySelector('.pv-oc') || 
@@ -440,7 +412,6 @@ const OverlayManager = {
     if (profileMainContent && !injected) {
       const topCard = profileMainContent.querySelector('.pv-top-card');
       if (topCard) {
-        Logger.info('[OverlayManager] Injecting after top card in main profile content');
         topCard.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -456,15 +427,8 @@ const OverlayManager = {
                            !parent.classList.contains('pv-profile-sticky-header-v2__container');
       
       if (isMainContent) {
-        Logger.info('[OverlayManager] Injecting after profile top card', {
-          parentClasses: parent.className,
-          parentId: parent.id,
-          parentTag: parent.tagName
-        });
         topCard.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
-      } else {
-        Logger.warn('[OverlayManager] Top card found but parent appears to be sidebar or header');
       }
     }
     
@@ -472,7 +436,6 @@ const OverlayManager = {
     if (!injected) {
       const profileSection = document.querySelector('section.artdeco-card.pv-top-card-profile-picture');
       if (profileSection) {
-        Logger.info('[OverlayManager] Injecting after profile intro section');
         profileSection.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -482,7 +445,6 @@ const OverlayManager = {
     if (!injected) {
       const profileCards = document.querySelectorAll('section.pv-profile-card');
       if (profileCards.length > 0) {
-        Logger.info('[OverlayManager] Injecting after first profile card');
         profileCards[0].insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -492,7 +454,6 @@ const OverlayManager = {
     if (!injected) {
       const aboutSection = document.querySelector('section#about, div#about');
       if (aboutSection && aboutSection.parentElement) {
-        Logger.info('[OverlayManager] Injecting after About section');
         aboutSection.parentElement.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -502,7 +463,6 @@ const OverlayManager = {
     if (!injected) {
       const anyCard = document.querySelector('section.artdeco-card');
       if (anyCard) {
-        Logger.info('[OverlayManager] Injecting after first artdeco card (generic fallback)');
         anyCard.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -512,7 +472,6 @@ const OverlayManager = {
     if (!injected) {
       const profileWrapper = document.querySelector('[data-generated-suggestion-target]');
       if (profileWrapper) {
-        Logger.info('[OverlayManager] Injecting after profile wrapper');
         profileWrapper.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -524,7 +483,6 @@ const OverlayManager = {
         el.tagName === 'SECTION' || el.tagName === 'DIV'
       );
       if (profileElements.length > 0) {
-        Logger.info('[OverlayManager] Injecting after first profile element');
         profileElements[0].insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -542,29 +500,22 @@ const OverlayManager = {
           // Find the first section/card in profile content
           const firstSection = profileContent.querySelector('section, .artdeco-card');
           if (firstSection) {
-            Logger.info('[OverlayManager] Injecting after first profile section in main content');
             firstSection.insertAdjacentHTML('afterend', wrapperHtml);
             injected = true;
           } else {
             // Instead of afterbegin, find first child and inject after it
             const firstChild = profileContent.querySelector('*');
             if (firstChild) {
-              Logger.info('[OverlayManager] Injecting after first child of profile content');
               firstChild.insertAdjacentHTML('afterend', wrapperHtml);
               injected = true;
-            } else {
-              Logger.warn('[OverlayManager] Profile content found but no suitable injection point');
             }
           }
         } else {
           // Instead of injecting at beginning of main, find first substantial child
           const firstMainChild = mainContent.querySelector('section, article, div.artdeco-card, div[class*="profile"]');
           if (firstMainChild) {
-            Logger.info('[OverlayManager] Injecting after first substantial child in main content');
             firstMainChild.insertAdjacentHTML('afterend', wrapperHtml);
             injected = true;
-          } else {
-            Logger.warn('[OverlayManager] Main content found but no suitable injection point - skipping');
           }
         }
       }
@@ -572,11 +523,9 @@ const OverlayManager = {
     
     // Strategy 9: Delayed injection - wait for DOM to fully load
     if (!injected) {
-      Logger.warn('[OverlayManager] No immediate injection point found, trying delayed injection...');
       setTimeout(() => {
         const delayedTopCard = document.querySelector('.pv-top-card, .profile-detail, section[data-member-id]');
         if (delayedTopCard && delayedTopCard.parentElement) {
-          Logger.info('[OverlayManager] Delayed injection successful');
           delayedTopCard.parentElement.insertAdjacentHTML('afterend', wrapperHtml);
           this.overlayElement = document.getElementById('elevateli-overlay');
           if (this.overlayElement) {
@@ -585,22 +534,12 @@ const OverlayManager = {
             this.overlayElement.classList.add('unified-ui');
             this.overlayElement.setAttribute('data-view-state', this.viewState);
           }
-        } else {
-          Logger.error('[OverlayManager] Delayed injection also failed');
         }
       }, 2000);
       return; // Exit early and let delayed injection handle it
     }
     
     if (!injected) {
-      Logger.error('[OverlayManager] Failed to inject overlay - no suitable location found', {
-        url: window.location.href,
-        hasMain: !!document.querySelector('main'),
-        hasBody: !!document.body,
-        bodyChildren: document.body.children.length,
-        allSections: document.querySelectorAll('section').length,
-        allArtdecoCards: document.querySelectorAll('.artdeco-card').length
-      });
       return;
     }
     
@@ -609,7 +548,6 @@ const OverlayManager = {
     // Attach event listeners
     this.attachEventListeners();
     
-    SmartLogger.log('UI.RENDERING', 'Overlay injected into DOM');
   },
   
   /**
@@ -671,11 +609,6 @@ const OverlayManager = {
   setState(newState, data = {}) {
     // Add null/undefined check for newState
     if (!newState) {
-      SmartLogger.error('UI.STATES', 'setState called with null/undefined state', {
-        providedState: newState,
-        currentState: this.currentState,
-        stackTrace: new Error().stack
-      });
       // Default to EMPTY_CACHE if no state provided
       newState = this.states.EMPTY_CACHE;
     }
@@ -683,25 +616,10 @@ const OverlayManager = {
     // Validate that the state exists in our defined states
     const validStates = Object.values(this.states);
     if (!validStates.includes(newState)) {
-      SmartLogger.error('UI.STATES', 'setState called with invalid state', {
-        providedState: newState,
-        validStates: validStates,
-        currentState: this.currentState
-      });
       // Default to EMPTY_CACHE for invalid states
       newState = this.states.EMPTY_CACHE;
     }
     
-    SmartLogger.log('UI.STATES', 'State change', {
-      from: this.currentState,
-      to: newState,
-      hasData: !!data,
-      dataKeys: data ? Object.keys(data) : [],
-      completeness: data?.completeness,
-      contentScore: data?.contentScore,
-      hasRecommendations: !!data?.recommendations,
-      recommendationType: data?.recommendations ? typeof data.recommendations : 'undefined'
-    });
     this.currentState = newState;
     
     if (!this.overlayElement) return;
@@ -1289,10 +1207,6 @@ const OverlayManager = {
    * @param {Object} data - Score data
    */
   populateScores(data) {
-    // Log section scores if available
-    if (data.sectionScores) {
-      SmartLogger.log('AI.SCORING', 'Section scores', { sectionScores: data.sectionScores });
-    }
     
     // Update completeness
     if (data.completeness !== undefined) {
@@ -1302,14 +1216,6 @@ const OverlayManager = {
     // Check if AI is disabled or API key error
     const qualityBadge = this.overlayElement.querySelector('.score-badge.quality');
     
-    // Debug logging
-    SmartLogger.log('UI.RENDERING', 'Quality badge update check', {
-      aiDisabled: data.aiDisabled,
-      contentScore: data.contentScore,
-      fromCache: data.fromCache,
-      willShowEnableAI: data.aiDisabled || (!data.contentScore && data.fromCache !== true),
-      qualityBadgeExists: !!qualityBadge
-    });
     
     if (data.aiDisabled || ((data.contentScore === undefined || data.contentScore === null) && data.fromCache !== true)) {
       // Replace quality score block with AI disabled message
@@ -1430,7 +1336,6 @@ const OverlayManager = {
       
       // Update collapsed view badge
       if (qualityBadge) {
-        SmartLogger.log('UI.RENDERING', 'Updating quality badge', { contentScore: data.contentScore });
         // Convert 10-point scale to 5-star scale
         const starRating = Math.round(data.contentScore / 2);
         const numericRating = (data.contentScore / 2).toFixed(1);
@@ -1536,24 +1441,9 @@ const OverlayManager = {
    * @param {Array|Object} recommendations - Recommendations data
    */
   showRecommendations(recommendations) {
-    SmartLogger.log('UI.RENDERING', 'showRecommendations called', { recommendations });
     
-    // Add detailed logging for recommendations structure
-    SmartLogger.log('UI.RENDERING', 'Recommendations structure', {
-      type: typeof recommendations,
-      isArray: Array.isArray(recommendations),
-      hasCritical: recommendations?.critical !== undefined,
-      hasImportant: recommendations?.important !== undefined,
-      hasNiceToHave: recommendations?.niceToHave !== undefined,
-      criticalCount: recommendations?.critical?.length || 0,
-      importantCount: recommendations?.important?.length || 0,
-      niceToHaveCount: recommendations?.niceToHave?.length || 0,
-      arrayLength: Array.isArray(recommendations) ? recommendations.length : 0,
-      firstItem: Array.isArray(recommendations) ? recommendations[0] : recommendations?.critical?.[0]
-    });
     
     if (!recommendations) {
-      SmartLogger.log('UI.RENDERING', 'No recommendations provided');
       return;
     }
     
@@ -1564,16 +1454,12 @@ const OverlayManager = {
         (recommendations.important && recommendations.important.length > 0) ||
         (recommendations.niceToHave && recommendations.niceToHave.length > 0);
       
-      if (!hasAnyRecommendations) {
-        SmartLogger.log('UI.RENDERING', 'Recommendations object is empty or has no items');
-      }
     }
     
     const section = this.overlayElement.querySelector('.recommendations-section');
     const list = this.overlayElement.querySelector('.recommendations-list');
     
     if (!section || !list) {
-      SmartLogger.log('UI.ERRORS', 'Recommendations section or list not found');
       return;
     }
     
@@ -1716,15 +1602,6 @@ const OverlayManager = {
         // Ensure we have a valid 'what' string, not an object
         let what = action.what || rec.what || rec.message;
         if (!what || typeof what === 'object') {
-          SmartLogger.log('UI.ERRORS', 'Invalid recommendation format', {
-            recType: typeof rec,
-            recKeys: rec ? Object.keys(rec) : 'null',
-            hasAction: !!rec.action,
-            hasActions: !!rec.actions,
-            actionWhat: action.what,
-            recWhat: rec.what,
-            recMessage: rec.message
-          });
           
           // Try to extract from actions array if present (synthesis format)
           if (rec.actions && Array.isArray(rec.actions) && rec.actions.length > 0) {
@@ -1776,16 +1653,9 @@ const OverlayManager = {
       list.appendChild(categoryDiv);
     });
     
-    SmartLogger.log('UI.RENDERING', 'Final recommendations list', {
-      listChildrenCount: list.children.length,
-      sectionClasses: section.className,
-      willShow: list.children.length > 0
-    });
     
     if (list.children.length > 0) {
       section.classList.remove('hidden');
-      SmartLogger.log('UI.RENDERING', 'Showing recommendations section');
-    } else {
     }
   },
   
@@ -2766,7 +2636,6 @@ const OverlayManager = {
       const wrapper = this.overlayElement.closest('.elevateli-overlay-wrapper');
       if (wrapper) {
         wrapper.style.setProperty('display', 'block', 'important');
-        SmartLogger.log('UI.INTERACTIONS', 'Overlay shown via wrapper with !important');
         return;
       }
     }
@@ -2775,10 +2644,8 @@ const OverlayManager = {
     const wrapper = document.querySelector('.elevateli-overlay-wrapper');
     if (wrapper) {
       wrapper.style.setProperty('display', 'block', 'important');
-      SmartLogger.log('UI.INTERACTIONS', 'Overlay shown via fallback query with !important');
     } else {
       // Re-initialize if not present
-      SmartLogger.log('UI.INTERACTIONS', 'No overlay found, re-initializing');
       this.initialize();
     }
   },
@@ -2794,7 +2661,6 @@ const OverlayManager = {
       if (wrapper) {
         // WORKAROUND: !important needed to override conflicting CSS
         wrapper.style.setProperty('display', 'none', 'important');
-        SmartLogger.log('UI.INTERACTIONS', 'Overlay hidden via wrapper with !important');
         return;
       }
     }
@@ -2804,7 +2670,6 @@ const OverlayManager = {
     if (wrapper) {
       // WORKAROUND: !important needed to override conflicting CSS
       wrapper.style.setProperty('display', 'none', 'important');
-      SmartLogger.log('UI.INTERACTIONS', 'Overlay hidden via fallback query with !important');
     }
   },
   
@@ -2867,7 +2732,6 @@ const OverlayManager = {
     const progressiveData = this.transformToProgressiveFormat(data);
     
     
-    // Debug progressiveData before DOM update
     
     // Build HTML with progressive improvements
     (() => {
@@ -2935,12 +2799,10 @@ const OverlayManager = {
           // Clear the placeholder and append the actual star element
           placeholder.textContent = '';
           placeholder.appendChild(element);
-        } else {
         }
       });
       // Clear pending elements after insertion
       this.pendingStarElements = [];
-    } else {
     }
     
     unifiedSection.classList.remove('hidden');
@@ -2958,7 +2820,6 @@ const OverlayManager = {
     const contentScore = data.contentScore || 0;
     const missingItems = data.completenessData?.recommendations || [];
     
-    // Debug logging for unified message
     
     // Add to debug log
     window.elevateliDebug.addLog('OverlayManager', 'transformToProgressiveFormat START', {
@@ -2968,13 +2829,6 @@ const OverlayManager = {
       dataKeys: Object.keys(data || {})
     });
     
-    // Log only if experience_roles data exists (reduced verbosity)
-    if (data.sectionScores?.experience_roles?.length > 0) {
-      SmartLogger.log('UI.EXPERIENCE', 'Experience roles data available', {
-        rolesCount: data.sectionScores.experience_roles.length,
-        hasOverallAnalysis: !!data.sectionScores.experience_overall
-      });
-    }
     
     // Convert recommendations object to flat array
     let recommendationsArray = [];
@@ -2986,7 +2840,6 @@ const OverlayManager = {
         const { critical = [], important = [], niceToHave = [] } = data.recommendations;
         recommendationsArray = [...critical, ...important, ...niceToHave];
       }
-    } else {
     }
     
     // Apply recommendation allocation algorithm only if we have recommendations
@@ -3117,12 +2970,7 @@ const OverlayManager = {
     }
     
     
-    // Log detailed section content
-    if (sectionScores.profile_intro) {
-    }
     
-    if (sectionScores.skills) {
-    }
     
     // Profile photo section - show if missing (completeness) or vision AI available
     const photoMissing = missingItems.some(item => item.section === 'photo');
@@ -3193,7 +3041,6 @@ const OverlayManager = {
     const firstImpressionScore = sectionScores.first_impression;
     const profileIntroScore = sectionScores.profile_intro; // Legacy support
     
-    // Debug logging
     
     // Headline section - now part of first impression
     const headlineMissing = missingItems.some(item => item.section === 'headline');
@@ -3329,16 +3176,6 @@ const OverlayManager = {
         aboutPositive = "Your About section provides professional context";
       }
       
-      // Debug logging
-      SmartLogger.log('UI.PROGRESSIVE', 'About section analysis', {
-        originalPositive: profileIntroScore.positiveInsight,
-        filteredPositive: aboutPositive,
-        aboutItemsCount: aboutItems.length,
-        aboutItems: aboutItems.map(item => ({ 
-          what: item.category || item.what, 
-          section: item.section 
-        }))
-      });
       
       const aboutRating = this.scoreToRating(profileIntroScore.score);
       sections.push({
@@ -3388,15 +3225,9 @@ const OverlayManager = {
     if (sectionScores.experience_overall || (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles))) {
       // Check for experience scores from AI analysis
       
-      // Debug logging for experience scores
       
       // Check if we have overall experience analysis
       if (sectionScores.experience_overall) {
-        SmartLogger.log('UI.EXPERIENCE', 'Using overall experience analysis', {
-          score: sectionScores.experience_overall.score,
-          hasPositiveInsight: !!sectionScores.experience_overall.positiveInsight,
-          actionItemsCount: sectionScores.experience_overall.actionItems?.length || 0
-        });
         
         // Use overall experience score and feedback
         experienceRating = this.scoreToRating(sectionScores.experience_overall.score);
@@ -3414,9 +3245,6 @@ const OverlayManager = {
         }
       } else if (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles)) {
         // Fallback: calculate from individual roles if no overall analysis
-        SmartLogger.log('UI.EXPERIENCE', 'No overall analysis, calculating from roles', {
-          rolesCount: sectionScores.experience_roles.length
-        });
         
         const experienceScores = [];
         sectionScores.experience_roles.forEach(role => {
@@ -3436,7 +3264,6 @@ const OverlayManager = {
         }
       } else {
         // No AI scores at all, no rating - add positive message if experience passes completeness
-        SmartLogger.log('UI.EXPERIENCE', 'No AI analysis available');
         experienceRating = null; // No rating without AI
         experienceImprovements = [];
         
@@ -3517,19 +3344,6 @@ const OverlayManager = {
       });
     }
     
-    SmartLogger.log('UI.EXPERIENCE', 'Final experience section', {
-      mainRating: experienceSection.rating,
-      hasPositive: !!experienceSection.positive,
-      mainImprovementsCount: experienceSection.improvements.length,
-      hasSubSections: experienceSection.hasSubSections,
-      subSectionsCount: experienceSection.subSections.length,
-      subSectionDetails: experienceSection.subSections.map(sub => ({
-        name: sub.name,
-        rating: sub.rating,
-        hasPositive: !!sub.positive,
-        improvementsCount: sub.improvements.length
-      }))
-    });
     
     sections.push(experienceSection);
     
@@ -3711,7 +3525,6 @@ const OverlayManager = {
       // Removed isDefaultRating
     };
     
-    // Debug logging
     
     // Check if we have AI analysis scores for recommendations
     const aiSectionScores = this.currentData?.sectionScores || {};
@@ -4549,14 +4362,13 @@ const OverlayManager = {
         
         chrome.storage.local.get(['compliance'], (data) => {
           if (chrome.runtime.lastError) {
-            SmartLogger.log('STATE.RESTORATION', 'Failed to get compliance', { error: chrome.runtime.lastError });
             resolve(null);
             return;
           }
           resolve(data.compliance);
         });
       } catch (error) {
-        SmartLogger.error('STATE.RESTORATION', 'Error getting compliance', error);
+        console.error('STATE.RESTORATION', 'Error getting compliance', error);
         resolve(null);
       }
     });
@@ -4576,14 +4388,13 @@ const OverlayManager = {
         
         chrome.storage.local.get(['enableAI', 'apiKey', 'encryptedApiKey', 'aiProvider', 'aiModel'], (data) => {
           if (chrome.runtime.lastError) {
-            SmartLogger.log('STATE.RESTORATION', 'Failed to get settings', { error: chrome.runtime.lastError });
             resolve({});
             return;
           }
           resolve(data);
         });
       } catch (error) {
-        SmartLogger.error('STATE.RESTORATION', 'Error getting settings', error);
+        console.error('STATE.RESTORATION', 'Error getting settings', error);
         resolve({});
       }
     });
@@ -4690,10 +4501,6 @@ const OverlayManager = {
     try {
       // Prevent duplicate restoration attempts
       if (this.isRestoringState) {
-        SmartLogger.log('STATE.RESTORATION', 'Restoration already in progress, skipping duplicate call', {
-          profileId,
-          lastRestoredProfile: this.lastRestoredProfile
-        });
         return true;
       }
       
@@ -4702,10 +4509,6 @@ const OverlayManager = {
         // Check if we have actual data displayed
         const hasScores = this.overlayElement?.querySelector('.completeness-score')?.textContent;
         if (hasScores && hasScores !== '0') {
-          SmartLogger.log('STATE.RESTORATION', 'Already in COMPLETE state with data, skipping restoration', {
-            currentState: this.currentState,
-            hasScores: !!hasScores
-          });
           return true;
         }
       }
@@ -4716,10 +4519,6 @@ const OverlayManager = {
           this.currentState === this.states.SCANNING ||
           this.currentState === this.states.EXTRACTING ||
           this.currentState === this.states.CALCULATING) {
-        SmartLogger.log('STATE.RESTORATION', 'Skipping restoration - analysis in progress', {
-          currentState: this.currentState,
-          profileId
-        });
         return true; // Don't interrupt active analysis
       }
       
@@ -4729,13 +4528,11 @@ const OverlayManager = {
         try {
           profileId = extractProfileIdFromUrl();
         } catch (error) {
-          SmartLogger.log('STATE.RESTORATION', 'Error extracting profile ID', { error: error.message });
           // Don't fail restoration just because of profile ID extraction
           // The function might be temporarily unavailable
         }
         
         if (!profileId) {
-          SmartLogger.log('STATE.RESTORATION', 'No profile ID available for state restoration');
           // Don't return false here - let restoration continue without profile ID
           // Some operations might still work
         }
@@ -4752,28 +4549,19 @@ const OverlayManager = {
       try {
         [compliance, settings, cachedData] = await Promise.all([
           this.getCompliance().catch(err => {
-            SmartLogger.log('STATE.RESTORATION', 'Failed to get compliance', err);
             return null;
           }),
           this.getSettings().catch(err => {
-            SmartLogger.log('STATE.RESTORATION', 'Failed to get settings', err);
             return {};
           }),
           this.getCachedData(profileId).catch(err => {
-            SmartLogger.log('STATE.RESTORATION', 'Failed to get cached data', err);
             return null;
           })
         ]);
       } catch (promiseError) {
-        SmartLogger.log('STATE.RESTORATION', 'Promise.all failed', promiseError);
         // Continue with null values
       }
       
-      SmartLogger.log('STATE.RESTORATION', 'Data loaded', {
-        profileId,
-        hasCache: !!cachedData,
-        hasCompliance: !!compliance?.hasAcknowledged
-      });
       
       // Determine appropriate state
       const stateInfo = this.determineStateFromData(cachedData, settings, compliance, context) || 
@@ -4784,10 +4572,6 @@ const OverlayManager = {
       // Set the determined state
       this.setState(state, data);
       
-      SmartLogger.log('STATE.RESTORATION', 'Restoration complete', {
-        state: state,
-        profileId: profileId
-      });
       
       // Update last restored profile and clear restoration flag
       this.lastRestoredProfile = profileId;
@@ -4800,7 +4584,7 @@ const OverlayManager = {
       const errorObj = error instanceof Error ? error : 
         new Error(typeof error === 'string' ? error : 'Unknown restoration error');
       
-      SmartLogger.error('STATE.RESTORATION', 'Restoration failed', errorObj, {
+      console.error('STATE.RESTORATION', 'Restoration failed', errorObj, {
         profileId: profileId,
         currentState: this.currentState
       });
@@ -4815,14 +4599,10 @@ const OverlayManager = {
         } catch (fallbackError) {
           const fallbackErrorObj = fallbackError instanceof Error ? fallbackError : 
             new Error(typeof fallbackError === 'string' ? fallbackError : 'Fallback state setting failed');
-          SmartLogger.error('STATE.RESTORATION', 'Fallback state setting failed', fallbackErrorObj, {
+          console.error('STATE.RESTORATION', 'Fallback state setting failed', fallbackErrorObj, {
             profileId: profileId
           });
         }
-      } else {
-        SmartLogger.log('STATE.RESTORATION', 'Keeping current state - already in valid state', {
-          currentState: this.currentState
-        });
       }
       
       // Clear restoration flag on error

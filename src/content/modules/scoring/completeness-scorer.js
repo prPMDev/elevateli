@@ -224,11 +224,8 @@ class ProfileCompletenessCalculator {
    * @returns {Object} Complete scoring result
    */
   calculate(sectionData) {
-    const startTime = Date.now();
     
-    // Debug: Log what data we're starting with
     
-    // Debug: Log the rules and weights
     
     const breakdown = {};
     const recommendations = [];
@@ -240,7 +237,6 @@ class ProfileCompletenessCalculator {
       const data = sectionData[section];
       const rule = this.rules[section];
       
-      // Debug: Log each section processing
       
       totalPoints += weight;
       
@@ -253,9 +249,6 @@ class ProfileCompletenessCalculator {
           earnedPoints += points;
           const passed = scoreMultiplier >= 0.5; // Consider >= 50% as "passed"
           
-          // Debug logging for problem sections
-          if (section === 'about' || section === 'experience' || section === 'headline') {
-          }
           
           breakdown[section] = {
             weight,
@@ -310,9 +303,7 @@ class ProfileCompletenessCalculator {
     
     const percentage = Math.round((earnedPoints / totalPoints) * 100);
     
-    // Debug: Log final calculation
     
-    Logger.info(`[ProfileCompletenessCalculator] Calculated in ${Date.now() - startTime}ms`);
     
     return {
       score: percentage,

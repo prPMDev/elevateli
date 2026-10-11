@@ -1,65 +1,5 @@
 /* Background Service Worker for ElevateLI */
 
-// Debug configuration for service worker
-const DEBUG_CONFIG = {
-  ENABLED: true,
-  AI: { PROMPTS: true, RESPONSES: true, PARSING: true, SCORING: true, QUOTES: true, COSTS: true },
-  DATA: { EXTRACTION: true, TRANSFORMATION: true, VALIDATION: true, COMPLETENESS: true },
-  UI: { STATES: true, RENDERING: true, INTERACTIONS: true, ERRORS: true },
-  PERFORMANCE: { TIMING: true, MEMORY: false, CACHE: true, API_LATENCY: true },
-  SECTIONS: { EXPERIENCE: true, RECOMMENDATIONS: true, SKILLS: true, PROFILE_INTRO: true }
-};
-
-// Simple logger for service worker (can't import modules)
-class SmartLogger {
-  static log(category, action, data = {}) {
-    if (!DEBUG_CONFIG.ENABLED) return;
-    const [mainCat, subCat] = category.split('.');
-    if (!DEBUG_CONFIG[mainCat]?.[subCat]) return;
-  }
-  
-  static error(category, action, error, context = {}) {
-    if (!DEBUG_CONFIG.ENABLED) return;
-    
-    // Handle different types of error objects
-    let errorInfo;
-    if (error instanceof Error) {
-      // Standard Error object
-      errorInfo = { message: error.message, stack: error.stack };
-    } else if (error && typeof error === 'object') {
-      // Plain object - try to stringify it
-      errorInfo = { 
-        message: error.message || JSON.stringify(error), 
-        type: 'object',
-        details: error 
-      };
-    } else {
-      // Primitive or null/undefined
-      errorInfo = { message: String(error), type: typeof error };
-    }
-    
-  }
-  
-  static async time(category, action, asyncFn) {
-    if (!DEBUG_CONFIG.ENABLED || !DEBUG_CONFIG.PERFORMANCE?.TIMING) return asyncFn();
-    const start = performance.now();
-    try {
-      const result = await asyncFn();
-      const duration = Math.round((performance.now() - start) * 100) / 100;
-      this.log('PERFORMANCE.TIMING', action, { category, duration });
-      return result;
-    } catch (error) {
-      this.error('PERFORMANCE.TIMING', action, error, { duration: performance.now() - start });
-      throw error;
-    }
-  }
-}
-
-// Check if Chrome APIs are available
-if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) {
-  SmartLogger.error('SYSTEM', 'Chrome APIs not available', new Error('Chrome runtime unavailable'));
-}
-
 // Import crypto manager module
 importScripts('../common/crypto-manager.js');
 
@@ -115,7 +55,7 @@ class CryptoUtils {
       await chrome.storage.local.set({ installationId: newId });
       return newId;
     } catch (error) {
-      SmartLogger.error('SECURITY', 'Failed to get/create passphrase', error);
+      console.error('SECURITY', 'Failed to get/create passphrase', error);
       // Fallback to a simpler ID generation if crypto.randomUUID fails
       const fallbackId = 'elevateli-' + Date.now() + '-' + Math.random().toString(36).substring(2, 15);
       try {
@@ -123,7 +63,7 @@ class CryptoUtils {
           await chrome.storage.local.set({ installationId: fallbackId });
         }
       } catch (e) {
-        SmartLogger.error('SECURITY', 'Failed to save fallback ID', e);
+        console.error('SECURITY', 'Failed to save fallback ID', e);
       }
       return fallbackId;
     }
@@ -175,11 +115,6 @@ class CryptoUtils {
         apiKeyExpiration: expirationTime
       });
       
-      SmartLogger.log('AI.PROMPTS', 'API key encrypted successfully (v1)', { 
-        length: base64Result.length,
-        expiresAt: new Date(expirationTime).toISOString(),
-        format: 'v1'
-      });
       
       // Verify we can decrypt it immediately
       try {
@@ -187,15 +122,14 @@ class CryptoUtils {
         if (testDecrypt !== apiKey) {
           throw new Error('Encryption verification failed');
         }
-        SmartLogger.log('AI.PROMPTS', 'Encryption verified successfully');
       } catch (verifyError) {
-        SmartLogger.error('AI.PROMPTS', 'Failed to verify encryption', verifyError);
+        console.error('AI.PROMPTS', 'Failed to verify encryption', verifyError);
         throw new Error('Encryption verification failed');
       }
       
       return base64Result;
     } catch (error) {
-      SmartLogger.error('AI.PROMPTS', 'Encryption error', error, {
+      console.error('AI.PROMPTS', 'Encryption error', error, {
         hasCrypto: !!crypto,
         hasCryptoSubtle: !!(crypto && crypto.subtle)
       });
@@ -215,10 +149,6 @@ class CryptoUtils {
     try {
       // Validate input
       if (!encryptedData || typeof encryptedData !== 'string') {
-        SmartLogger.error('AI.PROMPTS', 'Invalid encrypted data', new Error('Invalid data'), { 
-          dataType: typeof encryptedData,
-          hasData: !!encryptedData 
-        });
         throw new Error('Encrypted data is missing or invalid');
       }
 
@@ -226,10 +156,6 @@ class CryptoUtils {
       const { apiKeyExpiration } = await chrome.storage.local.get('apiKeyExpiration');
       if (apiKeyExpiration && Date.now() > apiKeyExpiration) {
         const expiredDate = new Date(apiKeyExpiration).toLocaleDateString();
-        SmartLogger.warn('AI.PROMPTS', 'API key has expired', {
-          expiredOn: expiredDate,
-          daysAgo: Math.floor((Date.now() - apiKeyExpiration) / (24 * 60 * 60 * 1000))
-        });
         throw new Error(`API key expired on ${expiredDate}. Please enter a new key.`);
       }
 
@@ -240,7 +166,7 @@ class CryptoUtils {
       try {
         combined = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
       } catch (e) {
-        SmartLogger.error('AI.PROMPTS', 'Failed to decode base64', e, {
+        console.error('AI.PROMPTS', 'Failed to decode base64', e, {
           encryptedDataSample: encryptedData.substring(0, 50) + '...'
         });
         // This might be a corrupted v2 key with chunked encoding
@@ -277,11 +203,9 @@ class CryptoUtils {
               await chrome.storage.local.set({
                 apiKeyExpiration: metadata.expiresAt
               });
-              SmartLogger.log('AI.PROMPTS', 'Migrated v2 expiration to separate storage');
             }
             
             isV2 = true;
-            SmartLogger.log('AI.PROMPTS', 'Detected and migrating v2 encrypted format');
           } catch (metadataError) {
             // Not v2, continue with v1
             isV2 = false;
@@ -294,10 +218,6 @@ class CryptoUtils {
         // Validate combined data length for v1 format
         const minLength = this.saltLength + this.ivLength + 1;
         if (combined.length < minLength) {
-          SmartLogger.error('AI.PROMPTS', 'Encrypted data too short', new Error('Data too short'), {
-            actualLength: combined.length,
-            expectedMinLength: minLength
-          });
           throw new Error('Encrypted data is corrupted or too short');
         }
         
@@ -305,7 +225,6 @@ class CryptoUtils {
         iv = combined.slice(this.saltLength, this.saltLength + this.ivLength);
         encrypted = combined.slice(this.saltLength + this.ivLength);
         
-        SmartLogger.log('AI.PROMPTS', 'Using v1 encrypted format');
       }
 
       const key = await this.generateKey(passphrase, salt);
@@ -324,19 +243,18 @@ class CryptoUtils {
       
       // If we successfully decrypted a v2 key, re-encrypt it as v1
       if (isV2) {
-        SmartLogger.log('AI.PROMPTS', 'Re-encrypting v2 key as v1 for future use');
         try {
           const newEncrypted = await this.encryptApiKey(apiKey);
           await chrome.storage.local.set({ encryptedApiKey: newEncrypted });
         } catch (reEncryptError) {
-          SmartLogger.error('AI.PROMPTS', 'Failed to re-encrypt as v1', reEncryptError);
+          console.error('AI.PROMPTS', 'Failed to re-encrypt as v1', reEncryptError);
           // Continue - at least we decrypted it
         }
       }
       
       return apiKey;
     } catch (error) {
-      SmartLogger.error('AI.PROMPTS', 'Decryption error', error, {
+      console.error('AI.PROMPTS', 'Decryption error', error, {
         encryptedDataLength: encryptedData?.length,
         encryptedDataType: typeof encryptedData,
         errorMessage: error.message,
@@ -362,10 +280,9 @@ class CryptoUtils {
       const encrypted = await this.encryptApiKey(apiKey);
       await chrome.storage.local.set({ encryptedApiKey: encrypted });
       await chrome.storage.local.remove('apiKey');
-      SmartLogger.log('AI.PROMPTS', 'API key successfully migrated to encrypted storage');
       return true;
     } catch (error) {
-      SmartLogger.error('AI.PROMPTS', 'Migration failed', error);
+      console.error('AI.PROMPTS', 'Migration failed', error);
       return false;
     }
   }
@@ -380,7 +297,6 @@ async function getDecryptedApiKey() {
   try {
     // Check if Chrome storage is available
     if (!chrome || !chrome.storage || !chrome.storage.local) {
-      SmartLogger.error('PERFORMANCE.TIMING', 'Chrome storage not available', new Error('No Chrome storage'));
       return null;
     }
     
@@ -391,7 +307,7 @@ async function getDecryptedApiKey() {
     try {
       return await cryptoUtils.decryptApiKey(encryptedApiKey);
     } catch (error) {
-      SmartLogger.error('AI.PROMPTS', 'Failed to decrypt API key', error);
+      console.error('AI.PROMPTS', 'Failed to decrypt API key', error);
       
       // DO NOT auto-delete the key on decryption failure
       // This was causing keys to disappear from settings
@@ -414,7 +330,6 @@ async function getDecryptedApiKey() {
   
   // If we have a plain text key (legacy), migrate it
   if (apiKey) {
-    SmartLogger.log('AI.PROMPTS', 'Found legacy plain text API key, migrating');
     await cryptoUtils.migrateExistingKeys();
     // Try again with the migrated key
     try {
@@ -424,19 +339,19 @@ async function getDecryptedApiKey() {
           try {
             return await cryptoUtils.decryptApiKey(newEncrypted);
           } catch (error) {
-            SmartLogger.error('AI.PROMPTS', 'Failed to decrypt migrated key', error);
+            console.error('AI.PROMPTS', 'Failed to decrypt migrated key', error);
             return null;
           }
         }
       }
     } catch (e) {
-      SmartLogger.error('AI.PROMPTS', 'Failed to get migrated key', e);
+      console.error('AI.PROMPTS', 'Failed to get migrated key', e);
     }
   }
   
   return null;
   } catch (error) {
-    SmartLogger.error('AI.PROMPTS', 'getDecryptedApiKey error', error);
+    console.error('AI.PROMPTS', 'getDecryptedApiKey error', error);
     return null;
   }
 }
@@ -444,19 +359,16 @@ async function getDecryptedApiKey() {
 // Initialize service worker properly
 (async function initializeServiceWorker() {
   try {
-    SmartLogger.log('SYSTEM', 'Service worker initializing');
     
     // Check if migration is needed on every startup
     const { cryptoMigrationComplete } = await chrome.storage.local.get('cryptoMigrationComplete');
     if (!cryptoMigrationComplete) {
-      SmartLogger.log('SYSTEM', 'Running crypto migration');
       await cryptoUtils.migrateExistingKeys();
       await chrome.storage.local.set({ cryptoMigrationComplete: true });
     }
     
-    SmartLogger.log('SYSTEM', 'Service worker initialized successfully');
   } catch (error) {
-    SmartLogger.error('SYSTEM', 'Service worker initialization failed', error);
+    console.error('SYSTEM', 'Service worker initialization failed', error);
   }
 })();
 
@@ -464,13 +376,9 @@ async function getDecryptedApiKey() {
 if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
   chrome.runtime.onInstalled.addListener(async (details) => {
     if (details.reason === 'install') {
-      SmartLogger.log('SYSTEM', 'Extension installed for the first time');
       // Open updates page on fresh install
       chrome.tabs.create({ url: 'updates.html' });
     } else if (details.reason === 'update') {
-      SmartLogger.log('SYSTEM', 'Extension updated', { 
-        previousVersion: details.previousVersion 
-      });
       
       // Parse version numbers
       const previousVersion = details.previousVersion || '0.0.0';
@@ -552,7 +460,6 @@ class ProfileScoreCalculator {
     
     // Add defensive check for sectionScores
     if (!sectionScores || typeof sectionScores !== 'object') {
-      SmartLogger.log('AI.SCORING', 'Invalid sectionScores', { sectionScores });
       return {
         overallScore: null,
         baseScore: null,
@@ -623,7 +530,6 @@ const CACHE_CONFIG = {
 // Check cache for analysis results - Content-based validation, no time expiration
 async function checkCache(cacheKey, forceRefresh = false) {
   if (forceRefresh) {
-    SmartLogger.log('PERFORMANCE.CACHE', 'Force refresh requested', { cacheKey });
     return null;
   }
   
@@ -634,43 +540,32 @@ async function checkCache(cacheKey, forceRefresh = false) {
       const age = Date.now() - cached.timestamp;
       
       // Always return cache regardless of age - content-based invalidation only
-      SmartLogger.log('PERFORMANCE.CACHE', 'Cache hit', { cacheKey, age: formatCacheAge(age) });
       
       // Check if cached analysis has recommendations, if not try to parse from summary
       let cachedAnalysis = cached.analysis;
       if (!cachedAnalysis.recommendations && cachedAnalysis.summary && cachedAnalysis.summary.includes('"recommendations"')) {
-        SmartLogger.log('AI.PARSING', 'Re-parsing cached result', { 
-          summaryPreview: cachedAnalysis.summary.substring(0, 200) 
-        });
         try {
           // Extract JSON from summary if it exists
           const jsonMatch = cachedAnalysis.summary.match(/```json\n([\s\S]+?)\n```/);
           if (jsonMatch) {
-            SmartLogger.log('AI.PARSING', 'Found JSON in summary');
             const jsonData = JSON.parse(jsonMatch[1]);
             if (jsonData.recommendations) {
               cachedAnalysis.recommendations = jsonData.recommendations;
               cachedAnalysis.insights = jsonData.insights;
               cachedAnalysis.fullAnalysis = jsonData;
-              SmartLogger.log('AI.PARSING', 'Successfully extracted recommendations from cache', {
-                critical: cachedAnalysis.recommendations.critical?.length || 0,
-                important: cachedAnalysis.recommendations.important?.length || 0,
-                niceToHave: cachedAnalysis.recommendations.niceToHave?.length || 0
-              });
             }
           }
         } catch (parseError) {
-          SmartLogger.error('AI.PARSING', 'Failed to re-parse cached summary', parseError);
+          console.error('AI.PARSING', 'Failed to re-parse cached summary', parseError);
         }
       }
       
       return cachedAnalysis;
     }
     
-    SmartLogger.log('PERFORMANCE.CACHE', 'Cache miss', { cacheKey });
     return null;
   } catch (error) {
-    SmartLogger.error('PERFORMANCE.CACHE', 'Cache check failed', error);
+    console.error('PERFORMANCE.CACHE', 'Cache check failed', error);
     return null;
   }
 }
@@ -688,14 +583,8 @@ async function storeInCache(cacheKey, analysis) {
     
     await chrome.storage.local.set(storageData);
     
-    SmartLogger.log('PERFORMANCE.CACHE', 'Stored in cache', {
-      cacheKey,
-      hasRecommendations: !!analysis.recommendations,
-      contentScore: analysis.contentScore,
-      sectionCount: Object.keys(analysis.sectionScores || {}).length
-    });
   } catch (error) {
-    SmartLogger.error('PERFORMANCE.CACHE', 'Cache storage failed', error, { cacheKey });
+    console.error('PERFORMANCE.CACHE', 'Cache storage failed', error, { cacheKey });
   }
 }
 
@@ -714,10 +603,9 @@ async function cleanupOldCache() {
     
     if (keysToRemove.length > 0) {
       await chrome.storage.local.remove(keysToRemove);
-      SmartLogger.log('PERFORMANCE.CACHE', 'Cleaned old cache entries', { count: keysToRemove.length });
     }
   } catch (error) {
-    SmartLogger.error('PERFORMANCE.CACHE', 'Cache cleanup failed', error);
+    console.error('PERFORMANCE.CACHE', 'Cache cleanup failed', error);
   }
 }
 
@@ -745,11 +633,6 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     return;
   }
 
-  SmartLogger.log('AI.PROMPTS', 'AI analysis request received', {
-    sections: Object.keys(request.sections || {}),
-    forceRefresh: request.forceRefresh,
-    hasSettings: !!request.settings
-  });
   
   const { sections, settings = {}, forceRefresh = false } = request;
   
@@ -757,7 +640,6 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     // Check AI enabled
     const { enableAI } = await chrome.storage.local.get('enableAI');
     if (!enableAI) {
-      SmartLogger.log('AI.PROMPTS', 'AI is disabled');
       sendResponse({ success: false, error: 'AI analysis is disabled' });
       return;
     }
@@ -765,7 +647,6 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     // Get provider info
     const { aiProvider } = await chrome.storage.local.get('aiProvider');
     if (!aiProvider) {
-      SmartLogger.log('AI.PROMPTS', 'No AI provider configured');
       sendResponse({ 
         success: false, 
         error: 'No AI provider configured',
@@ -777,7 +658,6 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     // Check rate limit
     const rateCheck = rateLimiter.canMakeRequest('analysis', request.profileId || 'unknown');
     if (!rateCheck.allowed) {
-      SmartLogger.log('AI.PROMPTS', 'Rate limit hit', rateCheck);
       sendResponse({
         success: false,
         error: `Rate limit exceeded. Please wait ${rateCheck.waitTime} seconds.`,
@@ -795,11 +675,10 @@ async function handleAIAnalysis(request, sender, sendResponse) {
       apiKey = await getDecryptedApiKey();
     } catch (error) {
       decryptionError = error;
-      SmartLogger.error('AI.PROMPTS', 'Failed to get decrypted key', error);
+      console.error('AI.PROMPTS', 'Failed to get decrypted key', error);
     }
     
     if (!apiKey) {
-      SmartLogger.log('AI.PROMPTS', 'No API key found', { hasDecryptError: !!decryptionError });
       
       // Check if we have an encrypted key that failed to decrypt
       const { encryptedApiKey } = await chrome.storage.local.get('encryptedApiKey');
@@ -831,11 +710,6 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     // Check smart cache unless forced refresh
     const cachedAnalysis = await checkSmartCache(profileId, contentHash, 'text', forceRefresh);
     if (cachedAnalysis) {
-      SmartLogger.log('PERFORMANCE.CACHE', 'Returning cached text analysis', { 
-        profileId,
-        contentHash: contentHash.substring(0, 8) + '...',
-        cachedAt: cachedAnalysis.cachedAt
-      });
       sendResponse({ 
         success: true, 
         analysis: cachedAnalysis,
@@ -845,7 +719,6 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     }
     
     // Get fresh analysis
-    SmartLogger.log('AI.PROMPTS', 'Performing fresh analysis', { provider: aiProvider, model: aiModel });
     const { aiModel } = await chrome.storage.local.get('aiModel');
     const analysis = await performDistributedAnalysis(sections, {
       apiKey,
@@ -866,7 +739,7 @@ async function handleAIAnalysis(request, sender, sendResponse) {
     });
     
   } catch (error) {
-    SmartLogger.error('AI.PROMPTS', 'AI analysis failed', error);
+    console.error('AI.PROMPTS', 'AI analysis failed', error);
     
     // Check for specific error types
     if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
@@ -913,11 +786,6 @@ async function handleAIAnalysis(request, sender, sendResponse) {
 
 // Handle vision AI analysis for images
 async function handleVisionAnalysis(request, sender, sendResponse) {
-  SmartLogger.log('AI.PROMPTS', 'Vision analysis request received', {
-    hasImageData: !!request.imageData,
-    hasPrompt: !!request.prompt,
-    hasContext: !!request.context
-  });
   
   const { imageData, prompt, context = {} } = request;
   
@@ -925,7 +793,6 @@ async function handleVisionAnalysis(request, sender, sendResponse) {
     // Check AI enabled
     const { enableAI } = await chrome.storage.local.get('enableAI');
     if (!enableAI) {
-      SmartLogger.log('AI.PROMPTS', 'AI is disabled');
       sendResponse({ success: false, error: 'AI analysis is disabled' });
       return;
     }
@@ -934,7 +801,6 @@ async function handleVisionAnalysis(request, sender, sendResponse) {
     const { aiProvider, aiModel } = await chrome.storage.local.get(['aiProvider', 'aiModel']);
     const visionModels = ['gpt-4o', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-3.1-pro-preview'];
     if (!aiProvider || !visionModels.includes(aiModel)) {
-      SmartLogger.log('AI.PROMPTS', 'Vision analysis requires a vision-capable model');
       sendResponse({
         success: false,
         error: 'Vision analysis requires a vision-capable model (GPT-4.1 or Gemini)',
@@ -955,7 +821,6 @@ async function handleVisionAnalysis(request, sender, sendResponse) {
     // Get decrypted API key
     const apiKey = await getDecryptedApiKey();
     if (!apiKey) {
-      SmartLogger.log('AI.PROMPTS', 'No API key found');
       sendResponse({ 
         success: false, 
         error: 'API key not configured',
@@ -972,10 +837,6 @@ async function handleVisionAnalysis(request, sender, sendResponse) {
     // Check smart cache unless forced refresh
     const cachedResult = await checkSmartCache(profileId, imageHash, `vision_${analysisType}`, context.forceRefresh);
     if (cachedResult) {
-      SmartLogger.log('PERFORMANCE.CACHE', 'Returning cached vision result', { 
-        imageHash: imageHash.substring(0, 8) + '...',
-        analysisType 
-      });
       sendResponse({ 
         success: true, 
         result: cachedResult
@@ -984,11 +845,6 @@ async function handleVisionAnalysis(request, sender, sendResponse) {
     }
     
     // Perform fresh vision analysis
-    SmartLogger.log('AI.PROMPTS', 'Performing fresh vision analysis', { 
-      provider: aiProvider, 
-      model: aiModel,
-      analysisType 
-    });
     
     const visionResult = await callOpenAIVision(apiKey, imageData, prompt);
     
@@ -1001,7 +857,7 @@ async function handleVisionAnalysis(request, sender, sendResponse) {
     });
     
   } catch (error) {
-    SmartLogger.error('AI.PROMPTS', 'Vision analysis failed', error);
+    console.error('AI.PROMPTS', 'Vision analysis failed', error);
     
     // Handle specific error types
     if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
@@ -1046,7 +902,7 @@ async function generateImageHash(imageDataUrl) {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   } catch (error) {
-    SmartLogger.error('AI.PROMPTS', 'Error generating image hash', error);
+    console.error('AI.PROMPTS', 'Error generating image hash', error);
     return `img_fallback_${Date.now()}`;
   }
 }
@@ -1073,7 +929,7 @@ async function checkSmartCache(profileId, contentHash, analysisType, forceRefres
     
     return null;
   } catch (error) {
-    SmartLogger.error('PERFORMANCE.CACHE', 'Error checking smart cache', error);
+    console.error('PERFORMANCE.CACHE', 'Error checking smart cache', error);
     return null;
   }
 }
@@ -1093,15 +949,10 @@ async function storeInSmartCache(profileId, contentHash, analysisResult, analysi
       [cacheKey]: cacheData
     });
     
-    SmartLogger.log('PERFORMANCE.CACHE', 'Stored in smart cache', {
-      cacheKey,
-      contentHash: contentHash.substring(0, 8) + '...',
-      analysisType
-    });
     
     return true;
   } catch (error) {
-    SmartLogger.error('PERFORMANCE.CACHE', 'Error storing in smart cache', error);
+    console.error('PERFORMANCE.CACHE', 'Error storing in smart cache', error);
     return false;
   }
 }
@@ -1132,7 +983,7 @@ async function generateTextContentHash(sections) {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   } catch (error) {
-    SmartLogger.error('PERFORMANCE.CACHE', 'Error generating text content hash', error);
+    console.error('PERFORMANCE.CACHE', 'Error generating text content hash', error);
     // Fallback to timestamp-based cache key if hashing fails
     return `fallback_${Date.now()}`;
   }
@@ -1140,12 +991,6 @@ async function generateTextContentHash(sections) {
 
 // Perform distributed AI analysis
 async function performDistributedAnalysis(sections, config) {
-  SmartLogger.log('AI.PROMPTS', 'Starting distributed analysis', {
-    provider: config.provider,
-    targetRole: config.targetRole,
-    seniorityLevel: config.seniorityLevel,
-    sectionsCount: Object.keys(sections).length
-  });
   
   const sectionAnalyses = {};
   
@@ -1163,18 +1008,8 @@ async function performDistributedAnalysis(sections, config) {
     try {
       const sectionPrompt = createSectionPrompt(sectionName, sectionContent, config);
       
-      // Log prompt generation
-      SmartLogger.log('AI.PROMPTS', 'Section prompt created', {
-        section: sectionName,
-        promptLength: sectionPrompt.length,
-        targetRole: config.targetRole,
-        seniorityLevel: config.seniorityLevel,
-        hasCustomInstructions: !!config.customInstructions
-      });
       
-      const response = await SmartLogger.time('PERFORMANCE.API_LATENCY', `AI analysis - ${sectionName}`, 
-        async () => await callAIProvider(config.provider, config.apiKey, sectionPrompt, config.model)
-      );
+      const response = await callAIProvider(config.provider, config.apiKey, sectionPrompt, config.model);
       
       // Parse the response
       const analysis = parseSectionAnalysis(response, sectionName);
@@ -1183,19 +1018,12 @@ async function performDistributedAnalysis(sections, config) {
         ...analysis
       };
       
-      SmartLogger.log('AI.RESPONSES', 'Section analyzed', {
-        section: sectionName,
-        score: analysis.score,
-        hasPositiveInsight: !!analysis.positiveInsight,
-        hasActionItems: analysis.actionItems?.length > 0,
-        hasQuotes: analysis.positiveInsight?.includes('"') || analysis.gapAnalysis?.includes('"')
-      });
       
       // Small delay between requests to avoid rate limits
       await new Promise(resolve => setTimeout(resolve, 1000));
       
     } catch (error) {
-      SmartLogger.error('AI.RESPONSES', 'Section analysis failed', error, { section: sectionName });
+      console.error('AI.RESPONSES', 'Section analysis failed', error, { section: sectionName });
       sectionAnalyses[sectionName] = {
         exists: true,
         score: null,
@@ -1236,20 +1064,11 @@ function createSectionPrompt(sectionName, content, config, context = {}) {
   
   // Special handling for overall experience analysis
   if (sectionName === 'experience_overall' && typeof content === 'object') {
-    SmartLogger.log('AI.PROMPTS', 'Using overall experience prompt', { 
-      contentKeys: Object.keys(content),
-      totalRoles: content.totalRoles,
-      hasExperiences: content.experiences?.length > 0 
-    });
     return createExperienceOverallPrompt(content, enhancedConfig, context);
   }
   
   // Special handling for experience section (fallback)
   if (sectionName === 'experience' && typeof content === 'object') {
-    SmartLogger.log('AI.PROMPTS', 'Using experience fallback prompt', { 
-      contentKeys: Object.keys(content),
-      hasExperiences: content.experiences?.length > 0 
-    });
     return createExperienceSectionPrompt(content, config);
   }
   
@@ -1595,15 +1414,6 @@ function createRecommendationsPrompt(recommendationsData, config, context = {}) 
   const recommendationCount = recommendationsData.count || recommendationsData.receivedCount || 0;
   const currentYear = new Date().getFullYear();
   
-  SmartLogger.log('AI.PROMPTS', 'Creating recommendations prompt', {
-    dataKeys: Object.keys(recommendationsData),
-    count: recommendationsData.count,
-    receivedCount: recommendationsData.receivedCount,
-    hasRecommendationChunks: !!recommendationsData.recommendationChunks,
-    chunksLength: recommendationsData.recommendationChunks?.length || 0,
-    hasReceived: !!recommendationsData.received,
-    receivedLength: recommendationsData.received?.length || 0
-  });
   
   const prompt = `You are an expert LinkedIn profile optimizer analyzing recommendations for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
@@ -1708,17 +1518,6 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
 
 // Create specialized prompt for profile intro (headline + about)
 function createProfileIntroPrompt(profileData, config) {
-  // Log the incoming data to debug [object Object] issue
-  SmartLogger.log('AI.PROMPTS', 'Profile intro data received', {
-    headlineType: typeof profileData.headline,
-    headlineValue: profileData.headline,
-    headlineFirst50: profileData.headline?.substring(0, 50),
-    aboutType: typeof profileData.about,
-    aboutLength: profileData.about?.length || 0,
-    aboutFirst100: profileData.about?.substring(0, 100),
-    configTargetRole: config.targetRole,
-    configSeniority: config.seniorityLevel
-  });
   
   const prompt = `You are an expert LinkedIn profile optimizer analyzing the CRITICAL first impression: headline and about section together.
 
@@ -1816,14 +1615,6 @@ IMPORTANT:
 // [CRITICAL_PATH:FIRST_IMPRESSION_AI] - P0: AI analysis for unified first impression
 // Create specialized prompt for first impression (headline + photo + banner)
 function createFirstImpressionPrompt(firstImpressionData, config) {
-  // Log the incoming data
-  SmartLogger.log('AI.PROMPTS', 'First impression data received', {
-    hasHeadline: !!firstImpressionData.headline,
-    headlineLength: firstImpressionData.headline?.length,
-    hasPhoto: firstImpressionData.photo?.exists,
-    hasCustomBanner: firstImpressionData.banner?.isCustomBanner,
-    openToWork: firstImpressionData.metadata?.openToWork
-  });
   
   const prompt = `You are an expert LinkedIn profile optimizer analyzing first impressions for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
@@ -1901,12 +1692,6 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
 // [CRITICAL_PATH:ABOUT_SECTION_AI] - P0: Standalone About section analysis
 // Create specialized prompt for About section only using Anthropic best practices
 function createAboutPrompt(aboutContent, config) {
-  SmartLogger.log('AI.PROMPTS', 'About section data received', {
-    aboutLength: aboutContent?.length || 0,
-    aboutFirst100: aboutContent?.substring(0, 100),
-    configTargetRole: config.targetRole,
-    configSeniority: config.seniorityLevel
-  });
   
   const prompt = `You are an expert LinkedIn profile optimizer analyzing About sections for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
@@ -1995,49 +1780,9 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
 
 // Create specialized prompt for skills section
 function createSkillsPrompt(skillsData, config, context = {}) {
-  // UNCONDITIONAL DEBUG: Log skills data received in service worker
   
-  // Debug logging for skills data
-  SmartLogger.log('AI.SKILLS', 'Skills analysis data', {
-    total: skillsData.count || skillsData.skills?.length,
-    hasEndorsements: skillsData.skills?.some(s => s.endorsementCount > 0),
-    topSkills: skillsData.skills?.slice(0, 3).map(s => s.name)
-  });
   
-  // ENHANCED DEBUG: Log detailed skills data received
-  SmartLogger.log('AI.SKILLS', 'Detailed skills structure received:', {
-    dataKeys: Object.keys(skillsData),
-    skillsArrayLength: skillsData.skills?.length,
-    firstThreeSkillsDetailed: skillsData.skills?.slice(0, 3).map(s => ({
-      name: s.name || s,
-      endorsementCount: s.endorsementCount,
-      hasEndorsements: s.hasEndorsements,
-      endorsementRecency: s.endorsementRecency,
-      position: s.position,
-      visibilityTier: s.visibilityTier,
-      experienceContext: s.experienceContext ? {
-        hasContext: true,
-        totalExperiences: s.experienceContext.totalExperiences,
-        primaryCompany: s.experienceContext.primaryCompany
-      } : null,
-      educationContext: s.educationContext,
-      hasDetails: s.hasDetails,
-      detailsCount: s.detailsCount
-    })),
-    totalEndorsements: skillsData.totalEndorsements,
-    averageEndorsements: skillsData.averageEndorsements,
-    endorsedSkillsCount: skillsData.endorsedSkillsCount,
-    visibleSkillsCount: skillsData.visibleSkillsCount,
-    expandedSkillsCount: skillsData.expandedSkillsCount,
-    hasTop3Skills: !!skillsData.top3Skills,
-    hasTopEndorsedSkills: !!skillsData.topEndorsedSkills,
-    hasSkillsByCategory: !!skillsData.skillsByCategory
-  });
   
-  // SCORE MISMATCH DEBUG: Log if this is a skills section
-  if (config.currentDate) {
-    SmartLogger.log('AI.SKILLS', 'About to create skills prompt for analysis');
-  }
   
   // Add completeness context for conditional generic advice
   const completenessScore = context.completenessScore || 100;
@@ -2191,42 +1936,14 @@ function parseSectionAnalysis(response, sectionName) {
       const improvements = parsed.improvements || [];
       
       // Validate that AI included specific quotes
-      const hasQuotes = (text) => text && (text.includes('"') || text.includes("'") || text.includes('[') || text.includes('Your'));
       
-      // Log warning if response lacks specific quotes
-      if (parsed.positiveInsight && !hasQuotes(parsed.positiveInsight)) {
-        SmartLogger.log('AI.QUOTES', 'Missing quotes in positiveInsight', { 
-          section: sectionName,
-          textPreview: parsed.positiveInsight.substring(0, 100) 
-        });
-      }
       
-      if (parsed.gapAnalysis && !hasQuotes(parsed.gapAnalysis)) {
-        SmartLogger.log('AI.QUOTES', 'Missing quotes in gapAnalysis', { 
-          section: sectionName,
-          textPreview: parsed.gapAnalysis.substring(0, 100) 
-        });
-      }
       
       // Validate actionItems have quotedContent
       const validatedActionItems = actionItems.map(item => {
-        if (typeof item === 'object' && !item.quotedContent) {
-          SmartLogger.log('AI.QUOTES', 'ActionItem missing quotedContent', { 
-            section: sectionName,
-            what: item.what 
-          });
-        }
         return item;
       });
       
-      // Log successful parse
-      SmartLogger.log('AI.PARSING', 'Response parsed successfully', {
-        section: sectionName,
-        score: parsed.score,
-        hasSpecificFeedback: !!parsed.specificFeedback,
-        actionItemCount: validatedActionItems.length,
-        quotesDetected: hasQuotes(parsed.positiveInsight) || hasQuotes(parsed.gapAnalysis)
-      });
       
       return {
         score: Math.min(10, Math.max(0, parsed.score || 5)),
@@ -2246,14 +1963,13 @@ function parseSectionAnalysis(response, sectionName) {
       };
     }
   } catch (error) {
-    SmartLogger.error('AI.PARSING', 'Failed to parse response', error, {
+    console.error('AI.PARSING', 'Failed to parse response', error, {
       section: sectionName,
       responsePreview: response.substring(0, 200)
     });
   }
   
   // Fallback parsing
-  SmartLogger.log('AI.PARSING', 'Using fallback parsing', { section: sectionName });
   return {
     score: null,
     errorType: 'RESPONSE_PARSE_ERROR',
@@ -2269,7 +1985,6 @@ function parseSectionAnalysis(response, sectionName) {
 
 // Synthesize final analysis from section analyses
 async function synthesizeFinalAnalysis(sectionAnalyses, config) {
-  SmartLogger.log('AI.PROMPTS', 'Creating final recommendations from section analyses');
   
   // Separate experience roles from other sections
   const experienceRoles = [];
@@ -2380,7 +2095,6 @@ async function synthesizeFinalAnalysis(sectionAnalyses, config) {
       // Add action items if they exist
       if (analysis.actionItems?.length > 0) {
         analysis.actionItems.forEach((item) => {
-          const isRecentRole = section === 'experience_role' && analysis.recencyScore > 0.8;
           // Use priority from action item if available, otherwise calculate
           const priority = item.priority || (analysis.score < 5 ? 'critical' : analysis.score < 7 ? 'high' : 'medium');
           
@@ -2434,12 +2148,6 @@ async function synthesizeFinalAnalysis(sectionAnalyses, config) {
     summary: `Analysis complete. Found ${allRecommendations.length} recommendations across ${Object.keys(sectionAnalyses).length} sections.`
   };
   
-  SmartLogger.log('AI.PROMPTS', 'Final synthesis complete', {
-    hasRecommendations: !!result.recommendations,
-    recommendationCount: allRecommendations.length,
-    insightsType: typeof result.insights,
-    summaryLength: result.summary.length
-  });
   
   return result;
 }
@@ -2490,7 +2198,6 @@ function analyzeCareerTrajectory(experienceRoles) {
 
 // Call AI provider
 async function callAIProvider(provider, apiKey, prompt, model = null) {
-  SmartLogger.log('AI.PROMPTS', 'Calling AI provider', { provider, model });
   
   // Clean and validate API key
   if (!apiKey || typeof apiKey !== 'string') {
@@ -2501,12 +2208,6 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
   const cleanApiKey = apiKey.trim().replace(/[^\x20-\x7E]/g, '');
   
   // Check if key was significantly altered (might indicate encoding issues)
-  if (cleanApiKey.length < apiKey.length - 2) {
-    SmartLogger.log('AI.PROMPTS', 'API key contained non-ASCII characters that were removed', { 
-      originalLength: apiKey.length, 
-      cleanLength: cleanApiKey.length 
-    });
-  }
   
   if (!cleanApiKey) {
     throw new Error('API key is empty after cleaning');
@@ -2587,8 +2288,6 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
     clearTimeout(timeoutId);
     
     if (!response.ok) {
-      const errorData = await response.text();
-      SmartLogger.error('AI.RESPONSES', 'API error response', new Error(errorData), { status: response.status });
       throw new Error(`API error: ${response.status} ${response.statusText}`);
     }
     
@@ -2599,7 +2298,7 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
     clearTimeout(timeoutId);
     
     if (error.name === 'AbortError') {
-      SmartLogger.error('AI.PROMPTS', 'Request timeout', new Error('API request timed out after 30 seconds'));
+      console.error('AI.PROMPTS', 'Request timeout', new Error('API request timed out after 30 seconds'));
       throw new Error('Request timeout - API not responding');
     }
     
@@ -2608,18 +2307,6 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
   
   // Helper function to process provider response
   function processProviderResponse(provider, data, model) {
-    // Log token usage
-    if (data.usage || data.usageMetadata) {
-      const usage = data.usage || {};
-      const geminiUsage = data.usageMetadata || {};
-      SmartLogger.log('AI.COSTS', 'Token usage', {
-        prompt_tokens: usage.prompt_tokens || geminiUsage.promptTokenCount || 0,
-        completion_tokens: usage.completion_tokens || geminiUsage.candidatesTokenCount || 0,
-        total_tokens: usage.total_tokens || geminiUsage.totalTokenCount || 0,
-        model: model,
-        provider: provider
-      });
-    }
 
     // Extract content based on provider
     if (provider === 'openai') {
@@ -2644,7 +2331,6 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   
   const { action } = request;
   
-  SmartLogger.log('PERFORMANCE.TIMING', 'Service worker received message', { action, senderId: sender.id });
   
   // Handle test API key
   if (action === 'testApiKey') {
@@ -2666,9 +2352,7 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   // [CRITICAL_PATH:API_KEY_ENCRYPTION_HANDLER] - P0: Handles API key encryption requests from popup
   // Handle API key encryption with better error handling
   if (action === 'encryptApiKey') {
-    SmartLogger.log('AI.PROMPTS', 'Encrypting API key');
     cryptoUtils.encryptApiKey(request.apiKey).then(async (encryptedKey) => {
-      SmartLogger.log('AI.PROMPTS', 'Encryption successful');
       // Get installationId from storage
       const { installationId } = await chrome.storage.local.get('installationId');
       sendResponse({ 
@@ -2677,7 +2361,7 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
         installationId: installationId || null
       });
     }).catch(error => {
-      SmartLogger.error('AI.PROMPTS', 'Encryption failed', error);
+      console.error('AI.PROMPTS', 'Encryption failed', error);
       sendResponse({ 
         success: false, 
         error: error.message || 'Failed to encrypt API key',
@@ -2693,12 +2377,10 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   // [CRITICAL_PATH:API_KEY_CLEAR_HANDLER] - P0: Securely removes all API key data
   // Handle API key clearing
   if (action === 'clearApiKey') {
-    SmartLogger.log('AI.PROMPTS', 'Clearing API key');
     cryptoUtils.clearApiKey().then(() => {
-      SmartLogger.log('AI.PROMPTS', 'API key cleared successfully');
       sendResponse({ success: true });
     }).catch(error => {
-      SmartLogger.error('AI.PROMPTS', 'Failed to clear API key', error);
+      console.error('AI.PROMPTS', 'Failed to clear API key', error);
       sendResponse({ 
         success: false, 
         error: error.message || 'Failed to clear API key'
@@ -2721,7 +2403,6 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   
   // Handle API key validation
   if (action === 'validateApiKey') {
-    SmartLogger.log('AI.PROMPTS', 'Validating API key');
     (async () => {
       try {
         // Use provider and API key from request (during setup)
@@ -2748,7 +2429,7 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
         const result = await testApiKey(provider, apiKey, null);
         sendResponse(result);
       } catch (error) {
-        SmartLogger.error('AI.PROMPTS', 'API key validation error', error);
+        console.error('AI.PROMPTS', 'API key validation error', error);
         sendResponse({ 
           success: false, 
           error: error.message || 'Validation failed' 
@@ -2766,7 +2447,6 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   }
   
   // Default response for unknown actions
-  SmartLogger.log('PERFORMANCE.TIMING', 'Unknown action', { action });
   sendResponse({ success: false, error: 'Unknown action' });
   return true;
 });
@@ -2797,14 +2477,6 @@ class RateLimiter {
     if (recentRequests.length >= config.limit) {
       const oldestRequest = recentRequests[0];
       const waitTime = Math.ceil((config.window - (now - oldestRequest)) / 1000);
-      SmartLogger.log('AI.RATE_LIMIT', 'Rate limit exceeded', {
-        type,
-        identifier,
-        limit: config.limit,
-        window: config.window,
-        current: recentRequests.length,
-        waitTimeSeconds: waitTime
-      });
       return { allowed: false, waitTime };
     }
     
@@ -2867,7 +2539,6 @@ async function testApiKey(provider, apiKey, model) {
 
     // Normalize provider string
     provider = provider?.toLowerCase()?.trim();
-    SmartLogger.log('AI.PROMPTS', 'Testing API key', { provider, hasApiKey: !!apiKey });
     
     // Clean and validate API key
     if (!apiKey || typeof apiKey !== 'string') {
@@ -2878,12 +2549,6 @@ async function testApiKey(provider, apiKey, model) {
     const cleanApiKey = apiKey.trim().replace(/[^\x20-\x7E]/g, '');
     
     // Check if key was significantly altered (might indicate encoding issues)
-    if (cleanApiKey.length < apiKey.length - 2) {
-      SmartLogger.log('AI.PROMPTS', 'API key contained non-ASCII characters', {
-        originalLength: apiKey.length,
-        cleanLength: cleanApiKey.length
-      });
-    }
     
     if (!cleanApiKey) {
       return { success: false, error: 'API key is empty or contains only invalid characters' };
@@ -2908,7 +2573,6 @@ async function testApiKey(provider, apiKey, model) {
 
       if (!response.ok) {
         const errorData = await response.json();
-        SmartLogger.error('AI.PROMPTS', 'OpenAI test failed', new Error(JSON.stringify(errorData)), { status: response.status });
 
         if (response.status === 401) {
           return { success: false, error: 'Invalid API key' };
@@ -2940,7 +2604,6 @@ async function testApiKey(provider, apiKey, model) {
 
       if (!response.ok) {
         const errorData = await response.json();
-        SmartLogger.error('AI.PROMPTS', 'Gemini test failed', new Error(JSON.stringify(errorData)), { status: response.status });
 
         if (response.status === 400 && errorData.error?.message?.includes('API key')) {
           return { success: false, error: 'Invalid API key' };
@@ -2975,7 +2638,6 @@ async function testApiKey(provider, apiKey, model) {
       
       if (!response.ok) {
         const errorData = await response.json();
-        SmartLogger.error('AI.PROMPTS', 'Anthropic test failed', new Error(JSON.stringify(errorData)), { status: response.status });
         
         if (response.status === 401) {
           return { success: false, error: 'Invalid API key' };
@@ -2993,7 +2655,7 @@ async function testApiKey(provider, apiKey, model) {
     return { success: false, error: 'Unknown provider' };
     
   } catch (error) {
-    SmartLogger.error('AI.PROMPTS', 'Test API key error', error, {
+    console.error('AI.PROMPTS', 'Test API key error', error, {
       errorType: error.name,
       errorMessage: error.message,
       errorStack: error.stack
@@ -3004,30 +2666,11 @@ async function testApiKey(provider, apiKey, model) {
 
 // Handle individual section analysis request
 async function handleSectionAnalysis(request, sendResponse) {
-  const sectionStartTime = Date.now();
   const { section, data, context, settings } = request;
-  
+  const sectionStartTime = Date.now();
+
   try {
-    SmartLogger.log('SECTIONS.EXPERIENCE', 'Analyzing section', {
-      section,
-      dataSize: JSON.stringify(data).length,
-      hasContext: !!context,
-      hasSettings: !!settings
-    });
     
-    // Log specific details for experience roles
-    if (section === 'experience_role') {
-      SmartLogger.log('SECTIONS.EXPERIENCE', 'Experience role details', {
-        title: data?.title,
-        company: data?.company,
-        hasDescription: !!data?.description,
-        bulletCount: data?.bullets?.length || 0,
-        achievementCount: data?.achievements?.length || 0,
-        responsibilityCount: data?.responsibilities?.length || 0,
-        position: context?.position,
-        totalRoles: context?.totalRoles
-      });
-    }
     
     // Get provider and API key
     const { aiProvider } = await chrome.storage.local.get('aiProvider');
@@ -3062,86 +2705,21 @@ async function handleSectionAnalysis(request, sendResponse) {
       customInstructions: settings?.customInstructions || ''
     };
     
-    // Special logging for recommendations
-    if (section === 'recommendations') {
-      SmartLogger.log('AI.PROMPTS', 'Recommendations data received in service worker', {
-        hasData: !!data,
-        dataKeys: data ? Object.keys(data) : [],
-        count: data?.count,
-        receivedCount: data?.receivedCount,
-        hasRecommendationChunks: !!data?.recommendationChunks,
-        chunksLength: data?.recommendationChunks?.length || 0,
-        hasReceived: !!data?.received,
-        receivedLength: data?.received?.length || 0,
-        firstChunk: data?.recommendationChunks?.[0] ? {
-          hasText: !!data.recommendationChunks[0].text,
-          textLength: data.recommendationChunks[0].text?.length || 0,
-          recommender: data.recommendationChunks[0].recommender
-        } : null
-      });
-    }
     
     const prompt = createSectionPrompt(section, data, config, context);
     
-    // Log prompt details for debugging
-    SmartLogger.log('AI.PROMPTS', 'Individual section prompt', {
-      section,
-      promptLength: prompt.length,
-      dataType: typeof data,
-      hasExperience: section === 'experience_role',
-      targetRole: config.targetRole,
-      hasPhotoData: section === 'first_impression' && data?.photo?.hasImageData,
-      photoDataSize: section === 'first_impression' ? data?.photo?.imageData?.length : 0
-    });
     
     const model = settings?.aiModel || null;
     
     // Regular text-only analysis
-    const response = await SmartLogger.time('PERFORMANCE.API_LATENCY', `Individual AI call - ${section}`,
-      async () => await callAIProvider(aiProvider, apiKey, prompt, model)
-    );
+    const response = await callAIProvider(aiProvider, apiKey, prompt, model);
     
-    // Log response characteristics
-    SmartLogger.log('AI.RESPONSES', 'Raw response received', {
-      section,
-      responseLength: response.length,
-      hasJSON: response.includes('{'),
-      containsQuotes: response.includes('"') || response.includes("'")
-    });
     
-    // SCORE MISMATCH DEBUG: Log full raw response for skills
-    if (section === 'skills') {
-      SmartLogger.log('AI.SKILLS', 'Raw skills AI response for debugging:', {
-        response: response.substring(0, 1000) + (response.length > 1000 ? '...' : ''),
-        fullLength: response.length
-      });
-    }
     
     // Parse the response
     const analysis = parseSectionAnalysis(response, section);
     
-    // SCORE MISMATCH DEBUG: Log parsed analysis for skills
-    if (section === 'skills') {
-      SmartLogger.log('AI.SKILLS', 'Parsed skills analysis debugging:', {
-        originalScore: analysis.score,
-        positiveInsight: analysis.positiveInsight?.substring(0, 200),
-        gapAnalysis: analysis.gapAnalysis?.substring(0, 200),
-        actionItemsCount: analysis.actionItems?.length,
-        specificFeedback: analysis.specificFeedback,
-        allAnalysisKeys: Object.keys(analysis)
-      });
-    }
     
-    // Log analysis results
-    SmartLogger.log('AI.RESPONSES', 'Section analysis complete', {
-      section,
-      score: analysis.score,
-      hasPositiveInsight: !!analysis.positiveInsight,
-      hasGapAnalysis: !!analysis.gapAnalysis,
-      hasSpecificFeedback: !!analysis.specificFeedback,
-      actionItemCount: analysis.actionItems?.length || 0,
-      elapsedMs: Date.now() - sectionStartTime
-    });
     
     sendResponse({
       success: true,
@@ -3165,7 +2743,7 @@ async function handleSectionAnalysis(request, sendResponse) {
     
   } catch (error) {
     const sectionElapsed = Date.now() - sectionStartTime;
-    SmartLogger.error('SECTIONS.EXPERIENCE', 'Error analyzing section', error, {
+    console.error('SECTIONS.EXPERIENCE', 'Error analyzing section', error, {
       section,
       elapsedMs: sectionElapsed
     });
@@ -3181,8 +2759,6 @@ async function handleSynthesisAnalysis(request, sendResponse) {
   const { sectionScores, sectionRecommendations, targetRole, seniorityLevel, customInstructions } = request;
   
   try {
-    SmartLogger.log('AI.PROMPTS', 'Creating final recommendations from section analyses');
-    SmartLogger.log('AI.PROMPTS', 'Section scores received', { sectionScores });
     
     // Calculate weighted average score from section results
     let totalScore = 0;
@@ -3200,18 +2776,8 @@ async function handleSynthesisAnalysis(request, sendResponse) {
     // Track experience scores separately to average them
     const experienceScores = [];
     
-    SmartLogger.log('AI.PROMPTS', 'Processing section scores', {
-      sectionCount: Object.keys(sectionScores || {}).length,
-      sections: Object.keys(sectionScores || {})
-    });
     
     Object.entries(sectionScores || {}).forEach(([sectionType, result]) => {
-      SmartLogger.log('AI.SCORING', 'Processing section type', {
-        sectionType,
-        hasScore: result && result.score !== undefined,
-        isArray: Array.isArray(result),
-        score: result?.score
-      });
       
       if (sectionType === 'experience_roles' && Array.isArray(result)) {
         // Handle array of experience roles
@@ -3243,13 +2809,6 @@ async function handleSynthesisAnalysis(request, sendResponse) {
     // Calculate final score
     const finalScore = totalWeight > 0 ? Math.round((totalScore / totalWeight) * 10) / 10 : 5;
     
-    SmartLogger.log('AI.SCORING', 'Score calculation complete', {
-      experienceScoreCount: experienceScores.length,
-      avgExperienceScore: experienceScores.length > 0 ? experienceScores.reduce((a, b) => a + b, 0) / experienceScores.length : 0,
-      totalScore,
-      totalWeight,
-      finalScore
-    });
     
     // Use the existing synthesizeFinalAnalysis function for recommendations
     const config = {
@@ -3260,13 +2819,6 @@ async function handleSynthesisAnalysis(request, sendResponse) {
     
     const synthesis = await synthesizeFinalAnalysis(sectionScores || {}, config);
     
-    SmartLogger.log('AI.PROMPTS', 'Sending synthesis response', {
-      finalScore: finalScore,
-      hasSynthesis: !!synthesis,
-      hasRecommendations: !!synthesis.recommendations,
-      recommendationType: typeof synthesis.recommendations,
-      insightsType: typeof synthesis.insights
-    });
     
     // Return the response with calculated score
     const responseData = {
@@ -3278,17 +2830,9 @@ async function handleSynthesisAnalysis(request, sendResponse) {
       sectionScores: sectionScores
     };
     
-    SmartLogger.log('AI.PROMPTS', 'Response data structure', { 
-      hasRecommendations: !!responseData.overallRecommendations,
-      hasCareerNarrative: !!responseData.careerNarrative,
-      sectionScoreKeys: Object.keys(sectionScores || {}),
-      hasExperienceOverall: !!sectionScores?.experience_overall,
-      experienceOverallScore: sectionScores?.experience_overall?.score,
-      hasExperienceRoles: !!sectionScores?.experience_roles
-    });
     sendResponse(responseData);
   } catch (error) {
-    SmartLogger.error('AI.PROMPTS', 'Synthesis error', error);
+    console.error('AI.PROMPTS', 'Synthesis error', error);
     sendResponse({
       success: false,
       error: error.message || 'Failed to synthesize analysis'
@@ -3297,8 +2841,6 @@ async function handleSynthesisAnalysis(request, sendResponse) {
 }
 
 
-} else {
-  SmartLogger.log('PERFORMANCE.TIMING', 'chrome.runtime.onMessage not available');
 }
 
 // Cleanup old cache periodically
@@ -3309,6 +2851,4 @@ if (chrome && chrome.alarms) {
       cleanupOldCache();
     }
   });
-} else {
-  SmartLogger.log('PERFORMANCE.TIMING', 'chrome.alarms API not available - cache cleanup will not be scheduled');
 }

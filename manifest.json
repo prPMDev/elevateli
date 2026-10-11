@@ -29,8 +29,6 @@
         "src/content/modules/memoryManager.js",
         "src/content/modules/domUtils.js",
         "src/content/modules/ownership-detector.js",
-        "src/content/modules/core/logger.js",
-        "src/content/modules/core/smart-logger.js",
         "src/content/modules/core/cache-manager.js",
         "src/content/modules/extractors/base-extractor.js",
         "src/content/modules/extractors/photo.js",

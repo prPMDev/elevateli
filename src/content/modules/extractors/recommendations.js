@@ -59,9 +59,6 @@ const RecommendationsExtractor = {
     
     const exists = !!section;
     
-    if (section) {
-    } else {
-    }
     
     let receivedCount = 0;
     let givenCount = 0;
@@ -259,10 +256,7 @@ const RecommendationsExtractor = {
       section = BaseExtractor.findSection(this.selectors, 'Recommendations');
     }
     
-    // Log section details
-    if (section) {
-    } else {
-      Logger.error('[RecommendationsExtractor] No section found for deep extraction!');
+    if (!section) {
       return basicData;
     }
     
@@ -311,7 +305,6 @@ const RecommendationsExtractor = {
       recommendationChunks: this.prepareForAI(received)
     };
     
-    // Log the final result structure
     
     return result;
   },
@@ -897,7 +890,7 @@ const RecommendationsExtractor = {
       return recommendations;
       
     } catch (error) {
-      Logger.error('[RecommendationsExtractor] Error fetching all recommendations:', error);
+      console.error('[RecommendationsExtractor] Error fetching all recommendations:', error);
       throw error;
     }
   },
@@ -975,7 +968,7 @@ const RecommendationsExtractor = {
       return experiences;
       
     } catch (error) {
-      Logger.error('[RecommendationsExtractor] Error getting experience data:', error);
+      console.error('[RecommendationsExtractor] Error getting experience data:', error);
       return [];
     }
   },

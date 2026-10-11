@@ -43,7 +43,6 @@ class CacheManager {
       
       chrome.storage.local.get([cacheKey], (data) => {
         if (chrome.runtime.lastError) {
-          Logger.error('[CacheManager] Error reading cache:', chrome.runtime.lastError);
           resolve(null);
           return;
         }
@@ -79,7 +78,6 @@ class CacheManager {
       
       chrome.storage.local.set(storageData, () => {
         if (chrome.runtime.lastError) {
-          Logger.error('[CacheManager] Error saving cache:', chrome.runtime.lastError);
           resolve(false);
         } else {
           resolve(true);
@@ -111,7 +109,6 @@ class CacheManager {
       
       chrome.storage.local.remove([cacheKey], () => {
         if (chrome.runtime.lastError) {
-          Logger.error('[CacheManager] Error clearing cache:', chrome.runtime.lastError);
           resolve(false);
         } else {
           resolve(true);
@@ -135,7 +132,6 @@ class CacheManager {
         
         chrome.storage.local.remove(cacheKeys, () => {
           if (chrome.runtime.lastError) {
-            Logger.error('[CacheManager] Error clearing all caches:', chrome.runtime.lastError);
             resolve(false);
           } else {
             resolve(true);

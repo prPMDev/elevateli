@@ -4,15 +4,6 @@
  * Used by service worker and popup for consistent crypto operations
  */
 
-// Simple logging wrapper that works in both environments
-const log = (level, message, data) => {
-  if (typeof SmartLogger !== 'undefined') {
-    SmartLogger[level]('CRYPTO', message, data);
-  } else {
-    console[level](`[CRYPTO] ${message}`, data || '');
-  }
-};
-
 const CryptoManager = {
   // Configuration
   algorithm: 'AES-GCM',
@@ -129,11 +120,6 @@ const CryptoManager = {
       const expirationTime = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7 days
       await chrome.storage.local.set({
         apiKeyExpiration: expirationTime
-      });
-      
-      log('log', 'API key encrypted successfully', { 
-        length: base64Result.length,
-        expiresAt: new Date(expirationTime).toISOString()
       });
       
       // Verify we can decrypt it immediately
