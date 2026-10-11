@@ -2541,7 +2541,8 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
       headers: {
         'x-api-key': cleanApiKey,
         'Content-Type': 'application/json',
-        'anthropic-version': '2023-06-01'
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: {
         model: model,
@@ -2960,7 +2961,8 @@ async function testApiKey(provider, apiKey, model) {
         headers: {
           'x-api-key': cleanApiKey,
           'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01'
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
         },
         body: JSON.stringify({
           model: model || 'claude-haiku-4-5-20251001',
