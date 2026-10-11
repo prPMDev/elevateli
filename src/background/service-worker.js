@@ -15,77 +15,27 @@ async function getDecryptedApiKey() {
       return null;
     }
     
-    const { encryptedApiKey, apiKey } = await chrome.storage.local.get(['encryptedApiKey', 'apiKey']);
-  
+    const { encryptedApiKey } = await chrome.storage.local.get('encryptedApiKey');
+
   // If we have an encrypted key, decrypt it
   if (encryptedApiKey) {
     try {
       return await cryptoUtils.decryptApiKey(encryptedApiKey);
     } catch (error) {
       console.error('AI.PROMPTS', 'Failed to decrypt API key', error);
-      
+
       // DO NOT auto-delete the key on decryption failure
       // This was causing keys to disappear from settings
-      /*
-      if (error.message.includes('decrypt') || error.message.includes('corrupted')) {
-        SmartLogger.log('AI.PROMPTS', 'Clearing corrupted encrypted API key');
-        try {
-          if (chrome && chrome.storage && chrome.storage.local) {
-            await chrome.storage.local.remove(['encryptedApiKey']);
-          }
-        } catch (e) {
-          SmartLogger.error('AI.PROMPTS', 'Failed to remove corrupted key', e);
-        }
-      }
-      */
-      
       return null;
     }
   }
-  
-  // If we have a plain text key (legacy), migrate it
-  if (apiKey) {
-    await cryptoUtils.migrateExistingKeys();
-    // Try again with the migrated key
-    try {
-      if (chrome && chrome.storage && chrome.storage.local) {
-        const { encryptedApiKey: newEncrypted } = await chrome.storage.local.get('encryptedApiKey');
-        if (newEncrypted) {
-          try {
-            return await cryptoUtils.decryptApiKey(newEncrypted);
-          } catch (error) {
-            console.error('AI.PROMPTS', 'Failed to decrypt migrated key', error);
-            return null;
-          }
-        }
-      }
-    } catch (e) {
-      console.error('AI.PROMPTS', 'Failed to get migrated key', e);
-    }
-  }
-  
+
   return null;
   } catch (error) {
     console.error('AI.PROMPTS', 'getDecryptedApiKey error', error);
     return null;
   }
 }
-
-// Initialize service worker properly
-(async function initializeServiceWorker() {
-  try {
-    
-    // Check if migration is needed on every startup
-    const { cryptoMigrationComplete } = await chrome.storage.local.get('cryptoMigrationComplete');
-    if (!cryptoMigrationComplete) {
-      await cryptoUtils.migrateExistingKeys();
-      await chrome.storage.local.set({ cryptoMigrationComplete: true });
-    }
-    
-  } catch (error) {
-    console.error('SYSTEM', 'Service worker initialization failed', error);
-  }
-})();
 
 // Use onInstalled only for one-time setup
 if (chrome && chrome.runtime && chrome.runtime.onInstalled) {

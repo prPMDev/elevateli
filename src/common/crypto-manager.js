@@ -170,57 +170,15 @@ const CryptoManager = {
         throw new Error('API key format is corrupted. Please delete and re-enter your API key.');
       }
       
-      let salt, iv, encrypted;
-      let isV2 = false;
-      
-      // Check if this is v2 format (starts with metadata length) for migration
-      if (combined.length >= 4) {
-        const dataView = new DataView(combined.buffer);
-        const possibleMetadataLength = dataView.getUint32(0, false);
-        
-        // Sanity check - metadata shouldn't be huge
-        if (possibleMetadataLength > 0 && possibleMetadataLength < 1000 && 
-            combined.length >= 4 + possibleMetadataLength + this.saltLength + this.ivLength + 1) {
-          
-          // This looks like v2 format - migrate it
-          try {
-            const metadataBytes = combined.slice(4, 4 + possibleMetadataLength);
-            const metadataJson = new TextDecoder().decode(metadataBytes);
-            const metadata = JSON.parse(metadataJson);
-            
-            // Extract crypto components after metadata
-            const dataStart = 4 + possibleMetadataLength;
-            salt = combined.slice(dataStart, dataStart + this.saltLength);
-            iv = combined.slice(dataStart + this.saltLength, dataStart + this.saltLength + this.ivLength);
-            encrypted = combined.slice(dataStart + this.saltLength + this.ivLength);
-            
-            // Migrate expiration to separate storage
-            if (metadata.expiresAt && !apiKeyExpiration) {
-              await chrome.storage.local.set({
-                apiKeyExpiration: metadata.expiresAt
-              });
-            }
-            
-            isV2 = true;
-          } catch (metadataError) {
-            // Not v2, continue with v1
-            isV2 = false;
-          }
-        }
+      // Validate combined data length
+      const minLength = this.saltLength + this.ivLength + 1;
+      if (combined.length < minLength) {
+        throw new Error('Encrypted data is corrupted or too short');
       }
-      
-      // If not v2, use simple v1 format
-      if (!isV2) {
-        // Validate combined data length for v1 format
-        const minLength = this.saltLength + this.ivLength + 1;
-        if (combined.length < minLength) {
-          throw new Error('Encrypted data is corrupted or too short');
-        }
-        
-        salt = combined.slice(0, this.saltLength);
-        iv = combined.slice(this.saltLength, this.saltLength + this.ivLength);
-        encrypted = combined.slice(this.saltLength + this.ivLength);
-      }
+
+      const salt = combined.slice(0, this.saltLength);
+      const iv = combined.slice(this.saltLength, this.saltLength + this.ivLength);
+      const encrypted = combined.slice(this.saltLength + this.ivLength);
 
       const key = await this.generateKey(passphrase, salt);
 
@@ -234,45 +192,13 @@ const CryptoManager = {
       );
 
       const decoder = new TextDecoder();
-      const apiKey = decoder.decode(decrypted);
-      
-      // If we successfully decrypted a v2 key, re-encrypt it as v1
-      if (isV2) {
-        try {
-          const newEncrypted = await this.encryptApiKey(apiKey);
-          await chrome.storage.local.set({ encryptedApiKey: newEncrypted });
-        } catch (reEncryptError) {
-          // Continue - at least we decrypted it
-        }
-      }
-      
-      return apiKey;
+      return decoder.decode(decrypted);
     } catch (error) {
       // Check if it's a decryption error (wrong key or corrupted data)
       if (error.name === 'OperationError' || error.message.includes('decrypt')) {
         throw new Error('API key decryption failed - key may be corrupted. Please re-enter your key.');
       }
       throw error;
-    }
-  },
-
-  /**
-   * Migrate existing plain text keys to encrypted format
-   */
-  async migrateExistingKeys() {
-    try {
-      const { apiKey, encryptedApiKey } = await chrome.storage.local.get(['apiKey', 'encryptedApiKey']);
-      
-      if (!apiKey || encryptedApiKey) {
-        return false;
-      }
-
-      const encrypted = await this.encryptApiKey(apiKey);
-      await chrome.storage.local.set({ encryptedApiKey: encrypted });
-      await chrome.storage.local.remove('apiKey');
-      return true;
-    } catch (error) {
-      return false;
     }
   },
 
