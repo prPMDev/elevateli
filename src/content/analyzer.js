@@ -13776,6 +13776,9 @@ class Analyzer {
           });
           
           if (deepExperienceData.experiences && deepExperienceData.experiences.length > 0) {
+            // Expose roles to skills/recommendations career context below
+            extractedData.experience.experiences = deepExperienceData.experiences;
+
             // First, add overall experience section for high-level analysis
             sections.push({
               type: 'experience_overall',
