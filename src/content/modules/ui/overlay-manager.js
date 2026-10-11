@@ -2233,27 +2233,12 @@ const OverlayManager = {
     const completeness = data.completeness || 0;
     const contentScore = data.contentScore || 0;
     const missingItems = data.completenessData?.recommendations || [];
-    
-    
-    
-    // Convert recommendations object to flat array
-    let recommendationsArray = [];
-    if (data.recommendations) {
-      if (Array.isArray(data.recommendations)) {
-        recommendationsArray = data.recommendations;
-      } else if (typeof data.recommendations === 'object') {
-        // Handle {critical: [], important: [], niceToHave: []} structure
-        const { critical = [], important = [], niceToHave = [] } = data.recommendations;
-        recommendationsArray = [...critical, ...important, ...niceToHave];
-      }
-    }
-    
-    
+
     // Generate coaching summary
     const coachingSummary = this.generateCoachingSummary(completeness, contentScore, data);
-    
+
     // Analyze sections and create improvements
-    const sections = this.analyzeSections(data, missingItems, recommendationsArray || []);
+    const sections = this.analyzeSections(data, missingItems);
     
     // Generate unified message
     const unifiedMessage = this.generateUnifiedMessage(completeness, contentScore, sections, data);
@@ -2318,7 +2303,7 @@ const OverlayManager = {
   /**
    * Analyze sections and create improvements
    */
-  analyzeSections(data, missingItems, recommendations) {
+  analyzeSections(data, missingItems) {
     const sections = [];
     
     // Check if we have sectionScores from AI analysis
@@ -2598,54 +2583,9 @@ const OverlayManager = {
       errorType: sectionScores.experience_overall?.errorType || null,
       positive: experiencePositive,
       improvements: experienceImprovements,
-      priority: 'normal',
-      hasSubSections: sectionScores.experience_roles && sectionScores.experience_roles.length > 0,
-      subSections: []
+      priority: 'normal'
     };
-    
-    // Add individual role feedback if available
-    if (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles)) {
-      // Sort roles by score (highest first) and limit to top 3 for UI clarity
-      const topRoles = sectionScores.experience_roles
-        .filter(role => role.analysis && (role.analysis.title || role.analysis.company))
-        .sort((a, b) => (b.score || 0) - (a.score || 0))
-        .slice(0, 3);
-      
-      // Smart limit: max 3 improvements total across all roles
-      let totalImprovements = 0;
-      const maxTotalImprovements = 3;
-      
-      topRoles.forEach(role => {
-        if (role.analysis && role.analysis.title && totalImprovements < maxTotalImprovements) {
-          // Calculate how many improvements this role can have
-          const remainingSlots = maxTotalImprovements - totalImprovements;
-          const roleImprovements = (role.actionItems || [])
-            .slice(0, Math.min(1, remainingSlots)) // Max 1 per role, but respect total limit
-            .map(item => ({
-              text: item.action || item.what || 'Improvement needed',
-              why: item.impact || item.how || 'Update your experience',
-              priority: item.priority
-            }));
-          
-          // Only add the role section if it has improvements or positive feedback
-          if (roleImprovements.length > 0 || role.positiveInsight) {
-            const roleSection = {
-              name: `${role.analysis.title} at ${role.analysis.company || 'Unknown Company'}`,
-              rating: this.scoreToRating(role.score || 0),
-              errorType: role.errorType || null,
-              positive: role.positiveInsight,
-              improvements: roleImprovements,
-              isSubSection: true
-            };
-            
-            experienceSection.subSections.push(roleSection);
-            totalImprovements += roleImprovements.length;
-          }
-        }
-      });
-    }
-    
-    
+
     sections.push(experienceSection);
     
     // Skills section
@@ -2855,46 +2795,6 @@ const OverlayManager = {
             `).join('')}
           </ul>
         ` : ''}
-        
-        <!-- Sub-sections for Experience roles -->
-        ${section.hasSubSections && section.subSections && section.subSections.length > 0 ? `
-          <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb;">
-            <p style="margin: 0 0 12px 0; font-size: 12px; color: #666; font-weight: 600;">Individual Role Analysis:</p>
-            ${section.subSections.map(subSection => `
-              <div style="margin-bottom: 12px; padding: 12px; background: white; border-radius: 6px; border-left: 3px solid ${this.getRatingColor(subSection.rating)};">
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-                  <h6 style="margin: 0; font-size: 13px; font-weight: 600; color: #333;">
-                    ${subSection.name}
-                  </h6>
-                  <div class="star-rating" style="font-size: 14px;" data-star-placeholder="${(() => {
-                    const subStarId = `star-placeholder-${Math.random().toString(36).substr(2, 9)}`;
-                    this.pendingStarElements.push({
-                      id: subStarId,
-                      element: this.renderStars(subSection.rating, subSection.errorType)
-                    });
-                    return subStarId;
-                  })()}"></div>
-                </div>
-                ${subSection.positive ? `
-                  <p style="margin: 0 0 6px 0; font-size: 12px; color: #057642;">
-                    ${subSection.positive}
-                  </p>
-                ` : ''}
-                ${subSection.improvements && subSection.improvements.length > 0 ? `
-                  <ul style="margin: 4px 0 0 0; padding-left: 16px; list-style: none;">
-                    ${subSection.improvements.map(imp => `
-                      <li style="margin-bottom: 4px; position: relative; padding-left: 6px; font-size: 12px; color: #666;">
-                        <span style="position: absolute; left: -6px;">→</span>
-                        ${typeof imp === 'string' ? imp : imp.text}
-                        ${imp.why ? `<div style="font-size: 11px; color: #999; margin-top: 1px; margin-left: 6px;">${imp.why}</div>` : ''}
-                      </li>
-                    `).join('')}
-                  </ul>
-                ` : ''}
-              </div>
-            `).join('')}
-          </div>
-        ` : ''}
       </div>
     `;
   },
@@ -2973,15 +2873,6 @@ const OverlayManager = {
     };
     
     return tooltipMap[errorType] || tooltipMap['DEFAULT'];
-  },
-  
-  /**
-   * Get color based on rating
-   */
-  getRatingColor(rating) {
-    if (rating >= 4) return '#057642'; // Green
-    if (rating >= 3) return '#f59e0b'; // Yellow/Orange
-    return '#dc2626'; // Red
   },
   
   /**
