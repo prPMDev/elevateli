@@ -1216,58 +1216,13 @@ class Analyzer {
   }
 
   /**
-   * Run AI analysis (legacy monolithic approach)
+   * Run AI analysis. Resolves with { success: false, error } instead of rejecting.
    */
   async runAIAnalysis(extractedData) {
-    // Try distributed approach first
     try {
-      const distributedResult = await this.runDistributedAIAnalysis(extractedData);
-      if (distributedResult.success) {
-        return distributedResult;
-      }
+      return await this.runDistributedAIAnalysis(extractedData);
     } catch (error) {
+      return { success: false, error: error.message };
     }
-    
-    // Fallback to original monolithic approach
-    
-    return new Promise((resolve) => {
-      safeSendMessage({
-        action: 'analyzeWithAI',
-        data: extractedData,
-        settings: this.settings
-      }, (response) => {
-        
-        if (response && response.success) {
-          // Extract from analysis object if present (new format), otherwise use direct fields (legacy)
-          const analysis = response.analysis || response;
-          resolve({
-            success: true,
-            score: analysis.overallScore || analysis.score,
-            recommendations: analysis.recommendations,
-            insights: analysis.insights,
-            sectionScores: analysis.sectionScores,
-            summary: analysis.summary
-          });
-        } else {
-          // Handle specific error types
-          let errorMessage = response?.error || 'AI analysis failed';
-          let errorType = response?.errorType || response?.type;
-          
-          // Check for decryption failure
-          if (response?.decryptionFailed) {
-            errorMessage = 'Failed to decrypt API key. Please re-enter your key in settings.';
-            errorType = 'AUTH';
-          }
-          
-          resolve({
-            success: false,
-            error: errorMessage,
-            errorType: errorType,
-            retryAfter: response?.retryAfter,
-            decryptionFailed: response?.decryptionFailed
-          });
-        }
-      });
-    });
   }
 }
