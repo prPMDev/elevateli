@@ -8,8 +8,7 @@
     "storage",
     "activeTab",
     "scripting",
-    "tabs",
-    "alarms"
+    "tabs"
   ],
   "host_permissions": [
     "https://www.linkedin.com/*"
