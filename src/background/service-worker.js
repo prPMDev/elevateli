@@ -700,8 +700,7 @@ function createSkillsPrompt(skillsData, config, context = {}) {
   // Add completeness context for conditional generic advice
   const completenessScore = context.completenessScore || 100;
   const hasCompletenessIssues = completenessScore < 95;
-  const visibleSkillsCount = skillsData.skills?.filter(s => s.visibilityTier === 'top3' || s.visibilityTier === 'visible').length || skillsData.visibleCount || 0;
-  const hasEndorsementIssues = visibleSkillsCount > 0 && skillsData.endorsedSkillsCount === 0;
+  const visibleSkillsCount = skillsData.visibleCount || 0;
   
   const prompt = `You are an expert LinkedIn profile optimizer analyzing skills for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
@@ -740,7 +739,6 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
 <profile_status>
 Completeness Score: ${completenessScore}%
 Has Major Gaps: ${hasCompletenessIssues ? 'YES - Focus on critical issues only' : 'NO - Can provide strategic advice'}
-Endorsement Status: ${hasEndorsementIssues ? 'CRITICAL - Visible skills lack endorsements' : 'OK'}
 Visible Skills Count: ${visibleSkillsCount} (without clicking "Show all")
 </profile_status>
 
@@ -753,8 +751,6 @@ Years of Experience: ${context.yearsOfExperience || 0} years
 Total Skills: ${skillsData.count || skillsData.skills?.length || 0}
 Visible Without Clicking: ${visibleSkillsCount}
 Hidden Behind "Show all": ${Math.max(0, (skillsData.count || 0) - visibleSkillsCount)}
-Total Endorsements: ${skillsData.totalEndorsements || 0}
-Skills with Endorsements: ${skillsData.endorsedSkillsCount || 0}
 </skills_overview>
 
 <top_3_most_visible_skills>
