@@ -71,40 +71,6 @@ const ProjectsExtractor = {
   },
   
   /**
-   * Deep extraction for AI analysis
-   * @returns {Object} Detailed projects data
-   */
-  async extractDeep() {
-    const startTime = Date.now();
-    const basicData = await this.extract();
-    
-    if (!basicData.exists) return basicData;
-    
-    const section = BaseExtractor.findSection(this.selectors, 'Projects');
-    const detailedProjects = await this.extractDetailedProjects(section);
-    
-    const result = {
-      ...basicData,
-      projects: detailedProjects,
-      
-      // Analysis features
-      projectCategories: this.categorizeProjects(detailedProjects),
-      technologiesUsed: this.extractTechnologies(detailedProjects),
-      projectTypes: this.classifyProjectTypes(detailedProjects),
-      collaborativeProjects: detailedProjects.filter(p => p.hasCollaborators),
-      
-      // Metrics
-      averageDescriptionLength: this.calculateAverageDescriptionLength(detailedProjects),
-      projectsWithLinks: detailedProjects.filter(p => p.projectUrl).length,
-      
-      // For AI processing
-      projectSummaries: this.prepareForAI(detailedProjects)
-    };
-    
-    return result;
-  },
-  
-  /**
    * Extract project items
    * @param {Element} section - Projects section
    * @returns {Array<Object>} Project items
@@ -166,26 +132,6 @@ const ProjectsExtractor = {
   },
   
   /**
-   * Extract detailed project information
-   * @param {Element} section - Projects section
-   * @returns {Array<Object>} Detailed projects
-   */
-  async extractDetailedProjects(section) {
-    const projects = await this.extractProjectItems(section);
-    
-    // Enhance with additional analysis
-    return projects.map(proj => ({
-      ...proj,
-      technologies: this.extractProjectTechnologies(proj),
-      category: this.categorizeProject(proj),
-      type: this.classifyProjectType(proj),
-      hasCollaborators: proj.hasCollaborators || this.detectCollaboration(proj.description),
-      complexity: this.assessComplexity(proj),
-      keywords: this.extractKeywords(proj)
-    }));
-  },
-  
-  /**
    * Check if project is technical
    * @param {Object} project - Project data
    * @returns {boolean}
@@ -215,114 +161,6 @@ const ProjectsExtractor = {
   },
   
   /**
-   * Extract technologies from project
-   * @param {Object} project - Project data
-   * @returns {Array<string>} Technologies
-   */
-  extractProjectTechnologies(project) {
-    const technologies = new Set();
-    
-    const techPatterns = [
-      /\b(JavaScript|TypeScript|Python|Java|C\+\+|C#|Ruby|Go|Rust|PHP|Swift)\b/gi,
-      /\b(React|Angular|Vue|Node\.js|Express|Django|Spring|Rails)\b/gi,
-      /\b(AWS|Azure|GCP|Docker|Kubernetes|Jenkins|Git)\b/gi,
-      /\b(MongoDB|PostgreSQL|MySQL|Redis|Elasticsearch)\b/gi,
-      /\b(TensorFlow|PyTorch|Scikit-learn|Pandas|NumPy)\b/gi
-    ];
-    
-    const searchText = project.name + ' ' + project.description;
-    
-    techPatterns.forEach(pattern => {
-      const matches = searchText.match(pattern);
-      if (matches) {
-        matches.forEach(tech => technologies.add(tech));
-      }
-    });
-    
-    return Array.from(technologies);
-  },
-  
-  /**
-   * Categorize project
-   * @param {Object} project - Project data
-   * @returns {string} Category
-   */
-  categorizeProject(project) {
-    const searchText = (project.name + ' ' + project.description).toLowerCase();
-    
-    const categories = {
-      'web': /website|web app|frontend|backend|full stack/i,
-      'mobile': /mobile|android|ios|app/i,
-      'data': /data|analytics|visualization|dashboard|report/i,
-      'ml': /machine learning|ml|ai|artificial intelligence|neural/i,
-      'automation': /automation|script|bot|workflow/i,
-      'opensource': /open source|github|contribution/i,
-      'research': /research|study|analysis|paper/i
-    };
-    
-    for (const [category, pattern] of Object.entries(categories)) {
-      if (pattern.test(searchText)) {
-        return category;
-      }
-    }
-    
-    return 'other';
-  },
-  
-  /**
-   * Classify project type
-   * @param {Object} project - Project data
-   * @returns {string} Type
-   */
-  classifyProjectType(project) {
-    const searchText = (project.name + ' ' + project.description).toLowerCase();
-    
-    if (/personal|hobby|side/i.test(searchText)) return 'personal';
-    if (/academic|university|course|school/i.test(searchText)) return 'academic';
-    if (/work|professional|company|client/i.test(searchText)) return 'professional';
-    if (/volunteer|nonprofit|charity/i.test(searchText)) return 'volunteer';
-    
-    return 'unspecified';
-  },
-  
-  /**
-   * Detect collaboration
-   * @param {string} description - Project description
-   * @returns {boolean}
-   */
-  detectCollaboration(description) {
-    const collaborationIndicators = /\b(team|collaborated|worked with|group|together|we|our)\b/i;
-    return collaborationIndicators.test(description);
-  },
-  
-  /**
-   * Assess project complexity
-   * @param {Object} project - Project data
-   * @returns {string} Complexity level
-   */
-  assessComplexity(project) {
-    let score = 0;
-    
-    // Length of description
-    if (project.description.length > 500) score += 2;
-    else if (project.description.length > 200) score += 1;
-    
-    // Number of technologies
-    if (project.technologies.length > 5) score += 2;
-    else if (project.technologies.length > 2) score += 1;
-    
-    // Collaboration
-    if (project.hasCollaborators) score += 1;
-    
-    // Technical indicators
-    if (/architecture|system design|scalable|distributed/i.test(project.description)) score += 2;
-    
-    if (score >= 5) return 'complex';
-    if (score >= 3) return 'moderate';
-    return 'simple';
-  },
-  
-  /**
    * Extract keywords from project
    * @param {Object} project - Project data
    * @returns {Array<string>} Keywords
@@ -347,53 +185,6 @@ const ProjectsExtractor = {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
       .map(([word]) => word);
-  },
-  
-  /**
-   * Categorize all projects
-   * @param {Array<Object>} projects - Projects
-   * @returns {Object} Categories with counts
-   */
-  categorizeProjects(projects) {
-    const categories = {};
-    
-    projects.forEach(proj => {
-      const category = proj.category || 'other';
-      categories[category] = (categories[category] || 0) + 1;
-    });
-    
-    return categories;
-  },
-  
-  /**
-   * Extract all technologies
-   * @param {Array<Object>} projects - Projects
-   * @returns {Array<string>} All unique technologies
-   */
-  extractTechnologies(projects) {
-    const allTech = new Set();
-    
-    projects.forEach(proj => {
-      (proj.technologies || []).forEach(tech => allTech.add(tech));
-    });
-    
-    return Array.from(allTech);
-  },
-  
-  /**
-   * Classify all project types
-   * @param {Array<Object>} projects - Projects
-   * @returns {Object} Types with counts
-   */
-  classifyProjectTypes(projects) {
-    const types = {};
-    
-    projects.forEach(proj => {
-      const type = proj.type || 'unspecified';
-      types[type] = (types[type] || 0) + 1;
-    });
-    
-    return types;
   },
   
   /**
