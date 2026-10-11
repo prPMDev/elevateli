@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const settingsShowAnalysisToggle = document.getElementById('settingsShowAnalysis');
   const settingsEnableAIToggle = document.getElementById('settingsEnableAI');
   const settingsAiProviderSelect = document.getElementById('settingsAiProvider');
+  const settingsBaseUrlInput = document.getElementById('settingsBaseUrl');
   const settingsAiModelSelect = document.getElementById('settingsAiModel');
   const settingsApiKeyInput = document.getElementById('settingsApiKey');
   const settingsTargetRoleSelect = document.getElementById('settingsTargetRole');
@@ -77,6 +78,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const settings = await chrome.storage.local.get([
     'aiProvider',
     'aiModel',
+    'aiBaseUrl',
     'apiKey',
     'encryptedApiKey',
     'enableAI',
@@ -149,6 +151,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateSettingsView();
         // Provider/model are set only on open, so storage syncs can't reset them mid-edit
         settingsAiProviderSelect.value = settings.aiProvider || '';
+        settingsBaseUrlInput.value = settings.aiBaseUrl || '';
         onProviderChange();
         break;
     }
@@ -603,16 +606,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   settingsAiModelSelect?.addEventListener('change', () => clearFieldError(settingsAiModelSelect, null));
 
+  // Ollama / LM Studio on this machine
+  function isLocalBaseUrl() {
+    return settingsAiProviderSelect.value === 'openai' &&
+      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(settingsBaseUrlInput.value.trim());
+  }
+
+  // localhost is an optional host permission; asking needs a user gesture (change/click handlers)
+  function requestLocalAccess() {
+    return isLocalBaseUrl()
+      ? chrome.permissions.request({ origins: ['http://localhost/*', 'http://127.0.0.1/*'] }).catch(() => false)
+      : Promise.resolve(true);
+  }
+
   function typedApiKey() {
     const key = settingsApiKeyInput.value.trim();
-    return key && key !== '••••••••••••' ? key : null;
+    if (key === '••••••••••••') return null;
+    // ponytail: local servers need no key; the stand-in 'local' keeps every "has an API key" check unchanged
+    return key || (isLocalBaseUrl() ? 'local' : null);
   }
 
   // Fill the model list from the provider. The same call validates the key; no key = the saved one.
   async function loadModels(apiKey) {
     const provider = settingsAiProviderSelect.value;
     const keep = settingsAiModelSelect.value;
-    const response = await chrome.runtime.sendMessage({ action: 'testApiKey', provider, apiKey });
+    const response = await chrome.runtime.sendMessage({
+      action: 'testApiKey', provider, apiKey, baseUrl: settingsBaseUrlInput.value.trim()
+    });
     if (provider !== settingsAiProviderSelect.value) return; // provider changed while loading
     if (!response?.success) {
       showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), response?.error || 'Could not load models');
@@ -632,6 +652,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('getKeyLink').href = option.dataset.keyUrl;
       document.getElementById('pricingLink').href = option.dataset.pricingUrl;
     }
+    document.getElementById('baseUrlGroup').classList.toggle('hidden', option?.value !== 'openai');
     const isSaved = !!option?.value && option.value === settings.aiProvider;
     settingsAiModelSelect.replaceChildren(isSaved && settings.aiModel
       ? new Option(settings.aiModel, settings.aiModel, true, true)
@@ -643,6 +664,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   settingsApiKeyInput?.addEventListener('change', () => {
     if (settingsAiProviderSelect.value && typedApiKey()) loadModels(typedApiKey());
   });
+  settingsBaseUrlInput?.addEventListener('change', async () => {
+    // The saved key belongs to the saved URL; never send it to a new one
+    if (settingsApiKeyInput.value === '••••••••••••') settingsApiKeyInput.value = '';
+    await requestLocalAccess();
+    settingsAiModelSelect.replaceChildren(new Option('Enter your API key to load models', ''));
+    if (typedApiKey()) loadModels(typedApiKey());
+  });
 
   // Handle Save Settings button
   saveSettingsBtn?.addEventListener('click', async () => {
@@ -651,7 +679,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     let model = null;
     let apiKey = null;
     let isPlaceholder = false;
-    
+    const baseUrl = settingsBaseUrlInput.value.trim();
+    await requestLocalAccess(); // first, while the click still counts as a user gesture
+
     // Validate if AI is enabled AND visible
     if (settingsEnableAIToggle.checked && !aiConfigSection.classList.contains('hidden')) {
       provider = settingsAiProviderSelect.value;
@@ -660,6 +690,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       // Clean the API key - remove zero-width spaces and other invisible characters
       apiKey = apiKey.replace(/[\u200B-\u200D\uFEFF]/g, '');
+      if (!apiKey && isLocalBaseUrl()) apiKey = 'local'; // local servers need no key
       
       // Check if it's a placeholder or real key
       isPlaceholder = apiKey === '••••••••••••';
@@ -700,7 +731,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           const testResponse = await chrome.runtime.sendMessage({
             action: 'testApiKey',
             provider,
-            apiKey
+            apiKey,
+            baseUrl
           });
           
           if (!testResponse || !testResponse.success) {
@@ -733,7 +765,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             await chrome.storage.local.set({
               encryptedApiKey: encryptResponse.encryptedApiKey,
               aiProvider: provider,
-              aiModel: model
+              aiModel: model,
+              aiBaseUrl: baseUrl
             });
             await chrome.storage.local.remove('apiKey');
           } else {
@@ -810,7 +843,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Just save the provider and model if key wasn't changed (placeholder shown)
         await chrome.storage.local.set({ 
           aiProvider: provider,
-          aiModel: model
+          aiModel: model,
+          aiBaseUrl: baseUrl
         });
       }
     }
@@ -850,6 +884,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!isPlaceholder) settings.encryptedApiKey = true; // Mark that we have an encrypted key
       settings.aiProvider = provider;
       settings.aiModel = model;
+      settings.aiBaseUrl = baseUrl;
     }
     
     await SettingsManager.updateAndSync(settings);  // Pass full settings

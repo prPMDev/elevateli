@@ -1075,6 +1075,11 @@ function analyzeCareerTrajectory(experienceRoles) {
   return insights;
 }
 
+// The openai provider talks to any OpenAI-compatible server; the user can point it at Ollama or LM Studio
+const OPENAI_URL = 'https://api.openai.com/v1';
+const openaiBaseUrl = async (url) =>
+  (url || (await chrome.storage.local.get('aiBaseUrl')).aiBaseUrl || OPENAI_URL).replace(/\/+$/, '');
+
 // Every section prompt asks for this shape; each provider enforces it as JSON-schema output.
 // No minimum/maximum: Anthropic rejects them, and parseSectionAnalysis clamps the score.
 const STR = { type: 'string' };
@@ -1133,10 +1138,11 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
     ({ aiModel: model } = await chrome.storage.local.get('aiModel'));
     if (!model) throw new Error('No AI model selected');
   }
+  const baseUrl = await openaiBaseUrl();
 
   const config = {
     openai: {
-      url: 'https://api.openai.com/v1/chat/completions',
+      url: `${baseUrl}/chat/completions`,
       headers: {
         'Authorization': `Bearer ${cleanApiKey}`,
         'Content-Type': 'application/json'
@@ -1144,7 +1150,9 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
       body: {
         model: model,
         messages: [{ role: 'user', content: prompt }],
-        max_completion_tokens: 8192, // no temperature: gpt-5.5+, GPT-6 and o-series reject it
+        max_completion_tokens: 8192,
+        // api.openai.com gets no temperature: gpt-5.5+, GPT-6 and o-series reject it
+        ...(baseUrl !== OPENAI_URL && { temperature: 0.1 }),
         response_format: { type: 'json_schema', json_schema: { name: 'section_analysis', strict: true, schema: SECTION_SCHEMA } }
       }
     },
@@ -1245,9 +1253,9 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   
   
   // Handle test API key
-  // No apiKey in the request = reload models with the saved key
+  // No apiKey in the request = reload models with the saved key, which only ever goes to the saved base URL
   if (action === 'testApiKey') {
-    (async () => testApiKey(request.provider, request.apiKey || await getDecryptedApiKey()))().then(result => {
+    (async () => testApiKey(request.provider, request.apiKey || await getDecryptedApiKey(), request.apiKey && request.baseUrl))().then(result => {
       sendResponse(result);
     }).catch(error => {
       sendResponse({ success: false, error: error.message });
@@ -1433,7 +1441,7 @@ class RateLimiter {
 const rateLimiter = new RateLimiter();
 
 // List the provider's models. Doubles as the key check: a GET, so no tokens are spent.
-async function testApiKey(provider, apiKey) {
+async function testApiKey(provider, apiKey, baseUrl) {
   const rateCheck = rateLimiter.canMakeRequest('test', provider);
   if (!rateCheck.allowed) {
     return {
@@ -1444,9 +1452,10 @@ async function testApiKey(provider, apiKey) {
 
   const key = typeof apiKey === 'string' ? apiKey.trim().replace(/[^\x20-\x7E]/g, '') : '';
   if (!key) return { success: false, error: 'API key is required' };
+  baseUrl = await openaiBaseUrl(baseUrl);
 
   const [url, headers] = {
-    openai: ['https://api.openai.com/v1/models', { 'Authorization': `Bearer ${key}` }],
+    openai: [`${baseUrl}/models`, { 'Authorization': `Bearer ${key}` }],
     anthropic: ['https://api.anthropic.com/v1/models?limit=1000', {
       'x-api-key': key,
       'anthropic-version': '2023-06-01',
