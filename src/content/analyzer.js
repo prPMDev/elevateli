@@ -1373,7 +1373,11 @@ const BaseExtractor = {
     
     return null;
   },
-  
+
+  wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  },
+
   /**
    * Click "Show all" button if present
    */
