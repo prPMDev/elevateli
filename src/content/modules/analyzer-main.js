@@ -35,20 +35,6 @@
     // Check if it's the user's own profile
     isOwnProfile().then(async isOwn => {
       
-      // Get saved profile for validation
-      let savedData = {};
-      let savedProfileId = null;
-      
-      try {
-        if (chrome.runtime?.id) {
-          savedData = await chrome.storage.local.get(['userProfile', 'compliance']);
-          savedProfileId = savedData.userProfile?.profileId;
-        }
-      } catch (error) {
-        // Extension context might be invalid, continue without saved data
-      }
-      
-      const currentProfileId = profileId;
       
       // [CRITICAL_PATH:OVERLAY_INJECTION] - P0: Core UI visibility
       // The overlay MUST show on user's own profile, even in zero state
@@ -58,15 +44,6 @@
       
       
       if (!shouldInjectOverlay) {
-        try {
-          SmartLogger.log('PROFILE', 'Overlay injection blocked - not own profile', {
-            isOwn,
-            savedProfileId,
-            currentProfileId
-          });
-        } catch (e) {
-          // Ignore logging errors
-        }
         return;
       }
       
@@ -88,7 +65,6 @@
         
         // Always initialize overlay, but show zero state if not compliant
         if (!complianceData.compliance?.hasAcknowledged) {
-          SmartLogger.log('UI.STATES', 'Terms not accepted - showing overlay in zero state');
           OverlayManager.hasCompliance = false;
           OverlayManager.initialize();
           
@@ -97,10 +73,6 @@
           const checkOverlayReady = () => {
             if (OverlayManager.overlayElement && OverlayManager.showZeroState) {
               OverlayManager.showZeroState();
-              // Mark overlay as initialized for phase tracking
-              if (window.LinkedInAnalyzer) {
-                window.LinkedInAnalyzer.markPhaseComplete('overlayInitialized');
-              }
             } else {
               // Retry after a short interval if not ready
               requestAnimationFrame(checkOverlayReady);
@@ -122,11 +94,6 @@
         // 1. No compliance - shows zero state with disabled analyze button
         // 2. Has compliance but no cache - shows zero state with enabled analyze button
         // 3. Has compliance and cache - restores cached data immediately
-        const cacheProfileId = profileId;
-        SmartLogger.log('CACHE', 'Overlay initialized, cache loads automatically', {
-          currentProfile: cacheProfileId,
-          savedProfile: complianceData.userProfile?.profileId
-        });
       });
     });
   }
@@ -162,7 +129,6 @@
     try {
       // First check if chrome.storage.local is available
       if (!chrome?.storage?.local?.get) {
-        SmartLogger.warn('COMPLIANCE', 'Chrome storage API not available');
         // Treat as if compliance not acknowledged
         if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
           OverlayManager.setState(OverlayManager.states.ERROR, {
@@ -189,7 +155,6 @@
       });
       
       if (!compliance?.hasAcknowledged) {
-        SmartLogger.log('COMPLIANCE', 'Analysis blocked - terms not accepted');
         
         // Show error in overlay
         if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
@@ -220,7 +185,7 @@
         return;
       }
     } catch (error) {
-      SmartLogger.error('COMPLIANCE', 'Failed to check compliance', error);
+      console.error('COMPLIANCE', 'Failed to check compliance', error);
       
       // Show user-friendly error
       if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
@@ -283,18 +248,14 @@
       settings = {};
     }
     
-    // Log settings for debugging
     
     // Create analyzer instance with consistent cache profile ID
     const analyzer = new Analyzer();
     await analyzer.init(cacheProfileId, isOwn, settings);
     
     // Run analysis
-    const results = await analyzer.analyze(forceRefresh);
+    await analyzer.analyze(forceRefresh);
     
-    if (results.success) {
-    } else {
-    }
   }
   
   // Listen for messages from popup/background
@@ -348,13 +309,6 @@
         
         if (!isOwn) {
           // Not user's profile - remove overlay
-          try {
-            SmartLogger.log('NAVIGATION', 'Not user profile - removing overlay', {
-              profileId: newProfileId
-            });
-          } catch (e) {
-            // Ignore logging errors
-          }
           const existingOverlay = document.querySelector('.elevateli-overlay-wrapper');
           if (existingOverlay) {
             existingOverlay.remove();
@@ -374,8 +328,6 @@
             try {
               init();
             } catch (error) {
-              if (!error.message?.includes('Extension context invalidated')) {
-              }
             }
           }, 500);
         }
@@ -402,63 +354,9 @@
         return true;
       }
       
-      if (request.action === 'toggleOverlay') {
-        if (request.show) {
-          OverlayManager.show();
-        } else {
-          OverlayManager.hide();
-        }
-        sendResponse({ success: true });
-        return true;
-      }
-      
-      if (request.action === 'analyzeProfile') {
-        startAnalysis(request.forceRefresh).then(() => {
-          sendResponse({ success: true });
-        }).catch(error => {
-          sendResponse({ success: false, error: error.message });
-        });
-        return true; // Keep channel open for async response
-      }
-      
-      if (request.action === 'getProfileData') {
-        const profileId = getProfileIdFromUrl();
-        chrome.storage.local.get([`cache_${profileId}`], (data) => {
-          if (chrome.runtime.lastError) {
-            sendResponse({ success: false, error: 'Storage error' });
-            return;
-          }
-          sendResponse({ 
-            success: true, 
-            data: data[`cache_${profileId}`] || null 
-          });
-        });
-        return true;
-      }
-      
-      if (request.action === 'profileUpdated') {
-        const currentProfileId = getProfileIdFromUrl();
-        
-        if (currentProfileId === request.userProfile.profileId) {
-          
-          // Check if overlay already exists
-          if (!document.querySelector('.elevateli-overlay-wrapper')) {
-            // Re-run initialization
-            init();
-            sendResponse({ success: true, overlayInitialized: true });
-          } else {
-            sendResponse({ success: true, overlayExists: true });
-          }
-        } else {
-          sendResponse({ success: false, reason: 'Profile mismatch' });
-        }
-        return true;
-      }
-      
       // Handle showOverlay message from popup after successful setup
       if (request.action === 'triggerAnalysis') {
         // Handle cache clear - update overlay to show reset state
-        SmartLogger.log('UI.INTERACTIONS', 'Received triggerAnalysis request - cache was cleared');
         
         // Show zero state UI with reset-appropriate text
         if (typeof OverlayManager !== 'undefined') {
@@ -481,7 +379,6 @@
       
       // Handle full extension reset
       if (request.action === 'resetToZeroState') {
-        SmartLogger.log('UI.INTERACTIONS', 'Received resetToZeroState request - extension was reset');
         
         // Reset overlay to complete zero state
         if (typeof OverlayManager !== 'undefined') {
@@ -499,13 +396,11 @@
       }
       
       if (request.action === 'showOverlay') {
-        SmartLogger.log('UI.INTERACTIONS', 'Received showOverlay request from popup');
         
         // Handle async ownership check
         isOwnProfile().then(isOwn => {
           try {
             if (!isOwn) {
-              SmartLogger.log('UI.INTERACTIONS', 'Not user profile - blocking overlay show request');
               sendResponse({ 
                 success: false, 
                 error: 'Not your profile',
@@ -519,7 +414,6 @@
           
           if (existingOverlay) {
             // Overlay exists, just ensure it's visible
-            SmartLogger.log('UI.INTERACTIONS', 'Overlay already exists, ensuring visibility');
             existingOverlay.style.display = 'block';
             
             // Get compliance status and update OverlayManager
@@ -537,7 +431,6 @@
             sendResponse({ success: true, action: 'shown' });
           } else {
             // No overlay, need to initialize
-            SmartLogger.log('UI.INTERACTIONS', 'No overlay found, initializing');
             
             // Check if we're on the right page
             if (!isProfilePage()) {
@@ -564,7 +457,6 @@
                 
                 // Check if current page matches saved profile
                 if (currentProfileId === data.userProfile.profileId || window.location.href.includes('/in/me')) {
-                  SmartLogger.log('UI.INTERACTIONS', 'Profile matches, forcing overlay initialization');
                   
                   // Update compliance flag before initialization
                   OverlayManager.hasCompliance = true;
@@ -585,8 +477,6 @@
                         try {
                           init();
                         } catch (error) {
-                          if (!error.message?.includes('Extension context invalidated')) {
-                          }
                         }
                         setTimeout(() => {
                           const retryOverlay = document.querySelector('.elevateli-overlay-wrapper');
@@ -604,8 +494,6 @@
                     try {
                       init();
                     } catch (error) {
-                      if (!error.message?.includes('Extension context invalidated')) {
-                      }
                     }
                     setTimeout(() => {
                       const newOverlay = document.querySelector('.elevateli-overlay-wrapper');
@@ -624,8 +512,6 @@
                 try {
                   init();
                 } catch (error) {
-                  if (!error.message?.includes('Extension context invalidated')) {
-                  }
                 }
                 setTimeout(() => {
                   const newOverlay = document.querySelector('.elevateli-overlay-wrapper');
@@ -641,35 +527,18 @@
             return true; // Async response
           }
           } catch (error) {
-            SmartLogger.error('UI.ERRORS', 'Error handling showOverlay request', error);
+            console.error('UI.ERRORS', 'Error handling showOverlay request', error);
             sendResponse({ success: false, error: error.message });
           }
         }).catch(error => {
-          SmartLogger.error('UI.ERRORS', 'Error checking profile ownership', error);
+          console.error('UI.ERRORS', 'Error checking profile ownership', error);
           sendResponse({ success: false, error: 'Failed to verify profile ownership' });
         });
         
         return true;
       }
       
-      if (request.action === 'resetOverlay') {
-        SmartLogger.log('UI.INTERACTIONS', 'Received resetOverlay request - factory reset');
-        
-        // Reset overlay to empty cache state
-        if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
-          // Clear compliance flag since storage was cleared
-          OverlayManager.hasCompliance = false;
-          
-          // Reset to EMPTY_CACHE state - shows "No previous analysis found"
-          OverlayManager.setState(OverlayManager.states.EMPTY_CACHE);
-        }
-        
-        sendResponse({ success: true });
-        return true;
-      }
-      
       if (request.action === 'saveProfile') {
-        SmartLogger.log('UI.INTERACTIONS', 'Received saveProfile request from popup', { checkOnly: request.checkOnly });
         
         // Extract current profile information
         const profileId = getProfileIdFromUrl();
@@ -692,7 +561,6 @@
         
         // If checkOnly flag is set, just return the info without saving
         if (request.checkOnly) {
-          SmartLogger.log('UI.INTERACTIONS', 'Check-only mode: returning profile info without saving');
           sendResponse({ success: true, userProfile });
           return true;
         }
@@ -700,10 +568,8 @@
         // Otherwise, save profile data as before
         chrome.storage.local.set({ userProfile }, () => {
           if (chrome.runtime.lastError) {
-            SmartLogger.log('UI.INTERACTIONS', 'Failed to save profile', chrome.runtime.lastError);
             sendResponse({ success: false, error: chrome.runtime.lastError.message });
           } else {
-            SmartLogger.log('UI.INTERACTIONS', 'Profile saved successfully', userProfile);
             sendResponse({ success: true, userProfile });
           }
         });
@@ -712,13 +578,11 @@
       }
       
       if (request.action === 'updateOverlayVisibility') {
-        SmartLogger.log('UI.INTERACTIONS', 'Received updateOverlayVisibility request', { showAnalysis: request.showAnalysis });
         
         if (typeof OverlayManager !== 'undefined') {
           if (request.showAnalysis === false) {
             // Hide the overlay without destroying it
             OverlayManager.hide();
-            SmartLogger.log('UI.INTERACTIONS', 'Overlay hidden due to settings change');
           } else {
             // Show the overlay if we're on own profile
             isOwnProfile().then(async isOwn => {
@@ -727,11 +591,9 @@
                 if (OverlayManager.overlayElement) {
                   // Just show the existing overlay
                   OverlayManager.show();
-                  SmartLogger.log('UI.INTERACTIONS', 'Overlay shown (existing) due to settings change');
                 } else {
                   // Initialize with automatic state management
                   OverlayManager.initialize();
-                  SmartLogger.log('UI.INTERACTIONS', 'Overlay initialized due to settings change');
                   
                   
                   // Removed duplicate restoreAppropriateState() call that was causing race conditions
@@ -746,7 +608,6 @@
       }
       
       if (request.action === 'updateComplianceState') {
-        SmartLogger.log('UI.INTERACTIONS', 'Received updateComplianceState request', { hasCompliance: request.hasCompliance });
         
         if (typeof OverlayManager !== 'undefined') {
           // Update the compliance state in OverlayManager
@@ -755,19 +616,10 @@
           // If the overlay exists and we have compliance, update the button states
           if (OverlayManager.overlayElement && request.hasCompliance) {
             // Update button states to be clickable
-            const analyzeBtn = OverlayManager.overlayElement.querySelector('.analyze-button');
-            const collapsedBtn = OverlayManager.overlayElement.querySelector('.analyze-btn-collapsed');
             
-            if (analyzeBtn && !analyzeBtn.disabled) {
-              SmartLogger.log('UI.INTERACTIONS', 'Analyze button already enabled in expanded view');
-            }
             
-            if (collapsedBtn && !collapsedBtn.disabled) {
-              SmartLogger.log('UI.INTERACTIONS', 'Analyze button already enabled in collapsed view');
-            }
             
             // The event listeners are already attached, just the compliance state needed updating
-            SmartLogger.log('UI.INTERACTIONS', 'Compliance state updated, analyze buttons should now be clickable');
           }
         }
         
@@ -783,16 +635,12 @@
       try {
         init();
       } catch (error) {
-        if (!error.message?.includes('Extension context invalidated')) {
-        }
       }
     });
   } else {
     try {
       init();
     } catch (error) {
-      if (!error.message?.includes('Extension context invalidated')) {
-      }
     }
   }
   
@@ -800,8 +648,6 @@
   try {
     observeNavigation();
   } catch (error) {
-    if (!error.message?.includes('Extension context invalidated')) {
-    }
   }
   
   // Export for debugging

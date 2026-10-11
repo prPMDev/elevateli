@@ -224,11 +224,8 @@ class ProfileCompletenessCalculator {
    * @returns {Object} Complete scoring result
    */
   calculate(sectionData) {
-    const startTime = Date.now();
     
-    // Debug: Log what data we're starting with
     
-    // Debug: Log the rules and weights
     
     const breakdown = {};
     const recommendations = [];
@@ -240,7 +237,6 @@ class ProfileCompletenessCalculator {
       const data = sectionData[section];
       const rule = this.rules[section];
       
-      // Debug: Log each section processing
       
       totalPoints += weight;
       
@@ -253,9 +249,6 @@ class ProfileCompletenessCalculator {
           earnedPoints += points;
           const passed = scoreMultiplier >= 0.5; // Consider >= 50% as "passed"
           
-          // Debug logging for problem sections
-          if (section === 'about' || section === 'experience' || section === 'headline') {
-          }
           
           breakdown[section] = {
             weight,
@@ -310,9 +303,7 @@ class ProfileCompletenessCalculator {
     
     const percentage = Math.round((earnedPoints / totalPoints) * 100);
     
-    // Debug: Log final calculation
     
-    Logger.info(`[ProfileCompletenessCalculator] Calculated in ${Date.now() - startTime}ms`);
     
     return {
       score: percentage,
@@ -323,37 +314,6 @@ class ProfileCompletenessCalculator {
       allRecommendations: recommendations,
       isOptimized: percentage >= 85,
       level: this.getLevel(percentage)
-    };
-  }
-  
-  /**
-   * Calculate section-specific completeness
-   * @param {string} section - Section name
-   * @param {Object} data - Section data
-   * @returns {Object} Section score
-   */
-  scoreSection(section, data) {
-    const weight = this.weights[section];
-    const rule = this.rules[section];
-    
-    if (!weight || !rule) {
-      return {
-        score: 0,
-        maxScore: 0,
-        percentage: 0,
-        passed: false
-      };
-    }
-    
-    const passed = rule.check(data);
-    const score = passed ? weight : 0;
-    
-    return {
-      score,
-      maxScore: weight,
-      percentage: passed ? 100 : 0,
-      passed,
-      recommendation: !passed ? rule.getMessage(data) : null
     };
   }
   
@@ -400,146 +360,5 @@ class ProfileCompletenessCalculator {
       charCount: data.charCount || 0,
       hasContent: data && (data.exists || data.count > 0 || data.charCount > 0)
     };
-  }
-  
-  /**
-   * Generate rich feedback for a section (used when completeness < 75%)
-   * NOTE: Currently unused - planned for future enhancement
-   * @deprecated Consider removing if not used by v1.1.0
-   * @param {string} section - Section name
-   * @param {Object} data - Section data
-   * @returns {Object} Rich feedback with positive and improvements
-   */
-  generateRichFeedback(section, data) {
-    const feedback = {
-      positive: '',
-      improvements: []
-    };
-    
-    // Headline feedback
-    if (section === 'headline' && data) {
-      const util = data.charCount / this.characterLimits.headline;
-      if (util >= 0.5) {
-        feedback.positive = `Good headline foundation (${data.charCount} characters)`;
-      } else if (util >= 0.3) {
-        feedback.positive = `Headline present (${data.charCount} characters)`;
-      }
-      
-      if (util < 0.75) {
-        feedback.improvements.push({
-          action: `Expand to ${Math.round(this.characterLimits.headline * 0.75)}+ characters`,
-          rationale: 'Improves search visibility'
-        });
-      }
-    }
-    
-    // About section feedback
-    if (section === 'about' && data) {
-      const util = data.charCount / this.characterLimits.about;
-      if (util >= 0.4) {
-        feedback.positive = `Strong About section with ${data.charCount} characters`;
-      } else if (util >= 0.2) {
-        feedback.positive = `About section started (${data.charCount} characters)`;
-      }
-      
-      if (util < 0.4) {
-        feedback.improvements.push({
-          action: `Expand to 1000+ characters`,
-          rationale: 'Recruiters spend more time on detailed profiles'
-        });
-      }
-      
-      if (data.charCount > 0 && data.charCount < 275) {
-        feedback.improvements.push({
-          action: `Ensure first 275 characters capture attention`,
-          rationale: 'This appears before "See More" button'
-        });
-      }
-    }
-    
-    // Experience feedback  
-    if (section === 'experience' && data) {
-      if (data.count >= 2 && data.hasCurrentRole) {
-        feedback.positive = `${data.count} experiences with current role`;
-      } else if (data.count >= 1) {
-        feedback.positive = `${data.count} experience${data.count > 1 ? 's' : ''} documented`;
-      }
-      
-      if (data.averageDescriptionLength && data.averageDescriptionLength < 500) {
-        feedback.improvements.push({
-          action: `Expand descriptions to 500+ characters per role`,
-          rationale: 'Add achievements and metrics'
-        });
-      }
-      
-      if (!data.hasCurrentRole) {
-        feedback.improvements.push({
-          action: `Add your current position`,
-          rationale: 'Current roles weighted heavily in search'
-        });
-      }
-    }
-    
-    // Skills feedback
-    if (section === 'skills' && data) {
-      if (data.count >= 10) {
-        feedback.positive = `${data.count} skills listed`;
-      } else if (data.count > 0) {
-        feedback.positive = `${data.count} skills added`;
-      }
-      
-      if (data.count < 10) {
-        feedback.improvements.push({
-          action: `Add ${10 - data.count} more relevant skills`,
-          rationale: 'Improves keyword matching'
-        });
-      }
-    }
-    
-    return feedback;
-  }
-  
-  /**
-   * Get actionable recommendations
-   * @param {Object} scoringResult - Complete scoring result
-   * @param {Object} settings - User settings
-   * @returns {Array<Object>} Prioritized recommendations
-   */
-  getActionableRecommendations(scoringResult, settings = {}) {
-    const { targetRole, seniorityLevel } = settings;
-    const recommendations = [...scoringResult.allRecommendations];
-    
-    // Adjust priorities based on target role
-    if (targetRole) {
-      recommendations.forEach(rec => {
-        // Boost skills for technical roles
-        if (targetRole.includes('engineer') && rec.section === 'skills') {
-          rec.priority = 'critical';
-        }
-        // Boost experience for senior roles
-        if (seniorityLevel === 'senior' && rec.section === 'experience') {
-          rec.priority = 'critical';
-        }
-      });
-    }
-    
-    // Group by priority
-    const grouped = {
-      critical: [],
-      high: [],
-      medium: [],
-      low: []
-    };
-    
-    recommendations.forEach(rec => {
-      grouped[rec.priority].push(rec);
-    });
-    
-    // Return top recommendations from each priority level
-    return [
-      ...grouped.critical.slice(0, 2),
-      ...grouped.high.slice(0, 2),
-      ...grouped.medium.slice(0, 1)
-    ];
   }
 }

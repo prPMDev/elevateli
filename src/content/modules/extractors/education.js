@@ -77,36 +77,6 @@ const EducationExtractor = {
   },
   
   /**
-   * Deep extraction for AI analysis
-   * @returns {Object} Detailed education data
-   */
-  async extractDeep() {
-    const startTime = Date.now();
-    const basicData = await this.extract();
-    
-    if (!basicData.exists) return basicData;
-    
-    const section = BaseExtractor.findSection(this.selectors, 'Education');
-    const detailedEducation = await this.extractDetailedEducation(section);
-    
-    const result = {
-      ...basicData,
-      education: detailedEducation,
-      
-      // Analysis features
-      totalYears: this.calculateTotalEducationYears(detailedEducation),
-      recentEducation: detailedEducation.find(e => this.isRecent(e.endDate)),
-      hasCertifications: detailedEducation.some(e => e.activities || e.honors),
-      fieldsOfStudy: this.extractFieldsOfStudy(detailedEducation),
-      
-      // For AI processing
-      educationSummary: this.summarizeEducation(detailedEducation)
-    };
-    
-    return result;
-  },
-  
-  /**
    * Extract education items
    * @param {Element} section - Education section
    * @returns {Array<Object>} Education items
@@ -188,24 +158,6 @@ const EducationExtractor = {
   },
   
   /**
-   * Extract detailed education information
-   * @param {Element} section - Education section
-   * @returns {Array<Object>} Detailed education data
-   */
-  async extractDetailedEducation(section) {
-    const detailedItems = await this.extractEducationItems(section);
-    
-    // Enhance with additional analysis
-    return detailedItems.map(item => ({
-      ...item,
-      degreeLevel: this.classifyDegreeLevel(item.degree),
-      fieldCategory: this.categorizeField(item.field),
-      isOngoing: item.endDate === 'Present',
-      duration: this.calculateDuration(item.startDate, item.endDate)
-    }));
-  },
-  
-  /**
    * Determine highest degree level
    * @param {Array<Object>} educationItems - Education items
    * @returns {string} Highest degree
@@ -239,82 +191,6 @@ const EducationExtractor = {
   },
   
   /**
-   * Classify degree level
-   * @param {string} degree - Degree text
-   * @returns {string} Degree level
-   */
-  classifyDegreeLevel(degree) {
-    const degreeLower = degree.toLowerCase();
-    
-    if (degreeLower.includes('phd') || degreeLower.includes('doctorate')) {
-      return 'doctoral';
-    } else if (degreeLower.includes('master') || degreeLower.includes('mba')) {
-      return 'masters';
-    } else if (degreeLower.includes('bachelor')) {
-      return 'bachelors';
-    } else if (degreeLower.includes('associate')) {
-      return 'associates';
-    } else if (degreeLower.includes('certificate') || degreeLower.includes('certification')) {
-      return 'certificate';
-    }
-    
-    return 'other';
-  },
-  
-  /**
-   * Categorize field of study
-   * @param {string} field - Field text
-   * @returns {string} Field category
-   */
-  categorizeField(field) {
-    const fieldLower = field.toLowerCase();
-    
-    const categories = {
-      'stem': /computer|engineering|mathematics|science|technology|physics|chemistry|biology/i,
-      'business': /business|management|finance|marketing|economics|accounting|mba/i,
-      'arts': /art|design|music|theater|literature|creative|media/i,
-      'social': /psychology|sociology|anthropology|political|social|history/i,
-      'medical': /medicine|medical|nursing|health|pharmacy|dentistry/i,
-      'law': /law|legal|jurisprudence/i,
-      'education': /education|teaching|pedagogy/i
-    };
-    
-    for (const [category, pattern] of Object.entries(categories)) {
-      if (pattern.test(fieldLower)) {
-        return category;
-      }
-    }
-    
-    return 'other';
-  },
-  
-  /**
-   * Calculate education duration
-   * @param {string} startDate - Start date
-   * @param {string} endDate - End date
-   * @returns {number} Duration in years
-   */
-  calculateDuration(startDate, endDate) {
-    if (!startDate) return 0;
-    
-    const start = parseInt(startDate);
-    const end = endDate === 'Present' ? new Date().getFullYear() : parseInt(endDate);
-    
-    return end - start;
-  },
-  
-  /**
-   * Calculate total education years
-   * @param {Array<Object>} education - Education items
-   * @returns {number} Total years
-   */
-  calculateTotalEducationYears(education) {
-    return education.reduce((total, item) => {
-      return total + (item.duration || 0);
-    }, 0);
-  },
-  
-  /**
    * Check if education is recent (within 5 years)
    * @param {string} endDate - End date
    * @returns {boolean}
@@ -327,43 +203,4 @@ const EducationExtractor = {
     
     return (currentYear - year) <= 5;
   },
-  
-  /**
-   * Extract unique fields of study
-   * @param {Array<Object>} education - Education items
-   * @returns {Array<string>} Fields
-   */
-  extractFieldsOfStudy(education) {
-    const fields = new Set();
-    
-    education.forEach(item => {
-      if (item.field) {
-        fields.add(item.fieldCategory);
-      }
-    });
-    
-    return Array.from(fields);
-  },
-  
-  /**
-   * Summarize education for AI
-   * @param {Array<Object>} education - Education items
-   * @returns {string} Summary
-   */
-  summarizeEducation(education) {
-    if (education.length === 0) return 'No education listed';
-    
-    const parts = [];
-    
-    education.forEach(item => {
-      let summary = item.degree || 'Degree';
-      if (item.field) summary += ` in ${item.field}`;
-      summary += ` from ${item.school}`;
-      if (item.endDate) summary += ` (${item.endDate})`;
-      
-      parts.push(summary);
-    });
-    
-    return parts.join('; ');
-  }
 };

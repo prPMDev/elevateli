@@ -133,99 +133,6 @@ const AboutExtractor = {
   },
   
   /**
-   * Deep extraction for AI analysis
-   * @returns {Object} Detailed about data with full text
-   */
-  async extractDeep() {
-    const startTime = Date.now();
-    const basicData = await this.extract();
-    
-    if (!basicData.exists) return basicData;
-    
-    const section = BaseExtractor.findSection(this.selectors, 'About');
-    
-    // Expand "Show more" if present
-    if (basicData.hasShowMore) {
-      await this.expandAboutSection(section);
-    }
-    
-    // Re-extract after expansion
-    let fullText = '';
-    
-    // Try all text extraction strategies again
-    for (const selector of this.textSelectors) {
-      const elements = section.querySelectorAll(selector);
-      if (elements.length > 0) {
-        fullText = Array.from(elements)
-          .map(el => el.textContent?.trim())
-          .filter(t => t)
-          .join(' ');
-        
-        if (fullText.length > 0) break;
-      }
-    }
-    
-    // Fallback to container text
-    if (!fullText) {
-      const container = section.querySelector('.pvs-list__outer-container, .pv-about__summary-text');
-      if (container) {
-        fullText = BaseExtractor.extractTextContent(container);
-      }
-    }
-    
-    // Clean up the text
-    fullText = this.cleanAboutText(fullText);
-    
-    const result = {
-      ...basicData,
-      text: fullText,
-      charCount: fullText.length,
-      wordCount: fullText.split(/\s+/).filter(w => w.length > 0).length,
-      
-      // Analysis features
-      paragraphs: this.extractParagraphs(fullText),
-      keywords: this.extractKeywords(fullText),
-      hasCallToAction: this.hasCallToAction(fullText),
-      hasContactInfo: this.hasContactInfo(fullText),
-      sentiment: this.analyzeSentiment(fullText),
-      readabilityScore: this.calculateReadability(fullText),
-      
-      // For AI processing
-      textChunks: BaseExtractor.chunkText(fullText, 1000)
-    };
-    
-    return result;
-  },
-  
-  /**
-   * Expand the about section by clicking "Show more"
-   * @param {Element} section - About section element
-   */
-  async expandAboutSection(section) {
-    const showMoreSelectors = [
-      'button[aria-label*="more about"]',
-      'button[aria-label*="Show more"]',
-      'button.inline-show-more-text__button',
-      '[class*="inline-show-more-text"] button'
-    ];
-    
-    for (const selector of showMoreSelectors) {
-      const button = section.querySelector(selector);
-      if (button && !button.disabled) {
-        try {
-          button.click();
-          // Wait for content to load
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          return true;
-        } catch (error) {
-        }
-      }
-    }
-    
-    return false;
-  },
-  
-  /**
    * Clean about text by removing UI elements
    * @param {string} text - Raw text
    * @returns {string} Cleaned text
@@ -238,18 +145,6 @@ const AboutExtractor = {
       .replace(/Top\s+skills[\s\S]*/i, '') // Remove everything from "Top skills" onward
       .replace(/\s+/g, ' ')
       .trim();
-  },
-  
-  /**
-   * Extract paragraphs from text
-   * @param {string} text - About text
-   * @returns {Array<string>} Paragraphs
-   */
-  extractParagraphs(text) {
-    return text
-      .split(/\n{2,}/)
-      .map(p => p.trim())
-      .filter(p => p.length > 0);
   },
   
   /**
@@ -284,43 +179,6 @@ const AboutExtractor = {
   },
   
   /**
-   * Check if about section has a call to action
-   * @param {string} text - About text
-   * @returns {boolean}
-   */
-  hasCallToAction(text) {
-    const ctaPatterns = [
-      /contact\s+me/i,
-      /reach\s+out/i,
-      /get\s+in\s+touch/i,
-      /let's\s+connect/i,
-      /feel\s+free\s+to/i,
-      /don't\s+hesitate/i,
-      /available\s+for/i,
-      /looking\s+for/i,
-      /open\s+to/i
-    ];
-    
-    return ctaPatterns.some(pattern => pattern.test(text));
-  },
-  
-  /**
-   * Check if about section contains contact information
-   * @param {string} text - About text
-   * @returns {boolean}
-   */
-  hasContactInfo(text) {
-    const contactPatterns = [
-      /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/, // Email
-      /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/, // Phone
-      /\bwww\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}\b/, // Website
-      /\bhttps?:\/\/[^\s]+/i // URL
-    ];
-    
-    return contactPatterns.some(pattern => pattern.test(text));
-  },
-  
-  /**
    * Simple sentiment analysis
    * @param {string} text - About text
    * @returns {string} Sentiment (positive/neutral/negative)
@@ -349,24 +207,4 @@ const AboutExtractor = {
     
     return score > 1 ? 'positive' : score < -1 ? 'negative' : 'neutral';
   },
-  
-  /**
-   * Calculate readability score (simplified Flesch Reading Ease)
-   * @param {string} text - About text
-   * @returns {number} Readability score
-   */
-  calculateReadability(text) {
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim()).length || 1;
-    const words = text.split(/\s+/).filter(w => w).length || 1;
-    const syllables = text.toLowerCase().replace(/[^a-z]/g, '').replace(/[aeiou]/gi, '').length || 1;
-    
-    const avgWordsPerSentence = words / sentences;
-    const avgSyllablesPerWord = syllables / words;
-    
-    // Simplified Flesch Reading Ease formula
-    const score = 206.835 - 1.015 * avgWordsPerSentence - 84.6 * avgSyllablesPerWord;
-    
-    // Normalize to 0-100
-    return Math.max(0, Math.min(100, score));
-  }
 };

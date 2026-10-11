@@ -4,45 +4,6 @@
  * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
-// Debug logging system for Mac testing
-window.elevateliDebug = {
-  logs: [],
-  enabled: false,
-  
-  init() {
-    // Enable debug mode if URL contains debug=true
-    this.enabled = window.location.href.includes('debug=true');
-    if (this.enabled) {
-    }
-  },
-  
-  addLog(component, message, data = {}) {
-    if (!this.enabled) return;
-    
-    const logEntry = {
-      timestamp: new Date().toISOString(),
-      component,
-      message,
-      data,
-      platform: navigator.platform,
-      userAgent: navigator.userAgent
-    };
-    
-    this.logs.push(logEntry);
-  },
-  
-  getLogs() {
-    return JSON.stringify(this.logs, null, 2);
-  },
-  
-  clearLogs() {
-    this.logs = [];
-  }
-};
-
-// Initialize debug system
-window.elevateliDebug.init();
-
 const OverlayManager = {
   // UI States
   states: {
@@ -53,7 +14,6 @@ const OverlayManager = {
     CALCULATING: 'calculating',
     ANALYZING: 'analyzing',
     AI_ANALYZING: 'ai_analyzing',
-    AI_RETRYING: 'ai_retrying',
     COMPLETE: 'complete',
     ERROR: 'error',
     ANALYSIS_FAILED_CACHE_FALLBACK: 'analysis_failed_cache_fallback'
@@ -93,16 +53,13 @@ const OverlayManager = {
    * @returns {OverlayManager} Self for chaining
    */
   async initialize() {
-    SmartLogger.log('UI.STATES', 'Initializing overlay');
     
     // Check if extension context is still valid
     try {
       if (!chrome?.runtime?.id) {
-        SmartLogger.log('UI.STATES', 'Extension context invalid, skipping initialization');
         return this;
       }
     } catch (e) {
-      SmartLogger.log('UI.STATES', 'Extension context check failed, skipping initialization');
       return this;
     }
     
@@ -111,7 +68,6 @@ const OverlayManager = {
       const settings = await new Promise((resolve) => {
         chrome.storage.local.get(['showAnalysis', 'compliance'], (data) => {
           if (chrome.runtime.lastError) {
-            SmartLogger.log('UI.STATES', 'Chrome storage error:', chrome.runtime.lastError.message);
             resolve({});
             return;
           }
@@ -120,7 +76,6 @@ const OverlayManager = {
       });
       
       if (settings.showAnalysis === false) {
-        SmartLogger.log('UI.STATES', 'Show analysis is disabled, skipping initialization');
         return this;
       }
       
@@ -128,7 +83,6 @@ const OverlayManager = {
       this.hasCompliance = settings.compliance?.hasAcknowledged || false;
     } catch (error) {
       // Continue with initialization on error
-      SmartLogger.log('UI.STATES', 'Error checking settings:', error);
       this.hasCompliance = false;
     }
     
@@ -142,12 +96,10 @@ const OverlayManager = {
     
     // If injection failed, retry with delays
     if (!this.overlayElement) {
-      SmartLogger.log('UI.ERRORS', 'Initial injection failed, scheduling retries');
       
       // Retry after DOM settles
       setTimeout(() => {
         if (!this.overlayElement) {
-          SmartLogger.log('UI.STATES', 'Retrying injection (attempt 2)');
           this.createAndInject();
         }
       }, 1000);
@@ -155,7 +107,6 @@ const OverlayManager = {
       // Final retry after LinkedIn finishes loading
       setTimeout(() => {
         if (!this.overlayElement) {
-          SmartLogger.log('UI.STATES', 'Final injection attempt (attempt 3)');
           this.createAndInject();
         }
       }, 3000);
@@ -169,20 +120,17 @@ const OverlayManager = {
     // 3. Has compliance and cache - restore cached data
     if (this.overlayElement) {
       if (this.hasCompliance) {
-        SmartLogger.log('UI.STATES', 'User has compliance, checking for cached data on initialization');
         // Use setTimeout to ensure DOM is fully ready
         setTimeout(async () => {
           // Check if we already have scores displayed (from popup-triggered analysis)
           const hasScores = this.overlayElement?.querySelector('.completeness-score')?.textContent;
           if (hasScores && hasScores !== '0' && hasScores !== '') {
-            SmartLogger.log('UI.STATES', 'Scores already displayed, skipping restoration on init');
             return;
           }
           // This will check for cache and either restore it or show EMPTY_CACHE state
           await this.restoreAppropriateState();
         }, 100);
       } else {
-        SmartLogger.log('UI.STATES', 'No compliance yet, showing zero state with disabled analyze button');
         // The INITIALIZING state handler will show zero state for no compliance
         // No need to call restoreAppropriateState
       }
@@ -417,20 +365,6 @@ const OverlayManager = {
     // Find the right place to inject
     let injected = false;
     
-    // Log available elements for debugging
-    Logger.debug('[OverlayManager] Looking for injection points...', {
-      profileCard: !!document.querySelector('section.artdeco-card[data-member-id]'),
-      profileSection: !!document.querySelector('.pv-top-card'),
-      aboutSection: !!document.querySelector('#about'),
-      mainContent: !!document.querySelector('main'),
-      scaffoldMain: !!document.querySelector('.scaffold-layout__main'),
-      profileWrapper: !!document.querySelector('[data-generated-suggestion-target]'),
-      profileMain: !!document.querySelector('.profile-detail'),
-      bodyContainer: !!document.querySelector('.body-container'),
-      applicationBody: !!document.querySelector('.application-outlet'),
-      profileContentMain: !!document.querySelector('.pv-oc'),
-      profileViewContainer: !!document.querySelector('[data-view-name="profile-view"]')
-    });
     
     // Strategy 0: Look for main profile content container first
     const profileMainContent = document.querySelector('.pv-oc') || 
@@ -440,7 +374,6 @@ const OverlayManager = {
     if (profileMainContent && !injected) {
       const topCard = profileMainContent.querySelector('.pv-top-card');
       if (topCard) {
-        Logger.info('[OverlayManager] Injecting after top card in main profile content');
         topCard.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -456,15 +389,8 @@ const OverlayManager = {
                            !parent.classList.contains('pv-profile-sticky-header-v2__container');
       
       if (isMainContent) {
-        Logger.info('[OverlayManager] Injecting after profile top card', {
-          parentClasses: parent.className,
-          parentId: parent.id,
-          parentTag: parent.tagName
-        });
         topCard.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
-      } else {
-        Logger.warn('[OverlayManager] Top card found but parent appears to be sidebar or header');
       }
     }
     
@@ -472,7 +398,6 @@ const OverlayManager = {
     if (!injected) {
       const profileSection = document.querySelector('section.artdeco-card.pv-top-card-profile-picture');
       if (profileSection) {
-        Logger.info('[OverlayManager] Injecting after profile intro section');
         profileSection.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -482,7 +407,6 @@ const OverlayManager = {
     if (!injected) {
       const profileCards = document.querySelectorAll('section.pv-profile-card');
       if (profileCards.length > 0) {
-        Logger.info('[OverlayManager] Injecting after first profile card');
         profileCards[0].insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -492,7 +416,6 @@ const OverlayManager = {
     if (!injected) {
       const aboutSection = document.querySelector('section#about, div#about');
       if (aboutSection && aboutSection.parentElement) {
-        Logger.info('[OverlayManager] Injecting after About section');
         aboutSection.parentElement.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -502,7 +425,6 @@ const OverlayManager = {
     if (!injected) {
       const anyCard = document.querySelector('section.artdeco-card');
       if (anyCard) {
-        Logger.info('[OverlayManager] Injecting after first artdeco card (generic fallback)');
         anyCard.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -512,7 +434,6 @@ const OverlayManager = {
     if (!injected) {
       const profileWrapper = document.querySelector('[data-generated-suggestion-target]');
       if (profileWrapper) {
-        Logger.info('[OverlayManager] Injecting after profile wrapper');
         profileWrapper.insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -524,7 +445,6 @@ const OverlayManager = {
         el.tagName === 'SECTION' || el.tagName === 'DIV'
       );
       if (profileElements.length > 0) {
-        Logger.info('[OverlayManager] Injecting after first profile element');
         profileElements[0].insertAdjacentHTML('afterend', wrapperHtml);
         injected = true;
       }
@@ -542,29 +462,22 @@ const OverlayManager = {
           // Find the first section/card in profile content
           const firstSection = profileContent.querySelector('section, .artdeco-card');
           if (firstSection) {
-            Logger.info('[OverlayManager] Injecting after first profile section in main content');
             firstSection.insertAdjacentHTML('afterend', wrapperHtml);
             injected = true;
           } else {
             // Instead of afterbegin, find first child and inject after it
             const firstChild = profileContent.querySelector('*');
             if (firstChild) {
-              Logger.info('[OverlayManager] Injecting after first child of profile content');
               firstChild.insertAdjacentHTML('afterend', wrapperHtml);
               injected = true;
-            } else {
-              Logger.warn('[OverlayManager] Profile content found but no suitable injection point');
             }
           }
         } else {
           // Instead of injecting at beginning of main, find first substantial child
           const firstMainChild = mainContent.querySelector('section, article, div.artdeco-card, div[class*="profile"]');
           if (firstMainChild) {
-            Logger.info('[OverlayManager] Injecting after first substantial child in main content');
             firstMainChild.insertAdjacentHTML('afterend', wrapperHtml);
             injected = true;
-          } else {
-            Logger.warn('[OverlayManager] Main content found but no suitable injection point - skipping');
           }
         }
       }
@@ -572,11 +485,9 @@ const OverlayManager = {
     
     // Strategy 9: Delayed injection - wait for DOM to fully load
     if (!injected) {
-      Logger.warn('[OverlayManager] No immediate injection point found, trying delayed injection...');
       setTimeout(() => {
         const delayedTopCard = document.querySelector('.pv-top-card, .profile-detail, section[data-member-id]');
         if (delayedTopCard && delayedTopCard.parentElement) {
-          Logger.info('[OverlayManager] Delayed injection successful');
           delayedTopCard.parentElement.insertAdjacentHTML('afterend', wrapperHtml);
           this.overlayElement = document.getElementById('elevateli-overlay');
           if (this.overlayElement) {
@@ -585,22 +496,12 @@ const OverlayManager = {
             this.overlayElement.classList.add('unified-ui');
             this.overlayElement.setAttribute('data-view-state', this.viewState);
           }
-        } else {
-          Logger.error('[OverlayManager] Delayed injection also failed');
         }
       }, 2000);
       return; // Exit early and let delayed injection handle it
     }
     
     if (!injected) {
-      Logger.error('[OverlayManager] Failed to inject overlay - no suitable location found', {
-        url: window.location.href,
-        hasMain: !!document.querySelector('main'),
-        hasBody: !!document.body,
-        bodyChildren: document.body.children.length,
-        allSections: document.querySelectorAll('section').length,
-        allArtdecoCards: document.querySelectorAll('.artdeco-card').length
-      });
       return;
     }
     
@@ -609,7 +510,6 @@ const OverlayManager = {
     // Attach event listeners
     this.attachEventListeners();
     
-    SmartLogger.log('UI.RENDERING', 'Overlay injected into DOM');
   },
   
   /**
@@ -671,11 +571,6 @@ const OverlayManager = {
   setState(newState, data = {}) {
     // Add null/undefined check for newState
     if (!newState) {
-      SmartLogger.error('UI.STATES', 'setState called with null/undefined state', {
-        providedState: newState,
-        currentState: this.currentState,
-        stackTrace: new Error().stack
-      });
       // Default to EMPTY_CACHE if no state provided
       newState = this.states.EMPTY_CACHE;
     }
@@ -683,25 +578,10 @@ const OverlayManager = {
     // Validate that the state exists in our defined states
     const validStates = Object.values(this.states);
     if (!validStates.includes(newState)) {
-      SmartLogger.error('UI.STATES', 'setState called with invalid state', {
-        providedState: newState,
-        validStates: validStates,
-        currentState: this.currentState
-      });
       // Default to EMPTY_CACHE for invalid states
       newState = this.states.EMPTY_CACHE;
     }
     
-    SmartLogger.log('UI.STATES', 'State change', {
-      from: this.currentState,
-      to: newState,
-      hasData: !!data,
-      dataKeys: data ? Object.keys(data) : [],
-      completeness: data?.completeness,
-      contentScore: data?.contentScore,
-      hasRecommendations: !!data?.recommendations,
-      recommendationType: data?.recommendations ? typeof data.recommendations : 'undefined'
-    });
     this.currentState = newState;
     
     if (!this.overlayElement) return;
@@ -902,26 +782,6 @@ const OverlayManager = {
         
         // Start elapsed time display
         this.startElapsedTimeDisplay();
-      },
-      
-      [this.states.AI_RETRYING]: () => {
-        // Show retry status with attempt counter
-        const message = data.message || 'Connection issue. Retrying...';
-        const attemptInfo = data.attempt && data.maxAttempts ? 
-          ` (${data.attempt}/${data.maxAttempts})` : '';
-        this.updateStatus(message + attemptInfo, '🔄');
-        
-        // Show toast for first retry
-        if (data.attempt === 1) {
-          this.showToast('Network issue detected - retrying...', 'info', 3000);
-        }
-        
-        // Keep showing completeness
-        if (data.completeness !== undefined) {
-          this.updateCompleteness(data.completeness);
-        }
-        
-        // Don't stop elapsed time display during retries
       },
       
       [this.states.COMPLETE]: () => {
@@ -1289,10 +1149,6 @@ const OverlayManager = {
    * @param {Object} data - Score data
    */
   populateScores(data) {
-    // Log section scores if available
-    if (data.sectionScores) {
-      SmartLogger.log('AI.SCORING', 'Section scores', { sectionScores: data.sectionScores });
-    }
     
     // Update completeness
     if (data.completeness !== undefined) {
@@ -1302,14 +1158,6 @@ const OverlayManager = {
     // Check if AI is disabled or API key error
     const qualityBadge = this.overlayElement.querySelector('.score-badge.quality');
     
-    // Debug logging
-    SmartLogger.log('UI.RENDERING', 'Quality badge update check', {
-      aiDisabled: data.aiDisabled,
-      contentScore: data.contentScore,
-      fromCache: data.fromCache,
-      willShowEnableAI: data.aiDisabled || (!data.contentScore && data.fromCache !== true),
-      qualityBadgeExists: !!qualityBadge
-    });
     
     if (data.aiDisabled || ((data.contentScore === undefined || data.contentScore === null) && data.fromCache !== true)) {
       // Replace quality score block with AI disabled message
@@ -1430,7 +1278,6 @@ const OverlayManager = {
       
       // Update collapsed view badge
       if (qualityBadge) {
-        SmartLogger.log('UI.RENDERING', 'Updating quality badge', { contentScore: data.contentScore });
         // Convert 10-point scale to 5-star scale
         const starRating = Math.round(data.contentScore / 2);
         const numericRating = (data.contentScore / 2).toFixed(1);
@@ -1506,286 +1353,6 @@ const OverlayManager = {
         const colorClass = this.getScoreClass(data.contentScore, true);
         qualityBadge.classList.add(colorClass);
       }
-    }
-  },
-  
-  /**
-   * Show timestamp
-   * @param {number} timestamp - Unix timestamp
-   */
-  showTimestamp(timestamp) {
-    const timestampEl = this.overlayElement.querySelector('.timestamp-display');
-    if (!timestampEl || !timestamp) return;
-    
-    const date = new Date(timestamp);
-    const formatted = date.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-    
-    timestampEl.textContent = `Last analyzed: ${formatted}`;
-    timestampEl.style.opacity = '1';
-  },
-  
-  /**
-   * Show recommendations with categorization
-   * @param {Array|Object} recommendations - Recommendations data
-   */
-  showRecommendations(recommendations) {
-    SmartLogger.log('UI.RENDERING', 'showRecommendations called', { recommendations });
-    
-    // Add detailed logging for recommendations structure
-    SmartLogger.log('UI.RENDERING', 'Recommendations structure', {
-      type: typeof recommendations,
-      isArray: Array.isArray(recommendations),
-      hasCritical: recommendations?.critical !== undefined,
-      hasImportant: recommendations?.important !== undefined,
-      hasNiceToHave: recommendations?.niceToHave !== undefined,
-      criticalCount: recommendations?.critical?.length || 0,
-      importantCount: recommendations?.important?.length || 0,
-      niceToHaveCount: recommendations?.niceToHave?.length || 0,
-      arrayLength: Array.isArray(recommendations) ? recommendations.length : 0,
-      firstItem: Array.isArray(recommendations) ? recommendations[0] : recommendations?.critical?.[0]
-    });
-    
-    if (!recommendations) {
-      SmartLogger.log('UI.RENDERING', 'No recommendations provided');
-      return;
-    }
-    
-    // Debug: Check if it's an empty object vs null/undefined
-    if (typeof recommendations === 'object' && !Array.isArray(recommendations)) {
-      const hasAnyRecommendations = 
-        (recommendations.critical && recommendations.critical.length > 0) ||
-        (recommendations.important && recommendations.important.length > 0) ||
-        (recommendations.niceToHave && recommendations.niceToHave.length > 0);
-      
-      if (!hasAnyRecommendations) {
-        SmartLogger.log('UI.RENDERING', 'Recommendations object is empty or has no items');
-      }
-    }
-    
-    const section = this.overlayElement.querySelector('.recommendations-section');
-    const list = this.overlayElement.querySelector('.recommendations-list');
-    
-    if (!section || !list) {
-      SmartLogger.log('UI.ERRORS', 'Recommendations section or list not found');
-      return;
-    }
-    
-    // Clear existing
-    // Clear list safely
-    while (list.firstChild) {
-      list.removeChild(list.firstChild);
-    }
-    
-    // Create categorized structure
-    const categories = {
-      critical: { items: [], label: '🔴 Critical Actions', time: '15 min' },
-      high: { items: [], label: '🟡 High Impact', time: '30 min' },
-      medium: { items: [], label: '🟢 Nice to Have', time: '1 hour' }
-    };
-    
-    // Categorize recommendations
-    let allRecs = [];
-    if (Array.isArray(recommendations)) {
-      allRecs = recommendations;
-    } else {
-      // Handle categorized format from cache or synthesis
-      if (recommendations.critical) {
-        recommendations.critical.forEach(r => {
-          // If this has actions array (synthesis format), extract each action
-          if (r.actions && Array.isArray(r.actions)) {
-            r.actions.forEach(action => {
-              allRecs.push({
-                priority: 'critical',
-                action: {
-                  what: action.what,
-                  why: action.expectedImpact || r.combinedImpact,
-                  how: action.how || 'Review and update your profile',
-                  example: action.example
-                },
-                section: action.section,
-                timeInvestment: r.timeframe,
-                impactScore: r.rank
-              });
-            });
-          } else {
-            // Already in expected format or needs priority added
-            allRecs.push({...r, priority: 'critical'});
-          }
-        });
-      }
-      
-      if (recommendations.important) {
-        recommendations.important.forEach(r => {
-          // If this has actions array (synthesis format), extract each action
-          if (r.actions && Array.isArray(r.actions)) {
-            r.actions.forEach(action => {
-              allRecs.push({
-                priority: 'high',
-                action: {
-                  what: action.what,
-                  why: action.expectedImpact || r.combinedImpact,
-                  how: action.how || 'Review and update your profile',
-                  example: action.example
-                },
-                section: action.section,
-                timeInvestment: r.timeframe,
-                impactScore: r.rank
-              });
-            });
-          } else {
-            allRecs.push({...r, priority: 'high'});
-          }
-        });
-      }
-      
-      if (recommendations.niceToHave) {
-        recommendations.niceToHave.forEach(r => {
-          // If this has actions array (synthesis format), extract each action
-          if (r.actions && Array.isArray(r.actions)) {
-            r.actions.forEach(action => {
-              allRecs.push({
-                priority: 'medium',
-                action: {
-                  what: action.what,
-                  why: action.expectedImpact || r.combinedImpact,
-                  how: action.how || 'Review and update your profile',
-                  example: action.example
-                },
-                section: action.section,
-                timeInvestment: r.timeframe,
-                impactScore: r.rank
-              });
-            });
-          } else {
-            allRecs.push({...r, priority: 'medium'});
-          }
-        });
-      }
-    }
-    
-    // Sort into categories
-    allRecs.forEach(rec => {
-      const priority = rec.priority || 'medium';
-      if (categories[priority]) {
-        categories[priority].items.push(rec);
-      }
-    });
-    
-    // Display by category
-    Object.entries(categories).forEach(([priority, category]) => {
-      if (category.items.length === 0) return;
-      
-      // Create category header
-      const categoryDiv = document.createElement('div');
-      categoryDiv.className = 'recommendation-category';
-      categoryDiv.style.cssText = 'margin-bottom: 16px;';
-      
-      const header = document.createElement('h5');
-      header.style.cssText = 'font-size: 13px; font-weight: 600; margin: 0 0 8px 0; color: #333; display: flex; align-items: center; justify-content: space-between;';
-      // Create header content safely
-      const labelSpan = document.createElement('span');
-      labelSpan.textContent = category.label;
-      
-      const timeSpan = document.createElement('span');
-      timeSpan.style.cssText = 'font-size: 11px; color: #666; font-weight: normal;';
-      timeSpan.textContent = `~${category.time}`;
-      
-      header.appendChild(labelSpan);
-      header.appendChild(timeSpan);
-      categoryDiv.appendChild(header);
-      
-      const categoryList = document.createElement('ul');
-      categoryList.style.cssText = 'list-style: none; padding: 0; margin: 0;';
-      
-      // Add items to category
-      category.items.slice(0, 3).forEach(rec => {
-        const li = document.createElement('li');
-        li.className = 'recommendation-item';
-        li.style.cssText = 'padding: 8px 0; padding-left: 24px; position: relative; font-size: 13px; line-height: 1.5;';
-        
-        // Extract recommendation details
-        const action = rec.action || {};
-        
-        // Ensure we have a valid 'what' string, not an object
-        let what = action.what || rec.what || rec.message;
-        if (!what || typeof what === 'object') {
-          SmartLogger.log('UI.ERRORS', 'Invalid recommendation format', {
-            recType: typeof rec,
-            recKeys: rec ? Object.keys(rec) : 'null',
-            hasAction: !!rec.action,
-            hasActions: !!rec.actions,
-            actionWhat: action.what,
-            recWhat: rec.what,
-            recMessage: rec.message
-          });
-          
-          // Try to extract from actions array if present (synthesis format)
-          if (rec.actions && Array.isArray(rec.actions) && rec.actions.length > 0) {
-            what = rec.actions[0].what || 'Review and improve this section';
-          } else {
-            what = 'Review and improve this section';
-          }
-        }
-        
-        const why = action.why || rec.why;
-        const example = action.example || rec.example;
-        const impact = rec.impactScore || rec.impact;
-        
-        // Create content structure using DOM methods
-        const whatDiv = document.createElement('div');
-        whatDiv.style.cssText = 'margin-bottom: 4px;';
-        whatDiv.textContent = what;
-        li.appendChild(whatDiv);
-        
-        if (why) {
-          const whyDiv = document.createElement('div');
-          whyDiv.style.cssText = 'font-size: 12px; color: #666; margin-top: 4px;';
-          whyDiv.textContent = `→ ${why}`;
-          li.appendChild(whyDiv);
-        }
-        
-        if (example) {
-          const exampleDiv = document.createElement('div');
-          exampleDiv.style.cssText = 'font-size: 11px; color: #0a66c2; margin-top: 4px; font-style: italic;';
-          exampleDiv.textContent = example;
-          li.appendChild(exampleDiv);
-        }
-        
-        if (impact) {
-          const impactDiv = document.createElement('div');
-          impactDiv.style.cssText = 'font-size: 11px; color: #057642; margin-top: 4px;';
-          impactDiv.textContent = `+${impact} points`;
-          li.appendChild(impactDiv);
-        }
-        
-        // Add hover effect
-        li.onmouseover = () => li.style.backgroundColor = '#f3f2ef';
-        li.onmouseout = () => li.style.backgroundColor = 'transparent';
-        
-        categoryList.appendChild(li);
-      });
-      
-      categoryDiv.appendChild(categoryList);
-      list.appendChild(categoryDiv);
-    });
-    
-    SmartLogger.log('UI.RENDERING', 'Final recommendations list', {
-      listChildrenCount: list.children.length,
-      sectionClasses: section.className,
-      willShow: list.children.length > 0
-    });
-    
-    if (list.children.length > 0) {
-      section.classList.remove('hidden');
-      SmartLogger.log('UI.RENDERING', 'Showing recommendations section');
-    } else {
     }
   },
   
@@ -1941,25 +1508,6 @@ const OverlayManager = {
   
   
   /**
-   * Handle refresh button click (re-analysis)
-   */
-  handleRefresh() {
-    const btn = this.overlayElement.querySelector('.refresh-button');
-    if (btn) {
-      btn.disabled = true;
-      (() => {
-            const iconSpan = document.createElement('span');
-            iconSpan.className = 'button-icon';
-            iconSpan.textContent = '⏳';
-            const textNode = document.createTextNode('Re-analyzing...');
-            btn.replaceChildren(iconSpan, textNode);
-          })();
-    }
-    // Send message to trigger re-analysis
-    window.postMessage({ type: 'ELEVATE_REFRESH' }, '*');
-  },
-  
-  /**
    * Handle view details button click
    */
   handleViewDetails() {
@@ -1980,20 +1528,6 @@ const OverlayManager = {
       }
     } catch (error) {
       if (btn) btn.disabled = false;
-    }
-  },
-  
-  /**
-   * Close overlay
-   */
-  close() {
-    const wrapper = document.querySelector('.elevateli-overlay-wrapper');
-    if (wrapper) {
-      wrapper.style.opacity = '0';
-      setTimeout(() => {
-        wrapper.remove();
-        this.overlayElement = null;
-      }, 300);
     }
   },
   
@@ -2107,34 +1641,6 @@ const OverlayManager = {
   },
   
   /**
-   * Show timestamp
-   * @param {string|number} timestamp - Timestamp (ISO string or Unix timestamp)
-   */
-  showTimestamp(timestamp) {
-    const timestampEl = this.overlayElement?.querySelector('.timestamp-display');
-    if (!timestampEl || !timestamp) return;
-    
-    let date;
-    if (typeof timestamp === 'string') {
-      date = new Date(timestamp);
-    } else {
-      date = new Date(timestamp);
-    }
-    
-    const formatted = date.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-    
-    timestampEl.textContent = `Last analyzed: ${formatted}`;
-    timestampEl.style.opacity = '1';
-  },
-  
-  /**
    * Format section name for display
    * @param {string} name - Section name
    * @returns {string} Formatted name
@@ -2150,7 +1656,6 @@ const OverlayManager = {
       'certifications': 'Certifications',
       'projects': 'Projects',
       'featured': 'Featured',
-      'profile_intro': 'Profile Intro',
       'experience_role': 'Experience'
     };
     
@@ -2165,168 +1670,6 @@ const OverlayManager = {
   updateSectionScore(section, score) {
     // Section score details display disabled - not currently used
     return;
-  },
-  
-  /**
-   * Show missing items for completeness
-   * @param {Object} completenessData - Completeness analysis data
-   */
-  showMissingItems(completenessData) {
-    if (!completenessData || !completenessData.recommendations) return;
-    
-    const section = this.overlayElement.querySelector('.missing-items-section');
-    const list = this.overlayElement.querySelector('.missing-items-list');
-    
-    if (!section || !list) return;
-    
-    // Clear existing items
-    // Clear list safely
-    while (list.firstChild) {
-      list.removeChild(list.firstChild);
-    }
-    
-    // Get missing items sorted by priority (highest weight first)
-    const missingItems = completenessData.recommendations;
-    if (!missingItems || missingItems.length === 0) {
-      // If 100% complete, hide the section
-      section.classList.add('hidden');
-      return;
-    }
-    
-    // Create a clean list of missing items
-    const itemsHtml = missingItems.slice(0, 5).map(item => {
-      const iconMap = {
-        photo: '📷',
-        headline: '📝',
-        about: '📄',
-        experience: '💼',
-        skills: '🎯',
-        education: '🎓',
-        recommendations: '👍',
-        certifications: '📜',
-        projects: '🚀'
-      };
-      
-      const icon = iconMap[item.section] || '•';
-      const points = item.impact || item.weight || 0;
-      
-      return `
-        <div class="missing-item" style="
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 8px 0;
-          border-bottom: 1px solid #e0e0e0;
-          font-size: 13px;
-        ">
-          <span style="font-size: 16px;">${icon}</span>
-          <span style="flex: 1;">${item.message}</span>
-          <span style="
-            background: #f3f4f6;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-            color: #666;
-          ">+${points}%</span>
-        </div>
-      `;
-    }).join('');
-    
-    (() => {
-              const parser = new DOMParser();
-              const doc = parser.parseFromString(itemsHtml, 'text/html');
-              const fragment = document.createDocumentFragment();
-              Array.from(doc.body.childNodes).forEach(node => {
-                fragment.appendChild(node.cloneNode(true));
-              });
-              list.replaceChildren(fragment);
-            })();
-    
-    // Show the section
-    section.classList.remove('hidden');
-    
-    // If there are more than 5 items, show count
-    if (missingItems.length > 5) {
-      (() => {
-        const parser = new DOMParser();
-        const htmlContent = `
-        <div style="
-          text-align: center;
-          padding: 8px 0;
-          font-size: 13px;
-          color: #666;
-        ">
-          and ${missingItems.length - 5} more items...
-        </div>
-      `;
-        const doc = parser.parseFromString(htmlContent, 'text/html');
-        const fragment = document.createDocumentFragment();
-        Array.from(doc.body.childNodes).forEach(node => {
-          fragment.appendChild(node.cloneNode(true));
-        });
-        list.replaceChildren(fragment);
-      })();
-    }
-  },
-  
-  /**
-   * Show message when no AI recommendations are available
-   */
-  showNoRecommendationsMessage() {
-    const section = this.overlayElement.querySelector('.recommendations-section');
-    const list = this.overlayElement.querySelector('.recommendations-list');
-    
-    if (!section || !list) return;
-    
-    // Clear any existing content
-    // Clear list safely
-    while (list.firstChild) {
-      list.removeChild(list.firstChild);
-    }
-    
-    // Show the recommendations section with a helpful message
-    (() => {
-        const parser = new DOMParser();
-        const htmlContent = `
-      <div style="
-        text-align: center;
-        padding: 20px;
-        color: #666;
-      ">
-        <p style="margin-bottom: 8px; font-size: 14px; font-weight: 600;">
-          AI-powered recommendations not available
-        </p>
-        <p style="font-size: 13px; color: #999; margin-bottom: 16px;">
-          Enable AI analysis to get personalized content quality recommendations beyond basic completeness
-        </p>
-        <button class="action-button small-button" style="
-          padding: 6px 16px;
-          font-size: 13px;
-          background: #0a66c2;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          margin-right: 8px;
-        " onclick="try { if (chrome?.runtime?.id) { chrome.runtime.sendMessage({action: 'openPopup'}); } } catch(e) {}">
-          Configure AI
-        </button>
-        <span style="font-size: 12px; color: #999;">
-          or click "Analyze" with AI enabled
-        </span>
-      </div>
-    `;
-        const doc = parser.parseFromString(htmlContent, 'text/html');
-        const fragment = document.createDocumentFragment();
-        Array.from(doc.body.childNodes).forEach(node => {
-          fragment.appendChild(node.cloneNode(true));
-        });
-        list.replaceChildren(fragment);
-      })();
-    
-    // Show the section
-    section.classList.remove('hidden');
   },
   
   /**
@@ -2694,48 +2037,6 @@ const OverlayManager = {
   },
   
   /**
-   * Handle cancel analysis
-   */
-  handleCancelAnalysis() {
-    
-    // Reset buttons to enabled state
-    this.resetButtons();
-    
-    // Send cancel message
-    window.postMessage({ type: 'ELEVATE_CANCEL_ANALYSIS' }, '*');
-    
-    // If we have cached data, restore it
-    const profileId = window.location.pathname.match(/\/in\/([^\/]+)/)?.[1];
-    if (profileId && chrome?.runtime?.id) {
-      try {
-        chrome.storage.local.get([`cache_${profileId}`], (data) => {
-          if (chrome.runtime.lastError) {
-            // Go back to empty state on error
-            this.setState(this.states.EMPTY_CACHE);
-            return;
-          }
-          const cachedData = data[`cache_${profileId}`];
-          if (cachedData) {
-            // Restore to cached state
-            this.setState(this.states.COMPLETE, {
-              ...cachedData,
-              fromCache: true,
-              cacheRestored: true
-            });
-            this.updateStatus('Analysis cancelled - showing previous results', 'ℹ️');
-          } else {
-            // No cache, go back to empty state
-            this.setState(this.states.EMPTY_CACHE);
-            this.updateStatus('Analysis cancelled', 'ℹ️');
-          }
-        });
-      } catch (error) {
-        // Silently ignore storage errors
-      }
-    }
-  },
-  
-  /**
    * Close overlay
    */
   close() {
@@ -2766,7 +2067,6 @@ const OverlayManager = {
       const wrapper = this.overlayElement.closest('.elevateli-overlay-wrapper');
       if (wrapper) {
         wrapper.style.setProperty('display', 'block', 'important');
-        SmartLogger.log('UI.INTERACTIONS', 'Overlay shown via wrapper with !important');
         return;
       }
     }
@@ -2775,10 +2075,8 @@ const OverlayManager = {
     const wrapper = document.querySelector('.elevateli-overlay-wrapper');
     if (wrapper) {
       wrapper.style.setProperty('display', 'block', 'important');
-      SmartLogger.log('UI.INTERACTIONS', 'Overlay shown via fallback query with !important');
     } else {
       // Re-initialize if not present
-      SmartLogger.log('UI.INTERACTIONS', 'No overlay found, re-initializing');
       this.initialize();
     }
   },
@@ -2794,7 +2092,6 @@ const OverlayManager = {
       if (wrapper) {
         // WORKAROUND: !important needed to override conflicting CSS
         wrapper.style.setProperty('display', 'none', 'important');
-        SmartLogger.log('UI.INTERACTIONS', 'Overlay hidden via wrapper with !important');
         return;
       }
     }
@@ -2804,7 +2101,6 @@ const OverlayManager = {
     if (wrapper) {
       // WORKAROUND: !important needed to override conflicting CSS
       wrapper.style.setProperty('display', 'none', 'important');
-      SmartLogger.log('UI.INTERACTIONS', 'Overlay hidden via fallback query with !important');
     }
   },
   
@@ -2867,7 +2163,6 @@ const OverlayManager = {
     const progressiveData = this.transformToProgressiveFormat(data);
     
     
-    // Debug progressiveData before DOM update
     
     // Build HTML with progressive improvements
     (() => {
@@ -2880,23 +2175,6 @@ const OverlayManager = {
             ${progressiveData.unifiedMessage}
           </p>
         </div>
-        
-        ${window.elevateliDebug.enabled ? `
-          <!-- Debug Info for Mac Testing -->
-          <div style="margin: 20px 0; padding: 12px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; font-size: 11px;">
-            <strong style="display: block; margin-bottom: 8px;">🔧 Debug Mode Active</strong>
-            <div style="font-family: monospace; line-height: 1.4;">
-              Platform: ${navigator.platform}<br>
-              Message Length: ${progressiveData.unifiedMessage?.length || 0} chars<br>
-              Completeness: ${data.completeness}%<br>
-              Content Score: ${data.contentScore || 'N/A'}<br>
-              <button onclick="navigator.clipboard.writeText(window.elevateliDebug.getLogs()).then(() => alert('Debug logs copied to clipboard!'))" 
-                      style="margin-top: 8px; padding: 4px 12px; background: #0a66c2; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                Copy Debug Logs
-              </button>
-            </div>
-          </div>
-        ` : ''}
         
         <!-- Progressive Improvements by Section -->
         <div style="margin-bottom: 16px;">
@@ -2935,12 +2213,10 @@ const OverlayManager = {
           // Clear the placeholder and append the actual star element
           placeholder.textContent = '';
           placeholder.appendChild(element);
-        } else {
         }
       });
       // Clear pending elements after insertion
       this.pendingStarElements = [];
-    } else {
     }
     
     unifiedSection.classList.remove('hidden');
@@ -2958,23 +2234,7 @@ const OverlayManager = {
     const contentScore = data.contentScore || 0;
     const missingItems = data.completenessData?.recommendations || [];
     
-    // Debug logging for unified message
     
-    // Add to debug log
-    window.elevateliDebug.addLog('OverlayManager', 'transformToProgressiveFormat START', {
-      completeness,
-      contentScore,
-      hasData: !!data,
-      dataKeys: Object.keys(data || {})
-    });
-    
-    // Log only if experience_roles data exists (reduced verbosity)
-    if (data.sectionScores?.experience_roles?.length > 0) {
-      SmartLogger.log('UI.EXPERIENCE', 'Experience roles data available', {
-        rolesCount: data.sectionScores.experience_roles.length,
-        hasOverallAnalysis: !!data.sectionScores.experience_overall
-      });
-    }
     
     // Convert recommendations object to flat array
     let recommendationsArray = [];
@@ -2986,17 +2246,6 @@ const OverlayManager = {
         const { critical = [], important = [], niceToHave = [] } = data.recommendations;
         recommendationsArray = [...critical, ...important, ...niceToHave];
       }
-    } else {
-    }
-    
-    // Apply recommendation allocation algorithm only if we have recommendations
-    const allocation = this.calculateRecommendationMix(completeness);
-    if (recommendationsArray.length > 0) {
-      recommendationsArray = this.filterRecommendationsByAllocation(
-        recommendationsArray, 
-        missingItems, 
-        allocation
-      );
     }
     
     
@@ -3007,21 +2256,7 @@ const OverlayManager = {
     const sections = this.analyzeSections(data, missingItems, recommendationsArray || []);
     
     // Generate unified message
-    window.elevateliDebug.addLog('OverlayManager', 'Before generateUnifiedMessage', {
-      completeness,
-      contentScore,
-      sectionsLength: sections?.length,
-      sections: sections?.map(s => ({ name: s.name, rating: s.rating }))
-    });
-    
     const unifiedMessage = this.generateUnifiedMessage(completeness, contentScore, sections, data);
-    
-    window.elevateliDebug.addLog('OverlayManager', 'After generateUnifiedMessage', {
-      unifiedMessage,
-      messageLength: unifiedMessage?.length,
-      messageType: typeof unifiedMessage,
-      isEmpty: !unifiedMessage || unifiedMessage.trim() === ''
-    });
     
     
     return {
@@ -3117,12 +2352,7 @@ const OverlayManager = {
     }
     
     
-    // Log detailed section content
-    if (sectionScores.profile_intro) {
-    }
     
-    if (sectionScores.skills) {
-    }
     
     // Profile photo section - show if missing (completeness) or vision AI available
     const photoMissing = missingItems.some(item => item.section === 'photo');
@@ -3189,18 +2419,16 @@ const OverlayManager = {
     }
     
     // [CRITICAL_PATH:FIRST_IMPRESSION_UI] - P0: Display unified first impression
-    // Check for first impression analysis (new) or profile intro (legacy)
+    // Check for first impression analysis
     const firstImpressionScore = sectionScores.first_impression;
-    const profileIntroScore = sectionScores.profile_intro; // Legacy support
     
-    // Debug logging
     
     // Headline section - now part of first impression
     const headlineMissing = missingItems.some(item => item.section === 'headline');
     const headlineRec = missingItems.find(item => item.section === 'headline');
     
     // If we have first impression analysis, use that for headline display
-    const headlineAnalysis = firstImpressionScore || profileIntroScore;
+    const headlineAnalysis = firstImpressionScore;
     if (headlineAnalysis && headlineAnalysis.actionItems) {
       // Use AI insights for headline/first impression
       const headlineItems = headlineAnalysis.actionItems.filter(item => {
@@ -3284,7 +2512,7 @@ const OverlayManager = {
     const aboutMissing = missingItems.some(item => item.section === 'about');
     const aboutRec = missingItems.find(item => item.section === 'about');
     
-    // Check for standalone about section analysis first, then profile_intro
+    // Check for standalone about section analysis
     const aboutScore = sectionScores.about;
     
     if (aboutScore && aboutScore.actionItems) {
@@ -3296,56 +2524,6 @@ const OverlayManager = {
         errorType: aboutScore.errorType || null,
         positive: aboutScore.positiveInsight || aboutScore.strengths?.[0] || null,
         improvements: aboutScore.actionItems.map(item => ({
-          text: item.action || item.what || 'Improvement needed',
-          why: item.impact || item.how || 'Update your profile',
-          impact: item.impact,
-          priority: item.priority
-        })).slice(0, this.getImprovementLimit(aboutRating)),
-        priority: 'normal'
-      });
-    } else if (profileIntroScore && profileIntroScore.actionItems) {
-      // Filter actionItems for about section - check section tag first, then content
-      const aboutItems = profileIntroScore.actionItems.filter(item => {
-        // First check section tag if available
-        if (item.section) {
-          return item.section === 'about';
-        }
-        // Fallback to content-based filtering
-        // Support both old (what/how) and new (category/action) formats
-        const text = (item.category || item.what || '')?.toLowerCase();
-        return text.includes('about') || 
-               text.includes('opening line') ||
-               text.includes('summary') ||
-               (!text.includes('headline') && 
-                !text.includes('connection'));
-      });
-      
-      // Use About-specific positive insight if available
-      let aboutPositive = profileIntroScore.aboutPositive || profileIntroScore.positiveInsight || profileIntroScore.strengths?.[0] || null;
-      
-      // Fallback only if we don't have section-specific feedback
-      if (!profileIntroScore.aboutPositive && aboutPositive && aboutPositive.toLowerCase().includes('headline') && 
-          !aboutPositive.toLowerCase().includes('about')) {
-        aboutPositive = "Your About section provides professional context";
-      }
-      
-      // Debug logging
-      SmartLogger.log('UI.PROGRESSIVE', 'About section analysis', {
-        originalPositive: profileIntroScore.positiveInsight,
-        filteredPositive: aboutPositive,
-        aboutItemsCount: aboutItems.length,
-        aboutItems: aboutItems.map(item => ({ 
-          what: item.category || item.what, 
-          section: item.section 
-        }))
-      });
-      
-      const aboutRating = this.scoreToRating(profileIntroScore.score);
-      sections.push({
-        name: 'About Section',
-        rating: aboutRating,
-        positive: aboutPositive,
-        improvements: aboutItems.map(item => ({
           text: item.action || item.what || 'Improvement needed',
           why: item.impact || item.how || 'Update your profile',
           impact: item.impact,
@@ -3388,15 +2566,9 @@ const OverlayManager = {
     if (sectionScores.experience_overall || (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles))) {
       // Check for experience scores from AI analysis
       
-      // Debug logging for experience scores
       
       // Check if we have overall experience analysis
       if (sectionScores.experience_overall) {
-        SmartLogger.log('UI.EXPERIENCE', 'Using overall experience analysis', {
-          score: sectionScores.experience_overall.score,
-          hasPositiveInsight: !!sectionScores.experience_overall.positiveInsight,
-          actionItemsCount: sectionScores.experience_overall.actionItems?.length || 0
-        });
         
         // Use overall experience score and feedback
         experienceRating = this.scoreToRating(sectionScores.experience_overall.score);
@@ -3414,9 +2586,6 @@ const OverlayManager = {
         }
       } else if (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles)) {
         // Fallback: calculate from individual roles if no overall analysis
-        SmartLogger.log('UI.EXPERIENCE', 'No overall analysis, calculating from roles', {
-          rolesCount: sectionScores.experience_roles.length
-        });
         
         const experienceScores = [];
         sectionScores.experience_roles.forEach(role => {
@@ -3436,7 +2605,6 @@ const OverlayManager = {
         }
       } else {
         // No AI scores at all, no rating - add positive message if experience passes completeness
-        SmartLogger.log('UI.EXPERIENCE', 'No AI analysis available');
         experienceRating = null; // No rating without AI
         experienceImprovements = [];
         
@@ -3517,19 +2685,6 @@ const OverlayManager = {
       });
     }
     
-    SmartLogger.log('UI.EXPERIENCE', 'Final experience section', {
-      mainRating: experienceSection.rating,
-      hasPositive: !!experienceSection.positive,
-      mainImprovementsCount: experienceSection.improvements.length,
-      hasSubSections: experienceSection.hasSubSections,
-      subSectionsCount: experienceSection.subSections.length,
-      subSectionDetails: experienceSection.subSections.map(sub => ({
-        name: sub.name,
-        rating: sub.rating,
-        hasPositive: !!sub.positive,
-        improvementsCount: sub.improvements.length
-      }))
-    });
     
     sections.push(experienceSection);
     
@@ -3701,250 +2856,6 @@ const OverlayManager = {
   },
   
   /**
-   * Analyze how recommendations are perceived
-   */
-  analyzeRecommendationPerception(aiRecs, recData) {
-    const result = {
-      rating: 3, // Default middle rating
-      positive: null,
-      improvements: [],
-      // Removed isDefaultRating
-    };
-    
-    // Debug logging
-    
-    // Check if we have AI analysis scores for recommendations
-    const aiSectionScores = this.currentData?.sectionScores || {};
-    const recommendationsScore = aiSectionScores.recommendations;
-    if (recommendationsScore && recommendationsScore.score) {
-      // Use AI's detailed analysis of recommendation perception
-      const score = recommendationsScore.score || 5;
-      
-      // Map AI score to star rating (1-10 to 1-5 stars)
-      result.rating = Math.ceil(score / 2);
-      
-      // Extract perception insights from AI analysis
-      if (score >= 8) {
-        result.positive = "Your recommendations powerfully validate your expertise and achievements";
-      } else if (score >= 6) {
-        result.positive = "Recommendations provide solid credibility from diverse perspectives";
-      } else if (score >= 4) {
-        result.positive = "You have social proof, but recommendations could be more impactful";
-      } else {
-        result.positive = "Current recommendations need more specific examples of your impact";
-      }
-      
-      // Look for specific perception feedback in recommendations
-      const perceptionFeedback = aiRecs.filter(rec => {
-        const text = (rec.text || '').toLowerCase();
-        return text.includes('perceive') || text.includes('impression') || 
-               text.includes('generic') || text.includes('specific') ||
-               text.includes('credib') || text.includes('impact') ||
-               text.includes('validate') || text.includes('strong');
-      });
-      
-      
-      if (perceptionFeedback.length > 0) {
-        // Use AI's specific feedback about how recommendations are perceived
-        result.improvements = perceptionFeedback.slice(0, 2).map(rec => ({
-          text: rec.text || "Improve recommendation quality",
-          why: rec.why || "Enhances how your profile is perceived by recruiters",
-          example: rec.example
-        }));
-      } else if (recommendationsScore.actionItems && recommendationsScore.actionItems.length > 0) {
-        // Use AI actionItems - handle both string and object formats
-        // Limit improvements based on rating (5 stars = 1 improvement)
-        const improvementLimit = result.rating >= 5 ? 1 : 2;
-        result.improvements = recommendationsScore.actionItems.slice(0, improvementLimit).map(item => {
-          if (typeof item === 'string') {
-            // AI returned plain strings instead of objects
-            // Try to parse the string to extract what and why
-            const sentences = item.split(/\.(?=\s|$)/).filter(s => s.trim());
-            const firstSentence = sentences[0] ? sentences[0].trim() + '.' : item;
-            const remainingSentences = sentences.slice(1).join('. ').trim();
-            
-            
-            return {
-              text: firstSentence, // AI now handles length (150-200 chars)
-              why: remainingSentences || "This will enhance your profile's credibility and visibility"
-            };
-          } else {
-            // Expected object format
-            return {
-              text: item.action || item.what || item.text || "Improve recommendations",
-              why: item.impact || item.how || item.why || "To enhance profile credibility",
-              impact: item.impact,
-              priority: item.priority
-            };
-          }
-        });
-      } else {
-        // Fallback to general improvements
-        const fallbackImprovements = this.generateRecommendationImprovements(score, recData.count);
-        result.improvements = fallbackImprovements;
-      }
-      
-      // Ensure improvements is always an array with valid objects
-      if (!Array.isArray(result.improvements) || result.improvements.length === 0) {
-        result.improvements = [{
-          text: "Request specific recommendations that highlight your achievements",
-          why: "Specific examples are more impactful than generic praise"
-        }];
-      }
-    } else {
-      // No AI analysis - check if we have any recommendation data
-      const hasRecommendationData = recData && (recData.count > 0 || recData.recommendations?.length > 0);
-      
-      if (!hasRecommendationData) {
-        // No recommendations at all
-        result.rating = 0;
-        result.positive = null;
-        result.improvements = [{
-          text: "Request recommendations to build credibility - profiles with 2+ get 5x more inquiries",
-          why: "Start with recent colleagues who can speak to your specific achievements"
-        }];
-        // No default ratings - either proper rating or null
-      } else {
-        // We have recommendations but limited AI analysis
-        const qualityInsights = aiRecs.filter(rec => {
-          const text = (rec.text || '').toLowerCase();
-          return text.includes('specific') || text.includes('generic') || 
-                 text.includes('credib') || text.includes('impact') ||
-                 text.includes('vague') || text.includes('strong');
-        });
-        
-        if (qualityInsights.length > 0) {
-          // AI has provided specific feedback about recommendation quality
-          const hasPositiveFeedback = qualityInsights.some(rec => 
-            (rec.text || '').toLowerCase().match(/strong|specific|credible|detailed|impressive/));
-          
-          const hasNegativeFeedback = qualityInsights.some(rec => 
-            (rec.text || '').toLowerCase().match(/generic|vague|weak|improve/));
-          
-          if (hasPositiveFeedback && !hasNegativeFeedback) {
-            result.rating = 4;
-            result.positive = "Your recommendations effectively validate your expertise";
-          } else if (hasPositiveFeedback && hasNegativeFeedback) {
-            result.rating = 3;
-            result.positive = "You have social proof from colleagues";
-          } else if (hasNegativeFeedback) {
-            result.rating = 2;
-            result.positive = "Recommendations exist but could be more impactful";
-          }
-          
-          // Add specific improvements from AI
-          result.improvements = aiRecs.slice(0, 2).map(rec => ({
-            text: rec.text,
-            why: rec.why,
-            example: rec.example
-          }));
-        } else {
-          // No AI analysis available - set rating to null to show "AI required"
-          result.rating = null;
-          result.positive = "";
-          result.improvements = [];
-        }
-      }
-    }
-    
-    // Final validation to ensure improvements array is valid
-    if (!Array.isArray(result.improvements)) {
-      result.improvements = [];
-    }
-    
-    // Ensure each improvement has required properties
-    result.improvements = result.improvements.map((imp, index) => {
-      if (typeof imp === 'string') {
-        return { text: imp, why: "To enhance your profile effectiveness" };
-      }
-      if (!imp || typeof imp !== 'object') {
-        return { text: "Enhance recommendation quality", why: "To improve profile credibility" };
-      }
-      return {
-        text: imp.text || "Improve recommendations",
-        why: imp.why || "To enhance profile effectiveness"
-      };
-    });
-    
-    return result;
-  },
-  
-  /**
-   * Generate recommendation improvements based on score and count
-   */
-  generateRecommendationImprovements(score, count) {
-    if (score && score >= 8) {
-      return [{
-        text: "Consider adding a C-level recommendation to further boost executive presence",
-        why: "Senior endorsements significantly enhance credibility for leadership roles"
-      }];
-    } else if (score && score >= 6) {
-      return [
-        {
-          text: "Request recommendations that quantify your specific business impact",
-          why: "Numbers and metrics make your achievements more credible and memorable"
-        },
-        {
-          text: "Seek a recommendation from a cross-functional partner to show collaboration",
-          why: "Demonstrates your ability to work effectively across teams"
-        }
-      ];
-    } else if (count >= 5) {
-      return [{
-        text: "Review older recommendations - update or request fresh ones highlighting recent wins",
-        why: "Recent recommendations (last 1-2 years) carry more weight with recruiters"
-      }];
-    } else if (count >= 2) {
-      return [
-        {
-          text: "Coach future recommenders to include specific metrics and outcomes",
-          why: "Specific examples are 3x more impactful than generic praise"
-        },
-        {
-          text: "Request recommendations from different perspectives (client, peer, manager)",
-          why: "Diverse viewpoints demonstrate well-rounded leadership capabilities"
-        }
-      ];
-    } else {
-      return [
-        {
-          text: "Request 2-3 recommendations focusing on concrete achievements with numbers",
-          why: "Profiles with 2+ recommendations receive 5x more inquiries"
-        },
-        {
-          text: "Provide recommenders with bullet points of your key accomplishments to reference",
-          why: "Makes it easier for them to write specific, impactful recommendations"
-        }
-      ];
-    }
-  },
-  
-  /**
-   * Find recommendations matching keywords
-   */
-  findRecommendations(recommendations, keywords) {
-    const results = [];
-    
-    // Guard against undefined or null recommendations
-    if (!recommendations || !Array.isArray(recommendations)) {
-      return results;
-    }
-    
-    recommendations.forEach(rec => {
-      const text = (rec.action?.what || rec.text || rec.message || '').toLowerCase();
-      if (keywords.some(keyword => text.includes(keyword))) {
-        results.push({
-          text: rec.action?.what || rec.text || rec.message,
-          why: rec.action?.why || rec.why,
-          example: rec.action?.example || rec.example
-        });
-      }
-    });
-    
-    return results;
-  },
-  
-  /**
    * Render a section with star rating
    */
   renderSection(section) {
@@ -4111,66 +3022,6 @@ const OverlayManager = {
     if (rating >= 4) return '#057642'; // Green
     if (rating >= 3) return '#f59e0b'; // Yellow/Orange
     return '#dc2626'; // Red
-  },
-  
-  /**
-   * Calculate recommendation mix based on completeness
-   */
-  calculateRecommendationMix(completenessScore) {
-    // Diminishing returns on completeness recommendations
-    const completenessWeight = Math.max(0.1, 1 - (completenessScore / 100) * 1.2);
-    const qualityWeight = 1 - completenessWeight;
-    
-    return {
-      completenessRecs: Math.round(8 * completenessWeight),
-      qualityRecs: Math.round(8 * qualityWeight),
-      completenessWeight,
-      qualityWeight
-    };
-  },
-  
-  /**
-   * Filter recommendations based on allocation
-   */
-  filterRecommendationsByAllocation(recommendations, missingItems, allocation) {
-    const completenessRecs = [];
-    const qualityRecs = [];
-    
-    // Guard against undefined or null recommendations
-    if (!recommendations || !Array.isArray(recommendations)) {
-      return [];
-    }
-    
-    // Categorize recommendations
-    recommendations.forEach(rec => {
-      const section = rec.section?.toLowerCase() || '';
-      const action = rec.action?.what?.toLowerCase() || rec.text?.toLowerCase() || '';
-      
-      // Check if this is a completeness recommendation
-      const isCompletenessRec = 
-        missingItems.some(item => action.includes(item.section?.toLowerCase() || '')) ||
-        action.includes('add') ||
-        action.includes('missing') ||
-        action.includes('create') ||
-        action.includes('include') ||
-        (section && missingItems.some(item => (item.section?.toLowerCase() || '').includes(section)));
-      
-      if (isCompletenessRec) {
-        completenessRecs.push(rec);
-      } else {
-        qualityRecs.push(rec);
-      }
-    });
-    
-    // Apply allocation limits
-    const selectedCompleteness = completenessRecs.slice(0, allocation.completenessRecs);
-    const selectedQuality = qualityRecs.slice(0, allocation.qualityRecs);
-    
-    // Combine and limit to 8 total
-    const combined = [...selectedCompleteness, ...selectedQuality].slice(0, 8);
-    
-    
-    return combined;
   },
   
   /**
@@ -4445,32 +3296,6 @@ const OverlayManager = {
       statusText.textContent = 'Ready to analyze • Click extension icon to set up';
     }
   },
-  
-  /**
-   * Hide unified view and show old sections
-   */
-  hideUnifiedView() {
-    // Hide unified section
-    const unifiedSection = this.overlayElement.querySelector('.unified-section');
-    if (unifiedSection) {
-      unifiedSection.classList.add('hidden');
-    }
-    
-    // Restore the score blocks
-    const scoresContainer = this.overlayElement.querySelector('.scores-container');
-    if (scoresContainer) scoresContainer.style.display = '';
-    
-    // Show the old sections
-    const missingSection = this.overlayElement.querySelector('.missing-items-section');
-    const recsSection = this.overlayElement.querySelector('.recommendations-section');
-    
-    if (missingSection && missingSection.querySelector('.missing-items-list').children.length > 0) {
-      missingSection.classList.remove('hidden');
-    }
-    if (recsSection && recsSection.querySelector('.recommendations-list').children.length > 0) {
-      recsSection.classList.remove('hidden');
-    }
-  },
 
   /**
    * Show toast notification
@@ -4549,14 +3374,13 @@ const OverlayManager = {
         
         chrome.storage.local.get(['compliance'], (data) => {
           if (chrome.runtime.lastError) {
-            SmartLogger.log('STATE.RESTORATION', 'Failed to get compliance', { error: chrome.runtime.lastError });
             resolve(null);
             return;
           }
           resolve(data.compliance);
         });
       } catch (error) {
-        SmartLogger.error('STATE.RESTORATION', 'Error getting compliance', error);
+        console.error('STATE.RESTORATION', 'Error getting compliance', error);
         resolve(null);
       }
     });
@@ -4576,14 +3400,13 @@ const OverlayManager = {
         
         chrome.storage.local.get(['enableAI', 'apiKey', 'encryptedApiKey', 'aiProvider', 'aiModel'], (data) => {
           if (chrome.runtime.lastError) {
-            SmartLogger.log('STATE.RESTORATION', 'Failed to get settings', { error: chrome.runtime.lastError });
             resolve({});
             return;
           }
           resolve(data);
         });
       } catch (error) {
-        SmartLogger.error('STATE.RESTORATION', 'Error getting settings', error);
+        console.error('STATE.RESTORATION', 'Error getting settings', error);
         resolve({});
       }
     });
@@ -4690,10 +3513,6 @@ const OverlayManager = {
     try {
       // Prevent duplicate restoration attempts
       if (this.isRestoringState) {
-        SmartLogger.log('STATE.RESTORATION', 'Restoration already in progress, skipping duplicate call', {
-          profileId,
-          lastRestoredProfile: this.lastRestoredProfile
-        });
         return true;
       }
       
@@ -4702,10 +3521,6 @@ const OverlayManager = {
         // Check if we have actual data displayed
         const hasScores = this.overlayElement?.querySelector('.completeness-score')?.textContent;
         if (hasScores && hasScores !== '0') {
-          SmartLogger.log('STATE.RESTORATION', 'Already in COMPLETE state with data, skipping restoration', {
-            currentState: this.currentState,
-            hasScores: !!hasScores
-          });
           return true;
         }
       }
@@ -4716,10 +3531,6 @@ const OverlayManager = {
           this.currentState === this.states.SCANNING ||
           this.currentState === this.states.EXTRACTING ||
           this.currentState === this.states.CALCULATING) {
-        SmartLogger.log('STATE.RESTORATION', 'Skipping restoration - analysis in progress', {
-          currentState: this.currentState,
-          profileId
-        });
         return true; // Don't interrupt active analysis
       }
       
@@ -4729,13 +3540,11 @@ const OverlayManager = {
         try {
           profileId = extractProfileIdFromUrl();
         } catch (error) {
-          SmartLogger.log('STATE.RESTORATION', 'Error extracting profile ID', { error: error.message });
           // Don't fail restoration just because of profile ID extraction
           // The function might be temporarily unavailable
         }
         
         if (!profileId) {
-          SmartLogger.log('STATE.RESTORATION', 'No profile ID available for state restoration');
           // Don't return false here - let restoration continue without profile ID
           // Some operations might still work
         }
@@ -4752,28 +3561,19 @@ const OverlayManager = {
       try {
         [compliance, settings, cachedData] = await Promise.all([
           this.getCompliance().catch(err => {
-            SmartLogger.log('STATE.RESTORATION', 'Failed to get compliance', err);
             return null;
           }),
           this.getSettings().catch(err => {
-            SmartLogger.log('STATE.RESTORATION', 'Failed to get settings', err);
             return {};
           }),
           this.getCachedData(profileId).catch(err => {
-            SmartLogger.log('STATE.RESTORATION', 'Failed to get cached data', err);
             return null;
           })
         ]);
       } catch (promiseError) {
-        SmartLogger.log('STATE.RESTORATION', 'Promise.all failed', promiseError);
         // Continue with null values
       }
       
-      SmartLogger.log('STATE.RESTORATION', 'Data loaded', {
-        profileId,
-        hasCache: !!cachedData,
-        hasCompliance: !!compliance?.hasAcknowledged
-      });
       
       // Determine appropriate state
       const stateInfo = this.determineStateFromData(cachedData, settings, compliance, context) || 
@@ -4784,10 +3584,6 @@ const OverlayManager = {
       // Set the determined state
       this.setState(state, data);
       
-      SmartLogger.log('STATE.RESTORATION', 'Restoration complete', {
-        state: state,
-        profileId: profileId
-      });
       
       // Update last restored profile and clear restoration flag
       this.lastRestoredProfile = profileId;
@@ -4800,7 +3596,7 @@ const OverlayManager = {
       const errorObj = error instanceof Error ? error : 
         new Error(typeof error === 'string' ? error : 'Unknown restoration error');
       
-      SmartLogger.error('STATE.RESTORATION', 'Restoration failed', errorObj, {
+      console.error('STATE.RESTORATION', 'Restoration failed', errorObj, {
         profileId: profileId,
         currentState: this.currentState
       });
@@ -4815,14 +3611,10 @@ const OverlayManager = {
         } catch (fallbackError) {
           const fallbackErrorObj = fallbackError instanceof Error ? fallbackError : 
             new Error(typeof fallbackError === 'string' ? fallbackError : 'Fallback state setting failed');
-          SmartLogger.error('STATE.RESTORATION', 'Fallback state setting failed', fallbackErrorObj, {
+          console.error('STATE.RESTORATION', 'Fallback state setting failed', fallbackErrorObj, {
             profileId: profileId
           });
         }
-      } else {
-        SmartLogger.log('STATE.RESTORATION', 'Keeping current state - already in valid state', {
-          currentState: this.currentState
-        });
       }
       
       // Clear restoration flag on error

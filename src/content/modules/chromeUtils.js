@@ -5,44 +5,14 @@
 /**
  * Check if Chrome APIs are available
  */
-export function safeChrome() {
+function safeChrome() {
   return typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id;
-}
-
-/**
- * Check if extension context is still valid
- * More robust than just checking chrome.runtime.id
- */
-export function isContextValid() {
-  try {
-    // First check basic requirements
-    if (!safeChrome()) {
-      return false;
-    }
-    
-    // Try to access chrome.runtime.id - this will throw if context is invalid
-    const runtimeId = chrome.runtime.id;
-    if (!runtimeId) {
-      return false;
-    }
-    
-    // Additional check - try to access storage
-    // This helps catch cases where runtime.id exists but context is partially invalid
-    if (!chrome.storage || !chrome.storage.local) {
-      return false;
-    }
-    
-    return true;
-  } catch (e) {
-    // Any error means context is invalid
-    return false;
-  }
 }
 
 /**
  * Send message to extension with error handling and retry
  */
-export function safeSendMessage(message, callback, retryCount = 0) {
+function safeSendMessage(message, callback, retryCount = 0) {
   if (!safeChrome()) {
     // console.error('Chrome APIs not available');
     if (callback) callback(null);
@@ -108,76 +78,4 @@ export function safeSendMessage(message, callback, retryCount = 0) {
     // console.error('[SafeSendMessage] Error sending message:', error);
     if (callback) callback(null);
   }
-}
-
-/**
- * Get data from Chrome storage
- */
-export function safeStorageGet(keys, callback) {
-  if (!isContextValid()) {
-    // console.error('Chrome storage not available - context invalid');
-    callback({});
-    return;
-  }
-  
-  try {
-    chrome.storage.local.get(keys, (data) => {
-      // Check for runtime errors after the call
-      if (chrome.runtime.lastError) {
-        // console.error('Chrome storage error:', chrome.runtime.lastError.message);
-        callback({});
-        return;
-      }
-      callback(data || {});
-    });
-  } catch (error) {
-    // console.error('Error getting storage:', error);
-    callback({});
-  }
-}
-
-/**
- * Set data in Chrome storage
- */
-export function safeStorageSet(data, callback) {
-  if (!isContextValid()) {
-    // console.error('Chrome storage not available - context invalid');
-    if (callback) callback();
-    return;
-  }
-  
-  try {
-    chrome.storage.local.set(data, () => {
-      // Check for runtime errors after the call
-      if (chrome.runtime.lastError) {
-        // console.error('Chrome storage set error:', chrome.runtime.lastError.message);
-      }
-      if (callback) callback();
-    });
-  } catch (error) {
-    // console.error('Error setting storage:', error);
-    if (callback) callback();
-  }
-}
-
-/**
- * Get storage data as Promise
- */
-export function getStorageData(keys) {
-  return new Promise((resolve) => {
-    safeStorageGet(keys, (data) => {
-      resolve(data || {});
-    });
-  });
-}
-
-/**
- * Set storage data as Promise
- */
-export function setStorageData(data) {
-  return new Promise((resolve) => {
-    safeStorageSet(data, () => {
-      resolve();
-    });
-  });
 }

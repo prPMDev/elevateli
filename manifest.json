@@ -8,8 +8,7 @@
     "storage",
     "activeTab",
     "scripting",
-    "tabs",
-    "alarms"
+    "tabs"
   ],
   "host_permissions": [
     "https://www.linkedin.com/*"
@@ -23,7 +22,25 @@
         "https://www.linkedin.com/*"
       ],
       "js": [
-        "src/content/analyzer.js"
+        "src/content/modules/chromeUtils.js",
+        "src/content/modules/domUtils.js",
+        "src/content/modules/ownership-detector.js",
+        "src/content/modules/core/cache-manager.js",
+        "src/content/modules/extractors/base-extractor.js",
+        "src/content/modules/extractors/photo.js",
+        "src/content/modules/extractors/headline.js",
+        "src/content/modules/extractors/about.js",
+        "src/content/modules/extractors/experience.js",
+        "src/content/modules/extractors/skills.js",
+        "src/content/modules/extractors/education.js",
+        "src/content/modules/extractors/recommendations.js",
+        "src/content/modules/extractors/certifications.js",
+        "src/content/modules/extractors/projects.js",
+        "src/content/modules/extractors/featured.js",
+        "src/content/modules/scoring/completeness-scorer.js",
+        "src/content/modules/ui/overlay-manager.js",
+        "src/content/modules/analyzer-base.js",
+        "src/content/modules/analyzer-main.js"
       ],
       "css": [
         "src/content/overlay.css"

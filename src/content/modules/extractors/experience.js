@@ -39,21 +39,14 @@ const ExperienceExtractor = {
    */
   async scan() {
     const startTime = Date.now();
-    Logger.info('[ExperienceExtractor] Starting scan');
     
     // Use BaseExtractor's findSection method like other extractors
     const section = await BaseExtractor.findSection(this.selectors);
     
     if (!section) {
-      Logger.info('[ExperienceExtractor] No experience section found');
       return { exists: false, visibleCount: 0, totalCount: 0 };
     }
     
-    Logger.info('[ExperienceExtractor] Found experience section:', {
-      tagName: section.tagName,
-      id: section.id,
-      className: section.className
-    });
     
     // Look for experience items within the section
     let visibleCount = 0;
@@ -64,7 +57,6 @@ const ExperienceExtractor = {
       items = section.querySelectorAll(selector);
       if (items.length > 0) {
         visibleCount = items.length;
-        Logger.info(`[ExperienceExtractor] Found ${visibleCount} experience items with selector: ${selector}`);
         break;
       }
     }
@@ -73,7 +65,6 @@ const ExperienceExtractor = {
     if (visibleCount === 0) {
       const anchor = section.querySelector('#experience.pv-profile-card__anchor') || section.querySelector('#experience');
       if (anchor) {
-        Logger.info('[ExperienceExtractor] Found experience anchor, checking siblings');
         let sibling = anchor.nextElementSibling;
         while (sibling && visibleCount < 10) {
           if (sibling.getAttribute('data-view-name') === 'profile-component-entity' || 
@@ -115,7 +106,6 @@ const ExperienceExtractor = {
               if (showAllElement.href) {
                 showAllUrl = showAllElement.href;
               }
-              Logger.info(`[ExperienceExtractor] Found total count from show all link: ${totalCount}`);
               break;
             }
           }
@@ -125,13 +115,6 @@ const ExperienceExtractor = {
     }
     
     BaseExtractor.logTiming('Experience scan', startTime);
-    Logger.info(`[ExperienceExtractor] Scan result:`, {
-      exists: visibleCount > 0,
-      visibleCount,
-      totalCount,
-      hasMore: totalCount > visibleCount,
-      showAllUrl: showAllUrl ? 'found' : 'not found'
-    });
     
     return {
       exists: visibleCount > 0,
@@ -197,39 +180,25 @@ const ExperienceExtractor = {
    */
   async extractDeep() {
     const startTime = Date.now();
-    Logger.info('[ExperienceExtractor] Starting extractDeep');
     
     const basicData = await this.extract();
-    Logger.info('[ExperienceExtractor] Basic data extracted:', {
-      exists: basicData.exists,
-      count: basicData.count
-    });
     
     if (!basicData.exists) {
-      Logger.info('[ExperienceExtractor] No experience section found, returning basic data');
       return basicData;
     }
     
     // Click all "see more" buttons to expand descriptions
     const allSeeMoreButtons = document.querySelectorAll('.inline-show-more-text__button');
-    Logger.info(`[ExperienceExtractor] Found ${allSeeMoreButtons.length} see more buttons`);
     
     for (const btn of allSeeMoreButtons) {
       if (btn && btn.offsetParent !== null && !btn.getAttribute('aria-expanded')) {
-        Logger.debug('[ExperienceExtractor] Clicking see more button');
         btn.click();
         await BaseExtractor.wait(200);
       }
     }
     
     // Extract detailed experience items (pass null since we don't use section)
-    Logger.info('[ExperienceExtractor] Extracting detailed experiences');
     const experiences = await this.extractDetailedExperiences(null);
-    Logger.info('[ExperienceExtractor] Extracted experiences:', {
-      count: experiences.length,
-      firstTitle: experiences[0]?.title,
-      firstCompany: experiences[0]?.company
-    });
     
     const result = {
       ...basicData,
@@ -251,13 +220,6 @@ const ExperienceExtractor = {
     };
     
     BaseExtractor.logTiming('Experience deep extract', startTime);
-    Logger.info('[ExperienceExtractor] Deep extraction complete:', {
-      totalRoles: experiences.length,
-      withDescriptions: result.rolesWithDescriptions,
-      withAchievements: result.hasQuantifiedAchievements,
-      withTechStack: result.hasTechStack,
-      avgDescLength: result.averageDescriptionLength
-    });
     
     return result;
   },
@@ -326,7 +288,6 @@ const ExperienceExtractor = {
       
       if (dateText && (dateText.includes('Present') || dateText.includes('present'))) {
         hasCurrentRole = true;
-        Logger.debug('[ExperienceExtractor] Found current role with date text:', dateText);
       }
       
       // Extract duration if available
@@ -351,7 +312,6 @@ const ExperienceExtractor = {
     // Find experience section if not passed
     const section = passedSection || await BaseExtractor.findSection(this.selectors);
     if (!section) {
-      Logger.warn('[ExperienceExtractor] No experience section found in extractDetailedExperiences');
       return experiences;
     }
     
@@ -363,7 +323,6 @@ const ExperienceExtractor = {
       const foundItems = section.querySelectorAll(selector);
       if (foundItems.length > 0) {
         foundItems.forEach(item => items.push(item));
-        Logger.info(`[ExperienceExtractor] Found ${foundItems.length} items with selector: ${selector}`);
         break;
       }
     }
@@ -372,7 +331,6 @@ const ExperienceExtractor = {
     if (items.length === 0) {
       const anchor = section.querySelector('#experience.pv-profile-card__anchor') || section.querySelector('#experience');
       if (anchor) {
-        Logger.info('[ExperienceExtractor] Found anchor, checking siblings');
         let sibling = anchor.nextElementSibling;
         while (sibling && items.length < 10) {
           if (sibling.getAttribute('data-view-name') === 'profile-component-entity' || 
@@ -384,20 +342,11 @@ const ExperienceExtractor = {
       }
     }
     
-    Logger.info(`[ExperienceExtractor] Found ${items.length} experience items`);
     const totalCount = items.length;
     
     for (let i = 0; i < items.length; i++) {
-      Logger.debug(`[ExperienceExtractor] Processing experience item ${i + 1} of ${totalCount}`);
       const experience = await this.extractExperienceItem(items[i], i, totalCount);
       
-      Logger.debug(`[ExperienceExtractor] Extracted experience ${i + 1}:`, {
-        title: experience.title,
-        company: experience.company,
-        hasDescription: !!experience.description,
-        descriptionLength: experience.description?.length || 0,
-        hasDescription: !!experience.description
-      });
       
       if (experience.title) {
         experiences.push(experience);
@@ -413,7 +362,6 @@ const ExperienceExtractor = {
    * @returns {Object} Experience data
    */
   async extractExperienceItem(item, index = 0, totalCount = 1) {
-    Logger.debug('[ExperienceExtractor] Extracting experience item', { index });
     
     const experience = {
       title: '',
@@ -497,11 +445,9 @@ const ExperienceExtractor = {
     // Extract description - LinkedIn stores it as a single text block
     const subComponents = item.querySelector('.pvs-entity__sub-components');
     if (subComponents) {
-      Logger.debug('[ExperienceExtractor] Found sub-components container');
       
       // Look for all inline-show-more-text containers within sub-components
       const textContainers = subComponents.querySelectorAll('.inline-show-more-text');
-      Logger.debug(`[ExperienceExtractor] Found ${textContainers.length} text containers`);
       
       let allText = [];
       
@@ -509,7 +455,6 @@ const ExperienceExtractor = {
         // Click "see more" if present to expand the text
         const seeMoreBtn = container.querySelector('.inline-show-more-text__button');
         if (seeMoreBtn && seeMoreBtn.offsetParent !== null && !seeMoreBtn.getAttribute('aria-expanded')) {
-          Logger.debug('[ExperienceExtractor] Clicking see more button in sub-component');
           seeMoreBtn.click();
           await BaseExtractor.wait(300);
         }
@@ -526,16 +471,11 @@ const ExperienceExtractor = {
       // Combine all text into description
       if (allText.length > 0) {
         experience.description = allText.join(' ');
-        Logger.debug('[ExperienceExtractor] Extracted description:', {
-          length: experience.description.length,
-          preview: experience.description.substring(0, 100) + '...'
-        });
       }
     }
     
     // Fallback: Look for any text content in the item if nothing found yet
     if (!experience.description) {
-      Logger.debug('[ExperienceExtractor] Using fallback text extraction');
       
       // Try to find any text that looks like a description
       const allTextElements = item.querySelectorAll('.t-14.t-normal.t-black');
@@ -555,12 +495,6 @@ const ExperienceExtractor = {
     // No analysis here - just send raw description to AI
     // AI will determine achievements, responsibilities, quality, etc.
     
-    Logger.debug('[ExperienceExtractor] Extracted experience:', {
-      title: experience.title,
-      company: experience.company,
-      hasDescription: !!experience.description,
-      descriptionLength: experience.description?.length || 0
-    });
     
     return experience;
   },
@@ -706,14 +640,9 @@ const ExperienceExtractor = {
     let expandedCount = 0;
     for (const selector of showMoreSelectors) {
       const buttons = section.querySelectorAll(selector);
-      Logger.debug(`[ExperienceExtractor] Found ${buttons.length} show more buttons with selector: ${selector}`);
       
       for (const button of buttons) {
         if (button && button.offsetParent !== null && !button.getAttribute('aria-expanded')) {
-          Logger.debug('[ExperienceExtractor] Clicking show more button:', {
-            text: button.textContent,
-            selector: selector
-          });
           button.click();
           expandedCount++;
           await BaseExtractor.wait(300);
@@ -722,7 +651,6 @@ const ExperienceExtractor = {
     }
     
     if (expandedCount > 0) {
-      Logger.info(`[ExperienceExtractor] Expanded ${expandedCount} description(s)`);
       await BaseExtractor.wait(500); // Wait for content to load
     }
   },
