@@ -113,9 +113,9 @@ function createSectionPrompt(sectionName, content, config, context = {}) {
   }
   
   // Special handling for standalone about section
-  // Content script sends an object ({ text, charCount, ... }); legacy path sends a string
+  // Content script sends an object ({ text, charCount, ... })
   if (sectionName === 'about') {
-    return createAboutPrompt(typeof content === 'string' ? content : content?.text, enhancedConfig);
+    return createAboutPrompt(content?.text, enhancedConfig);
   }
   
   // Special handling for skills
