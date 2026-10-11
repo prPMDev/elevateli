@@ -231,7 +231,7 @@
           resolve({});
           return;
         }
-        chrome.storage.local.get(['enableAI', 'apiKey', 'encryptedApiKey', 'aiProvider', 'aiModel', 'targetRole', 'seniorityLevel'], (data) => {
+        chrome.storage.local.get(['enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel', 'targetRole', 'seniorityLevel'], (data) => {
           if (chrome.runtime.lastError) {
             resolve({});
           } else {

@@ -3249,7 +3249,7 @@ const OverlayManager = {
           return;
         }
         
-        chrome.storage.local.get(['enableAI', 'apiKey', 'encryptedApiKey', 'aiProvider', 'aiModel'], (data) => {
+        chrome.storage.local.get(['enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel'], (data) => {
           if (chrome.runtime.lastError) {
             resolve({});
             return;
@@ -3304,7 +3304,7 @@ const OverlayManager = {
 
     // If we have cached data, restore it
     if (cachedData && cachedData.completeness !== undefined) {
-      const hasApiKey = settings.apiKey || settings.encryptedApiKey;
+      const hasApiKey = settings.encryptedApiKey;
       const enableAI = settings.enableAI && hasApiKey && settings.aiProvider;
       
       const stateData = {

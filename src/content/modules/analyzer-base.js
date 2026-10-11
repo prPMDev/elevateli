@@ -129,7 +129,7 @@ class Analyzer {
       this.analysisResults = result;
       
       // Run AI analysis if enabled
-      const hasApiKey = this.settings.apiKey || this.settings.encryptedApiKey;
+      const hasApiKey = this.settings.encryptedApiKey;
       
       
       if (this.settings.enableAI && hasApiKey && this.settings.aiProvider) {
