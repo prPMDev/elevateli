@@ -1655,13 +1655,8 @@ async function handleSectionAnalysis(request, sendResponse) {
       improvements: analysis.improvements,
       actionItems: analysis.actionItems,
       specificFeedback: analysis.specificFeedback,
-      // Backwards compatibility
-      analysis: analysis.insight,
-      recommendations: analysis.recommendations,
-      insights: {
-        strengths: analysis.strengths,
-        improvements: analysis.improvements
-      }
+      // Flattened into synthesis-failure fallback recommendations (analyzer-base)
+      recommendations: analysis.recommendations
     });
     
   } catch (error) {

@@ -944,9 +944,7 @@ class Analyzer {
             success: true,
             section: sectionType,
             score: response.score,
-            analysis: response.analysis,
             recommendations: response.recommendations,
-            insights: response.insights,
             // Include all AI analysis fields
             positiveInsight: response.insight,
             strengths: response.strengths,
