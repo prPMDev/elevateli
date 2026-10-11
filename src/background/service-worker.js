@@ -1264,8 +1264,9 @@ function createSectionPrompt(sectionName, content, config, context = {}) {
   }
   
   // Special handling for standalone about section
-  if (sectionName === 'about' && typeof content === 'string') {
-    return createAboutPrompt(content, enhancedConfig);
+  // Content script sends an object ({ text, charCount, ... }); legacy path sends a string
+  if (sectionName === 'about') {
+    return createAboutPrompt(typeof content === 'string' ? content : content?.text, enhancedConfig);
   }
   
   // Special handling for profile intro (headline + about) - DEPRECATED, keeping for backward compatibility
