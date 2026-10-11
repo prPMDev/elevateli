@@ -1264,8 +1264,9 @@ function createSectionPrompt(sectionName, content, config, context = {}) {
   }
   
   // Special handling for standalone about section
-  if (sectionName === 'about' && typeof content === 'string') {
-    return createAboutPrompt(content, enhancedConfig);
+  // Content script sends an object ({ text, charCount, ... }); legacy path sends a string
+  if (sectionName === 'about') {
+    return createAboutPrompt(typeof content === 'string' ? content : content?.text, enhancedConfig);
   }
   
   // Special handling for profile intro (headline + about) - DEPRECATED, keeping for backward compatibility
@@ -2531,7 +2532,7 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
       body: {
         model: model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 4000,
+        max_completion_tokens: 4000,
         temperature: 0.1
       }
     },
@@ -2540,7 +2541,8 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
       headers: {
         'x-api-key': cleanApiKey,
         'Content-Type': 'application/json',
-        'anthropic-version': '2023-06-01'
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: {
         model: model,
@@ -2550,8 +2552,9 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
       }
     },
     gemini: {
-      url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanApiKey}`,
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       headers: {
+        'x-goog-api-key': cleanApiKey,
         'Content-Type': 'application/json'
       },
       body: {
@@ -2898,7 +2901,7 @@ async function testApiKey(provider, apiKey, model) {
         body: JSON.stringify({
           model: model || 'gpt-4.1-nano',
           messages: [{ role: 'user', content: testPrompt }],
-          max_tokens: 20,
+          max_completion_tokens: 20,
           temperature: 0.1
         })
       });
@@ -2924,10 +2927,10 @@ async function testApiKey(provider, apiKey, model) {
     } else if (provider === 'gemini') {
       const testModel = model || 'gemini-2.5-flash-lite';
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${testModel}:generateContent?key=${cleanApiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${testModel}:generateContent`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'x-goog-api-key': cleanApiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: testPrompt }] }],
             generationConfig: { temperature: 0.1, maxOutputTokens: 20 }
@@ -2959,7 +2962,8 @@ async function testApiKey(provider, apiKey, model) {
         headers: {
           'x-api-key': cleanApiKey,
           'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01'
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
         },
         body: JSON.stringify({
           model: model || 'claude-haiku-4-5-20251001',

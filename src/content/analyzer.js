@@ -1373,7 +1373,11 @@ const BaseExtractor = {
     
     return null;
   },
-  
+
+  wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  },
+
   /**
    * Click "Show all" button if present
    */
@@ -9287,7 +9291,7 @@ const OverlayManager = {
         shortSpan.textContent = 'Complete';
         
         const separator = document.createTextNode(': ');
-        const remaining = document.createTextNode('${Math.round(score)}%`');
+        const remaining = document.createTextNode(`${Math.round(score)}%`);
         
         fragment.appendChild(fullSpan);
         fragment.appendChild(shortSpan);
@@ -10473,7 +10477,7 @@ const OverlayManager = {
     if (collapsedBtn) {
       collapsedBtn.disabled = false;
       // [CRITICAL_PATH:BUTTON_STATE_MANAGEMENT] - Always show "Analyze" for consistency
-      collapsedBtn.textContent = Analyze;
+      collapsedBtn.textContent = 'Analyze';
     }
     
     
@@ -13772,6 +13776,9 @@ class Analyzer {
           });
           
           if (deepExperienceData.experiences && deepExperienceData.experiences.length > 0) {
+            // Expose roles to skills/recommendations career context below
+            extractedData.experience.experiences = deepExperienceData.experiences;
+
             // First, add overall experience section for high-level analysis
             sections.push({
               type: 'experience_overall',

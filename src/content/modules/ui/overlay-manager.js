@@ -1266,7 +1266,7 @@ const OverlayManager = {
         shortSpan.textContent = 'Complete';
         
         const separator = document.createTextNode(': ');
-        const remaining = document.createTextNode('${Math.round(score)}%`');
+        const remaining = document.createTextNode(`${Math.round(score)}%`);
         
         fragment.appendChild(fullSpan);
         fragment.appendChild(shortSpan);
@@ -2452,7 +2452,7 @@ const OverlayManager = {
     if (collapsedBtn) {
       collapsedBtn.disabled = false;
       // [CRITICAL_PATH:BUTTON_STATE_MANAGEMENT] - Always show "Analyze" for consistency
-      collapsedBtn.textContent = Analyze;
+      collapsedBtn.textContent = 'Analyze';
     }
     
     
