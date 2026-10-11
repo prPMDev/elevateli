@@ -2532,7 +2532,7 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
       body: {
         model: model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 4000,
+        max_completion_tokens: 4000,
         temperature: 0.1
       }
     },
@@ -2899,7 +2899,7 @@ async function testApiKey(provider, apiKey, model) {
         body: JSON.stringify({
           model: model || 'gpt-4.1-nano',
           messages: [{ role: 'user', content: testPrompt }],
-          max_tokens: 20,
+          max_completion_tokens: 20,
           temperature: 0.1
         })
       });
