@@ -14,7 +14,6 @@ const OverlayManager = {
     CALCULATING: 'calculating',
     ANALYZING: 'analyzing',
     AI_ANALYZING: 'ai_analyzing',
-    AI_RETRYING: 'ai_retrying',
     COMPLETE: 'complete',
     ERROR: 'error',
     ANALYSIS_FAILED_CACHE_FALLBACK: 'analysis_failed_cache_fallback'
@@ -783,26 +782,6 @@ const OverlayManager = {
         
         // Start elapsed time display
         this.startElapsedTimeDisplay();
-      },
-      
-      [this.states.AI_RETRYING]: () => {
-        // Show retry status with attempt counter
-        const message = data.message || 'Connection issue. Retrying...';
-        const attemptInfo = data.attempt && data.maxAttempts ? 
-          ` (${data.attempt}/${data.maxAttempts})` : '';
-        this.updateStatus(message + attemptInfo, '🔄');
-        
-        // Show toast for first retry
-        if (data.attempt === 1) {
-          this.showToast('Network issue detected - retrying...', 'info', 3000);
-        }
-        
-        // Keep showing completeness
-        if (data.completeness !== undefined) {
-          this.updateCompleteness(data.completeness);
-        }
-        
-        // Don't stop elapsed time display during retries
       },
       
       [this.states.COMPLETE]: () => {

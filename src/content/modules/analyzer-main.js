@@ -73,10 +73,6 @@
           const checkOverlayReady = () => {
             if (OverlayManager.overlayElement && OverlayManager.showZeroState) {
               OverlayManager.showZeroState();
-              // Mark overlay as initialized for phase tracking
-              if (window.LinkedInAnalyzer) {
-                window.LinkedInAnalyzer.markPhaseComplete('overlayInitialized');
-              }
             } else {
               // Retry after a short interval if not ready
               requestAnimationFrame(checkOverlayReady);
@@ -358,59 +354,6 @@
         return true;
       }
       
-      if (request.action === 'toggleOverlay') {
-        if (request.show) {
-          OverlayManager.show();
-        } else {
-          OverlayManager.hide();
-        }
-        sendResponse({ success: true });
-        return true;
-      }
-      
-      if (request.action === 'analyzeProfile') {
-        startAnalysis(request.forceRefresh).then(() => {
-          sendResponse({ success: true });
-        }).catch(error => {
-          sendResponse({ success: false, error: error.message });
-        });
-        return true; // Keep channel open for async response
-      }
-      
-      if (request.action === 'getProfileData') {
-        const profileId = getProfileIdFromUrl();
-        chrome.storage.local.get([`cache_${profileId}`], (data) => {
-          if (chrome.runtime.lastError) {
-            sendResponse({ success: false, error: 'Storage error' });
-            return;
-          }
-          sendResponse({ 
-            success: true, 
-            data: data[`cache_${profileId}`] || null 
-          });
-        });
-        return true;
-      }
-      
-      if (request.action === 'profileUpdated') {
-        const currentProfileId = getProfileIdFromUrl();
-        
-        if (currentProfileId === request.userProfile.profileId) {
-          
-          // Check if overlay already exists
-          if (!document.querySelector('.elevateli-overlay-wrapper')) {
-            // Re-run initialization
-            init();
-            sendResponse({ success: true, overlayInitialized: true });
-          } else {
-            sendResponse({ success: true, overlayExists: true });
-          }
-        } else {
-          sendResponse({ success: false, reason: 'Profile mismatch' });
-        }
-        return true;
-      }
-      
       // Handle showOverlay message from popup after successful setup
       if (request.action === 'triggerAnalysis') {
         // Handle cache clear - update overlay to show reset state
@@ -592,21 +535,6 @@
           sendResponse({ success: false, error: 'Failed to verify profile ownership' });
         });
         
-        return true;
-      }
-      
-      if (request.action === 'resetOverlay') {
-        
-        // Reset overlay to empty cache state
-        if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
-          // Clear compliance flag since storage was cleared
-          OverlayManager.hasCompliance = false;
-          
-          // Reset to EMPTY_CACHE state - shows "No previous analysis found"
-          OverlayManager.setState(OverlayManager.states.EMPTY_CACHE);
-        }
-        
-        sendResponse({ success: true });
         return true;
       }
       

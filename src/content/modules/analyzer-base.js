@@ -30,16 +30,6 @@ class Analyzer {
     this.isOwn = false;
     this.settings = {};
     this.cacheManager = null;
-    
-    // Phase completion tracking
-    this.phaseCompleted = {
-      overlayInitialized: false,
-      complianceChecked: false,
-      cacheRestored: false,
-      extractionComplete: false,
-      scoringComplete: false,
-      aiAnalysisComplete: false
-    };
   }
   
   /**
@@ -57,46 +47,6 @@ class Analyzer {
     this.cacheManager = new CacheManager();
     
     
-  }
-  
-  /**
-   * Wait for a specific phase to complete
-   * @param {string} phase - Phase name to wait for
-   * @param {number} timeout - Maximum wait time in milliseconds
-   * @returns {Promise<boolean>} - True if phase completed, false if timeout
-   */
-  async waitForPhaseCompletion(phase, timeout = 30000) {
-    return new Promise((resolve) => {
-      // Check if already completed
-      if (this.phaseCompleted[phase]) {
-        resolve(true);
-        return;
-      }
-      
-      let elapsed = 0;
-      const checkInterval = 100;
-      
-      const intervalId = setInterval(() => {
-        if (this.phaseCompleted[phase]) {
-          clearInterval(intervalId);
-          resolve(true);
-        } else if (elapsed >= timeout) {
-          clearInterval(intervalId);
-          resolve(false);
-        }
-        elapsed += checkInterval;
-      }, checkInterval);
-    });
-  }
-  
-  /**
-   * Mark a phase as completed
-   * @param {string} phase - Phase name to mark as complete
-   */
-  markPhaseComplete(phase) {
-    if (this.phaseCompleted.hasOwnProperty(phase)) {
-      this.phaseCompleted[phase] = true;
-    }
   }
   
   /**
@@ -159,16 +109,12 @@ class Analyzer {
       // Calculate completeness
       OverlayManager.setState(OverlayManager.states.CALCULATING);
       
-      // Mark extraction as complete
-      this.markPhaseComplete('extractionComplete');
       
       // Use requestAnimationFrame to ensure UI updates
       await new Promise(resolve => requestAnimationFrame(resolve));
       
       const completenessData = await this.calculateCompleteness(extractedData);
       
-      // Mark scoring as complete
-      this.markPhaseComplete('scoringComplete');
       
       // Prepare result
       const result = {
@@ -224,7 +170,7 @@ class Analyzer {
           
           // Pass completeness score to AI analysis for conditional advice
           extractedData.completenessScore = completenessData?.score || 100;
-          const aiResult = await this.runAIAnalysisWithRetry(extractedData);
+          const aiResult = await this.runAIAnalysis(extractedData);
           
           // Check if the AI result is actually a failure disguised as success
           // (happens when quality-scorer returns default score on error)
@@ -248,8 +194,6 @@ class Analyzer {
           
           
           
-          // Mark AI analysis as complete
-          this.markPhaseComplete('aiAnalysisComplete');
           
         } else {
           
@@ -374,41 +318,6 @@ class Analyzer {
     const now = new Date();
     const years = (now - earliestStart) / (1000 * 60 * 60 * 24 * 365.25);
     return Math.round(years * 10) / 10; // Round to 1 decimal
-  }
-  
-  /**
-   * Extract career progression pattern
-   * @param {Object} experienceData - Experience data from extractor
-   * @returns {string} Career progression type
-   */
-  extractCareerProgression(experienceData) {
-    if (!experienceData?.experiences?.length) return 'unknown';
-    
-    const titles = experienceData.experiences.map(exp => exp.title?.toLowerCase() || '');
-    
-    // Check for management progression
-    const hasManagementProgression = titles.some((title, idx) => {
-      const prevTitles = titles.slice(idx + 1);
-      return (title.includes('manager') || title.includes('director') || title.includes('vp')) &&
-             prevTitles.some(t => !t.includes('manager') && !t.includes('director'));
-    });
-    
-    if (hasManagementProgression) return 'ic_to_management';
-    
-    // Check for senior progression
-    const hasSeniorProgression = titles.some((title, idx) => {
-      const prevTitles = titles.slice(idx + 1);
-      return (title.includes('senior') || title.includes('lead') || title.includes('principal')) &&
-             prevTitles.some(t => !t.includes('senior') && !t.includes('lead'));
-    });
-    
-    if (hasSeniorProgression) return 'junior_to_senior';
-    
-    // Check if lateral moves
-    const uniqueRoles = new Set(titles.map(t => t.replace(/(senior|lead|jr|junior|principal)/g, '').trim()));
-    if (uniqueRoles.size > 2) return 'diverse_lateral';
-    
-    return 'specialized';
   }
 
   /**
@@ -1101,118 +1010,6 @@ class Analyzer {
         }
       });
     });
-  }
-  
-  /**
-   * Check if an error is retriable (network errors)
-   */
-  isRetriableError(error) {
-    const message = error?.message?.toLowerCase() || '';
-    // Network errors are retriable
-    if (message.includes('network') || 
-        message.includes('fetch') || 
-        message.includes('timeout') ||
-        message.includes('failed to fetch') ||
-        error.code === 'NETWORK_ERROR') {
-      return true;
-    }
-    // Don't retry auth errors, rate limits, or validation errors
-    if (message.includes('401') || 
-        message.includes('403') || 
-        message.includes('invalid key') ||
-        message.includes('rate limit')) {
-      return false;
-    }
-    return false;
-  }
-
-  /**
-   * Get error type from error object
-   */
-  getErrorType(error) {
-    const message = error?.message?.toLowerCase() || '';
-    if (message.includes('network') || message.includes('fetch')) return 'NETWORK';
-    if (message.includes('401') || message.includes('403')) return 'AUTH';
-    if (message.includes('rate limit')) return 'RATE_LIMIT';
-    return 'UNKNOWN';
-  }
-
-  /**
-   * Run AI analysis with retry logic
-   */
-  async runAIAnalysisWithRetry(extractedData, maxAttempts = 4) {
-    let lastError;
-    
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        // Show retry status if not first attempt
-        if (attempt > 1) {
-          // Better spacing: 5s, 15s, 30s (total ~50 seconds)
-          const retryDelays = [0, 5000, 15000, 30000];
-          const waitTime = retryDelays[attempt - 1] || 30000;
-          
-          OverlayManager.setState(OverlayManager.states.AI_RETRYING, {
-            message: 'Network error. Retrying',
-            attempt: attempt,
-            maxAttempts: maxAttempts,
-            completeness: this.analysisResults?.completeness
-          });
-          
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-        }
-        
-        const result = await this.runAIAnalysis(extractedData);
-        
-        // Success - transition back to normal state
-        if (attempt > 1) {
-          OverlayManager.setState(OverlayManager.states.AI_ANALYZING);
-        }
-        
-        return result;
-        
-      } catch (error) {
-        lastError = error;
-        
-        // Check if it's a network error that should be retried
-        if (this.isRetriableError(error) && attempt < maxAttempts) {
-          continue;
-        }
-        // Don't retry for non-network errors
-        break;
-      }
-    }
-    
-    // All retries exhausted - attempt cache recovery
-    
-    // Use enhanced error recovery with central state restoration
-    
-    try {
-      const recovered = await OverlayManager.restoreAppropriateState(this.profileId, {
-        isErrorFallback: true,
-        error: 'Network error',
-        message: 'Network connection failed after multiple attempts. Showing cached results.'
-      });
-      
-      if (recovered) {
-        // Cache was restored, return success with cache flag
-        return { 
-          success: true, 
-          fromCache: true, 
-          networkError: true,
-          retriesExhausted: true 
-        };
-      }
-    } catch (recoveryError) {
-      console.error('[Analyzer] Cache recovery also failed:', recoveryError);
-    }
-    
-    // No cache available, return error
-    return {
-      success: false,
-      error: lastError?.message || 'Network error after multiple attempts',
-      errorType: this.getErrorType(lastError),
-      retriesExhausted: true
-    };
   }
 
   /**
