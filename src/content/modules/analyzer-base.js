@@ -948,8 +948,6 @@ class Analyzer {
             recommendations: response.recommendations,
             // Include all AI analysis fields
             positiveInsight: response.insight,
-            strengths: response.strengths,
-            improvements: response.improvements,
             actionItems: response.actionItems,
             specificFeedback: response.specificFeedback
           });
