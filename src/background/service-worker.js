@@ -1144,12 +1144,8 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
   
   // Get model from storage if not provided
   if (!model) {
-    const settings = await chrome.storage.local.get(['aiModel', 'aiProvider']);
-    model = settings.aiModel;
-    if (!model) {
-      const defaults = { openai: 'gpt-4.1-nano', anthropic: 'claude-haiku-4-5-20251001', gemini: 'gemini-2.5-flash-lite' };
-      model = defaults[provider] || 'gemini-2.5-flash-lite';
-    }
+    ({ aiModel: model } = await chrome.storage.local.get('aiModel'));
+    if (!model) throw new Error('No AI model selected');
   }
 
   const config = {
@@ -1162,8 +1158,7 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
       body: {
         model: model,
         messages: [{ role: 'user', content: prompt }],
-        max_completion_tokens: 4000,
-        temperature: 0.1
+        max_completion_tokens: 4000  // no temperature: gpt-5.5+, GPT-6 and o-series reject it
       }
     },
     anthropic: {
@@ -1262,8 +1257,9 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   
   
   // Handle test API key
+  // No apiKey in the request = reload models with the saved key
   if (action === 'testApiKey') {
-    testApiKey(request.provider, request.apiKey, request.model).then(result => {
+    (async () => testApiKey(request.provider, request.apiKey || await getDecryptedApiKey()))().then(result => {
       sendResponse(result);
     }).catch(error => {
       sendResponse({ success: false, error: error.message });
@@ -1349,7 +1345,7 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
         }
         
         // Use the existing testApiKey function
-        const result = await testApiKey(provider, apiKey, null);
+        const result = await testApiKey(provider, apiKey);
         sendResponse(result);
       } catch (error) {
         console.error('AI.PROMPTS', 'API key validation error', error);
@@ -1448,141 +1444,54 @@ class RateLimiter {
 // Create rate limiter instance
 const rateLimiter = new RateLimiter();
 
-// Test API Key function
-async function testApiKey(provider, apiKey, model) {
+// List the provider's models. Doubles as the key check: a GET, so no tokens are spent.
+async function testApiKey(provider, apiKey) {
+  const rateCheck = rateLimiter.canMakeRequest('test', provider);
+  if (!rateCheck.allowed) {
+    return {
+      success: false,
+      error: `Rate limit exceeded. Please wait ${rateCheck.waitTime} seconds before testing again.`
+    };
+  }
+
+  const key = typeof apiKey === 'string' ? apiKey.trim().replace(/[^\x20-\x7E]/g, '') : '';
+  if (!key) return { success: false, error: 'API key is required' };
+
+  const [url, headers] = {
+    openai: ['https://api.openai.com/v1/models', { 'Authorization': `Bearer ${key}` }],
+    anthropic: ['https://api.anthropic.com/v1/models?limit=1000', {
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    }],
+    gemini: ['https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', { 'x-goog-api-key': key }]
+  }[provider] || [];
+  if (!url) return { success: false, error: 'Unknown provider' };
+
   try {
-    // Check rate limit
-    const rateCheck = rateLimiter.canMakeRequest('test', provider);
-    if (!rateCheck.allowed) {
-      return {
-        success: false,
-        error: `Rate limit exceeded. Please wait ${rateCheck.waitTime} seconds before testing again.`
-      };
+    const response = await fetch(url, { headers });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = [401, 403].includes(response.status) ? 'Invalid API key'
+        : response.status === 429 ? 'Rate limit exceeded'
+        : data.error?.message || `API error ${response.status}`;
+      return { success: false, error };
     }
 
-    // Normalize provider string
-    provider = provider?.toLowerCase()?.trim();
-    
-    // Clean and validate API key
-    if (!apiKey || typeof apiKey !== 'string') {
-      return { success: false, error: 'Invalid API key format' };
-    }
-    
-    // Remove any non-printable characters and trim whitespace
-    const cleanApiKey = apiKey.trim().replace(/[^\x20-\x7E]/g, '');
-    
-    // Check if key was significantly altered (might indicate encoding issues)
-    
-    if (!cleanApiKey) {
-      return { success: false, error: 'API key is empty or contains only invalid characters' };
-    }
-    
-    const testPrompt = 'Say "API key validated successfully" in exactly 5 words.';
-    
-    if (provider === 'openai') {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${cleanApiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: model || 'gpt-4.1-nano',
-          messages: [{ role: 'user', content: testPrompt }],
-          max_completion_tokens: 20,
-          temperature: 0.1
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-
-        if (response.status === 401) {
-          return { success: false, error: 'Invalid API key' };
-        } else if (response.status === 429) {
-          return { success: false, error: 'Rate limit exceeded' };
-        } else if (response.status === 404 && errorData.error?.code === 'model_not_found') {
-          return { success: false, error: `Model "${model}" not available for your account` };
-        } else {
-          return { success: false, error: errorData.error?.message || 'API request failed' };
-        }
-      }
-
-      const data = await response.json();
-      return { success: true, message: 'OpenAI API key is valid' };
-
-    } else if (provider === 'gemini') {
-      const testModel = model || 'gemini-2.5-flash-lite';
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${testModel}:generateContent`,
-        {
-          method: 'POST',
-          headers: { 'x-goog-api-key': cleanApiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: testPrompt }] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 20 }
-          })
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-
-        if (response.status === 400 && errorData.error?.message?.includes('API key')) {
-          return { success: false, error: 'Invalid API key' };
-        } else if (response.status === 403) {
-          return { success: false, error: 'Invalid API key or Gemini API not enabled' };
-        } else if (response.status === 429) {
-          return { success: false, error: 'Rate limit exceeded' };
-        } else {
-          return { success: false, error: errorData.error?.message || 'API request failed' };
-        }
-      }
-
-      const data = await response.json();
-      return { success: true, message: 'Gemini API key is valid' };
-
-    } else if (provider === 'anthropic') {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': cleanApiKey,
-          'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: model || 'claude-haiku-4-5-20251001',
-          messages: [{ role: 'user', content: testPrompt }],
-          max_tokens: 20,
-          temperature: 0.1
-        })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        
-        if (response.status === 401) {
-          return { success: false, error: 'Invalid API key' };
-        } else if (response.status === 429) {
-          return { success: false, error: 'Rate limit exceeded' };
-        } else {
-          return { success: false, error: errorData.error?.message || 'API request failed' };
-        }
-      }
-      
-      const data = await response.json();
-      return { success: true, message: 'Anthropic API key is valid' };
-    }
-    
-    return { success: false, error: 'Unknown provider' };
-    
+    const list = provider === 'gemini'
+      ? (data.models || [])
+          .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+          .map(m => ({ id: m.name.replace(/^models\//, '') }))
+      : (data.data || [])
+          // Hide models on their way out (Anthropic: lifecycle, OpenAI: shutdown_date) or without JSON-schema output (Anthropic)
+          .filter(m => m.capabilities?.structured_outputs?.supported !== false && m.lifecycle !== 'deprecated' && !m.shutdown_date)
+          .sort((a, b) => (b.created || 0) - (a.created || 0)); // OpenAI newest first; Anthropic already is
+    // ponytail: OpenAI/Gemini lists don't say which models can chat, so drop the non-chat ones by name. A wrong pick only errors on analysis.
+    const models = list.map(m => m.id)
+      .filter(id => !/embed|tts|whisper|dall-e|davinci|babbage|moderation|audio|realtime|transcribe|image|search|sora/.test(id));
+    return { success: true, models };
   } catch (error) {
-    console.error('AI.PROMPTS', 'Test API key error', error, {
-      errorType: error.name,
-      errorMessage: error.message,
-      errorStack: error.stack
-    });
+    console.error('Test API key error', error);
     return { success: false, error: error.message || 'Connection failed' };
   }
 }

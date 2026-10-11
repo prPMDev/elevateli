@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const backButton = document.getElementById('backButton');
   const settingsShowAnalysisToggle = document.getElementById('settingsShowAnalysis');
   const settingsEnableAIToggle = document.getElementById('settingsEnableAI');
+  const settingsAiProviderSelect = document.getElementById('settingsAiProvider');
   const settingsAiModelSelect = document.getElementById('settingsAiModel');
   const settingsApiKeyInput = document.getElementById('settingsApiKey');
   const settingsTargetRoleSelect = document.getElementById('settingsTargetRole');
@@ -146,6 +147,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         settingsViewDiv.classList.remove('hidden');
         settingsGearBtn.classList.add('hidden');
         updateSettingsView();
+        // Provider/model are set only on open, so storage syncs can't reset them mid-edit
+        settingsAiProviderSelect.value = settings.aiProvider || '';
+        onProviderChange();
         break;
     }
   }
@@ -270,10 +274,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Update all settings controls with current values
     if (settingsShowAnalysisToggle) settingsShowAnalysisToggle.checked = settings.showAnalysis !== false;
     if (settingsEnableAIToggle) settingsEnableAIToggle.checked = settings.enableAI === true;
-    if (settingsAiModelSelect && settings.aiProvider) {
-      const modelValue = settings.aiModel || 'gemini-2.5-flash-lite';
-      settingsAiModelSelect.value = `${settings.aiProvider}:${modelValue}`;
-    }
     if (settingsApiKeyInput && (settings.apiKey || settings.encryptedApiKey)) {
       settingsApiKeyInput.value = '••••••••••••';
     }
@@ -601,43 +601,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     clearFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'));
   });
   
-  settingsAiModelSelect?.addEventListener('change', () => {
-    clearFieldError(settingsAiModelSelect, null);
+  settingsAiModelSelect?.addEventListener('change', () => clearFieldError(settingsAiModelSelect, null));
 
-    // Update cost hint and "Get key" link based on selected model
-    const providerModel = settingsAiModelSelect.value;
-    if (providerModel) {
-      const [selectedProvider] = providerModel.split(':');
-      const costHint = document.getElementById('costHint');
-      const getKeyLink = document.getElementById('getKeyLink');
+  function typedApiKey() {
+    const key = settingsApiKeyInput.value.trim();
+    return key && key !== '••••••••••••' ? key : null;
+  }
 
-      const providerLinks = {
-        'openai': 'https://platform.openai.com/api-keys',
-        'anthropic': 'https://console.anthropic.com/settings/keys',
-        'gemini': 'https://aistudio.google.com/apikey'
-      };
-
-      const modelCosts = {
-        'gemini:gemini-2.5-flash-lite': 'Free with Gemini Flash Lite',
-        'gemini:gemini-2.5-flash': '~$0.01-0.03/analysis',
-        'gemini:gemini-2.5-pro': '~$0.03-0.10/analysis',
-        'gemini:gemini-3.1-pro-preview': '~$0.05-0.15/analysis',
-        'openai:gpt-4.1-nano': '~$0.01-0.02/analysis',
-        'openai:gpt-4.1-mini': '~$0.02-0.05/analysis',
-        'openai:gpt-4.1': '~$0.05-0.15/analysis',
-        'openai:gpt-5.4-nano': '~$0.01-0.03/analysis',
-        'openai:gpt-5.4-mini': '~$0.02-0.07/analysis',
-        'openai:gpt-5.4': '~$0.05-0.20/analysis',
-        'anthropic:claude-haiku-4-5-20251001': '~$0.02-0.05/analysis',
-        'anthropic:claude-sonnet-4-6': '~$0.05-0.15/analysis',
-        'anthropic:claude-opus-4-6': '~$0.10-0.30/analysis'
-      };
-
-      if (getKeyLink) getKeyLink.href = providerLinks[selectedProvider] || providerLinks['gemini'];
-      if (costHint) costHint.textContent = modelCosts[providerModel] || '~$0.02-0.07/analysis';
+  // Fill the model list from the provider. The same call validates the key; no key = the saved one.
+  async function loadModels(apiKey) {
+    const provider = settingsAiProviderSelect.value;
+    const keep = settingsAiModelSelect.value;
+    const response = await chrome.runtime.sendMessage({ action: 'testApiKey', provider, apiKey });
+    if (provider !== settingsAiProviderSelect.value) return; // provider changed while loading
+    if (!response?.success) {
+      showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), response?.error || 'Could not load models');
+      return;
     }
+    clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
+    settingsAiModelSelect.replaceChildren(
+      new Option('Select AI model...', ''),
+      ...response.models.map(id => new Option(id, id, false, id === keep))
+    );
+  }
+
+  // Provider picked (or settings opened): point the links at it and load its models
+  function onProviderChange() {
+    const option = settingsAiProviderSelect.selectedOptions[0];
+    if (option?.value) {
+      document.getElementById('getKeyLink').href = option.dataset.keyUrl;
+      document.getElementById('pricingLink').href = option.dataset.pricingUrl;
+    }
+    const isSaved = !!option?.value && option.value === settings.aiProvider;
+    settingsAiModelSelect.replaceChildren(isSaved && settings.aiModel
+      ? new Option(settings.aiModel, settings.aiModel, true, true)
+      : new Option('Enter your API key to load models', ''));
+    if (option?.value && (typedApiKey() || isSaved)) loadModels(typedApiKey());
+  }
+
+  settingsAiProviderSelect?.addEventListener('change', onProviderChange);
+  settingsApiKeyInput?.addEventListener('change', () => {
+    if (settingsAiProviderSelect.value && typedApiKey()) loadModels(typedApiKey());
   });
-  
+
   // Handle Save Settings button
   saveSettingsBtn?.addEventListener('click', async () => {
     let hasErrors = false;
@@ -648,7 +654,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Validate if AI is enabled AND visible
     if (settingsEnableAIToggle.checked && !aiConfigSection.classList.contains('hidden')) {
-      const providerModel = settingsAiModelSelect.value;
+      provider = settingsAiProviderSelect.value;
+      model = settingsAiModelSelect.value;
       apiKey = settingsApiKeyInput.value.trim();
       
       // Clean the API key - remove zero-width spaces and other invisible characters
@@ -669,16 +676,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         hasErrors = true;
       }
       
-      if (!providerModel) {
-        showFieldError(settingsAiModelSelect, null, null);
+      // The saved key belongs to the saved provider
+      if (isPlaceholder && provider !== settings.aiProvider) {
+        showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), 'Enter an API key for this provider');
         hasErrors = true;
       }
-      
-      // Extract provider and model from combined value
-      if (providerModel) {
-        [provider, model] = providerModel.split(':');
+
+      if (!provider || !model) {
+        showFieldError(provider ? settingsAiModelSelect : settingsAiProviderSelect, null, null);
+        hasErrors = true;
       }
-      
+
+      if (hasErrors) return;
+
       // Only validate if user entered a new key (not placeholder)
       if (!isPlaceholder && apiKey) {
         // Show validating state
@@ -690,8 +700,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           const testResponse = await chrome.runtime.sendMessage({
             action: 'testApiKey',
             provider,
-            apiKey,
-            model
+            apiKey
           });
           
           if (!testResponse || !testResponse.success) {
@@ -724,7 +733,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             await chrome.storage.local.set({
               encryptedApiKey: encryptResponse.encryptedApiKey,
               aiProvider: provider,
-              aiModel: model || 'gemini-2.5-flash-lite'
+              aiModel: model
             });
             await chrome.storage.local.remove('apiKey');
           } else {
@@ -801,7 +810,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Just save the provider and model if key wasn't changed (placeholder shown)
         await chrome.storage.local.set({ 
           aiProvider: provider,
-          aiModel: model || 'gemini-2.5-flash-lite'
+          aiModel: model
         });
       }
     }
@@ -836,11 +845,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Update settings object with saved values
     Object.assign(settings, settingsToSave);
     
-    // If AI was configured with a new key, update settings to reflect that
-    if (settingsEnableAIToggle.checked && !isPlaceholder && apiKey) {
-      settings.encryptedApiKey = true; // Mark that we have an encrypted key
+    // Reflect the saved AI config (provider/model change even when the key did not)
+    if (settingsEnableAIToggle.checked && provider) {
+      if (!isPlaceholder) settings.encryptedApiKey = true; // Mark that we have an encrypted key
       settings.aiProvider = provider;
-      settings.aiModel = model || 'gemini-2.5-flash-lite';
+      settings.aiModel = model;
     }
     
     await SettingsManager.updateAndSync(settings);  // Pass full settings

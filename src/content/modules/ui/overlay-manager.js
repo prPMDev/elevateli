@@ -2354,16 +2354,9 @@ const OverlayManager = {
     
     
     
-    // Profile photo section - show if missing (completeness) or vision AI available
+    // Profile photo section - show if missing (completeness)
     const photoMissing = missingItems.some(item => item.section === 'photo');
     const photoRec = missingItems.find(item => item.section === 'photo');
-    
-    // Check if vision AI is available
-    // Get settings from data object if available
-    const settings = data.settings || {};
-    const visionModels = ['gpt-4o', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-3.1-pro-preview'];
-    const hasVisionAI = visionModels.includes(settings.aiModel) &&
-                        settings.enableAI === true;
     
     // Only show photo as a separate section if it's missing (for completeness)
     // When photo exists, it's included in the First Impression section
@@ -2384,39 +2377,6 @@ const OverlayManager = {
     
     // We don't show photo as a separate section when it exists
     
-    // Banner section - only show if custom banner exists and vision AI available
-    if (hasVisionAI) {
-      // profileData should be part of the data object (extracted data from the profile)
-      const hasCustomBanner = data.extractedData?.banner?.isCustomBanner || data.profileData?.banner?.isCustomBanner || false;
-      
-      if (hasCustomBanner) {
-        let bannerSection = {
-          name: 'Profile Banner',
-          priority: 'normal'
-        };
-        
-        // Check for banner analysis results
-        const bannerScore = sectionScores.profile_banner;
-        if (bannerScore && typeof bannerScore.score === 'number') {
-          // Banner analysis completed
-          bannerSection.rating = bannerScore.score;
-          bannerSection.positive = bannerScore.positive || bannerScore.analysis;
-          bannerSection.improvements = bannerScore.improvements || [];
-          if (bannerScore._cacheInfo?.cached) {
-            bannerSection.cached = true;
-          }
-        } else {
-          // Banner analysis not yet completed - show blank stars with tooltip
-          bannerSection.rating = null;
-          bannerSection.positive = null;
-          bannerSection.improvements = [];
-          bannerSection.requiresVision = true;
-          bannerSection.tooltip = "Banner analysis requires GPT-4o vision AI";
-        }
-        
-        sections.push(bannerSection);
-      }
-    }
     
     // [CRITICAL_PATH:FIRST_IMPRESSION_UI] - P0: Display unified first impression
     // Check for first impression analysis
