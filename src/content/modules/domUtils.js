@@ -21,26 +21,6 @@ function debounce(func, wait) {
 }
 
 /**
- * Wait for an element to appear in the DOM
- */
-function waitForElement(selector, callback, maxWait = TIMINGS.ELEMENT_WAIT_TIMEOUT) {
-  const startTime = Date.now();
-  let timeoutId = null;
-  
-  const checkElement = () => {
-    const element = document.querySelector(selector);
-    if (element) {
-      if (timeoutId) clearManagedTimeout(timeoutId);
-      callback(element);
-    } else if (Date.now() - startTime < maxWait) {
-      timeoutId = addManagedTimeout(checkElement, TIMINGS.ELEMENT_CHECK_INTERVAL);
-    }
-  };
-  
-  checkElement();
-}
-
-/**
  * Check if current page is a LinkedIn profile page
  */
 function isProfilePage() {
@@ -122,45 +102,6 @@ async function getSavedProfile() {
 }
 
 /**
- * Detect profile ownership indicators on the page
- */
-async function detectOwnProfileIndicators() {
-  // Wait a bit for page to load if needed
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  // Check for edit intro button (LinkedIn uses "Edit intro" not "Edit profile")
-  const editButton = document.querySelector('button[aria-label*="Edit intro"]') ||
-                     document.querySelector('a[href*="/edit/intro/"]') ||
-                     document.querySelector('.pvs-profile-actions__edit-profile') ||
-                     Array.from(document.querySelectorAll('button')).find(btn => 
-                       btn.getAttribute('aria-label')?.includes('Edit'));
-  
-  // Check for "Add profile section" button
-  const addSectionButton = document.querySelector('button[aria-label*="Add profile section"]') ||
-                          document.querySelector('a[href*="add-edit/"]') ||
-                          Array.from(document.querySelectorAll('button')).find(btn => 
-                            btn.textContent?.includes('Add profile section'));
-  
-  // Check for analytics button (only on own profile)
-  const analyticsButton = document.querySelector('button[aria-label*="View profile analytics"]') ||
-                         document.querySelector('a[href*="/dashboard/"]') ||
-                         Array.from(document.querySelectorAll('button')).find(btn => 
-                           btn.textContent?.includes('View profile analytics'));
-  
-  // Check for Resources button (another ownership indicator)
-  const resourcesButton = Array.from(document.querySelectorAll('button')).find(btn => 
-                         btn.textContent?.trim() === 'Resources');
-  
-  // Check if any ownership indicator exists
-  const hasOwnershipIndicator = !!(editButton || addSectionButton || analyticsButton || resourcesButton);
-  
-  if (hasOwnershipIndicator) {
-  }
-  
-  return hasOwnershipIndicator;
-}
-
-/**
  * Save user's profile ID when detected
  */
 async function saveUserProfileId() {
@@ -205,76 +146,5 @@ async function saveUserProfileId() {
     
     await chrome.storage.local.set({ userProfile });
   } catch (error) {
-  }
-}
-
-// REMOVED: extractTextContent - duplicate function, use BaseExtractor.extractTextContent instead
-
-/**
- * Find element by multiple selectors
- */
-function findElement(selectors) {
-  if (!Array.isArray(selectors)) {
-    selectors = [selectors];
-  }
-  
-  for (const selector of selectors) {
-    const element = document.querySelector(selector);
-    if (element) return element;
-  }
-  
-  return null;
-}
-
-/**
- * Create DOM element with attributes and children
- */
-function createElement(tag, attributes = {}, children = []) {
-  const element = document.createElement(tag);
-  
-  // Set attributes
-  Object.entries(attributes).forEach(([key, value]) => {
-    if (key === 'className') {
-      element.className = value;
-    } else if (key === 'style' && typeof value === 'object') {
-      Object.assign(element.style, value);
-    } else if (key.startsWith('on') && typeof value === 'function') {
-      element.addEventListener(key.substring(2).toLowerCase(), value);
-    } else {
-      element.setAttribute(key, value);
-    }
-  });
-  
-  // Add children
-  children.forEach(child => {
-    if (typeof child === 'string') {
-      element.appendChild(document.createTextNode(child));
-    } else if (child instanceof Node) {
-      element.appendChild(child);
-    }
-  });
-  
-  return element;
-}
-
-/**
- * Safe querySelector that handles errors
- */
-function safeQuerySelector(element, selector) {
-  try {
-    return element.querySelector(selector);
-  } catch (e) {
-    return null;
-  }
-}
-
-/**
- * Safe querySelectorAll that handles errors
- */
-function safeQuerySelectorAll(element, selector) {
-  try {
-    return element.querySelectorAll(selector);
-  } catch (e) {
-    return [];
   }
 }

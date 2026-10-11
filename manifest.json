@@ -22,10 +22,7 @@
         "https://www.linkedin.com/*"
       ],
       "js": [
-        "src/content/modules/constants.js",
-        "src/content/modules/state.js",
         "src/content/modules/chromeUtils.js",
-        "src/content/modules/memoryManager.js",
         "src/content/modules/domUtils.js",
         "src/content/modules/ownership-detector.js",
         "src/content/modules/core/cache-manager.js",
