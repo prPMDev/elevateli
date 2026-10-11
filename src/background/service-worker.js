@@ -144,7 +144,7 @@ ${config.customInstructions ? `Additional context: ${config.customInstructions}`
 ${sectionName.toUpperCase()} CONTENT:
 ${typeof content === 'object' ? JSON.stringify(content, null, 2) : content}
 
-Provide your coaching analysis in EXACT JSON format:
+Fill in these fields (example):
 
 {
   "score": 7,
@@ -219,7 +219,6 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
 5. If description mentions "$50M revenue" don't ask to "add revenue metrics" - suggest how to enhance it
 6. Give SPECIFIC improvements: "Move your $50M ARR metric to the first line" not "Add metrics"
 7. Consider role recency - weight recent roles (< 2 years) more heavily
-8. MUST return valid JSON only - no markdown, no extra text
 </critical_rules>
 
 <position_details>
@@ -270,7 +269,7 @@ Analyze this individual role description:
    - Focus on repositioning/enhancing existing content
 </analysis_task>
 
-Return ONLY valid JSON with this exact structure:
+Fill in these fields:
 {
   "score": <integer 0-10>,
   "positiveInsight": "<200-300 chars quoting their ACTUAL strong content like 'Your mention of leading $50M ARR product shows...' or acknowledging specific achievements>",
@@ -312,13 +311,8 @@ Analyze the overall experience section and provide:
 2. Feedback on career progression and trajectory
 3. Recommendations for improving the experience section
 
-Respond in JSON format:
-{
-  "score": <number 0-10>,
-  "strengths": ["strength 1", "strength 2"],
-  "improvements": ["improvement 1", "improvement 2"],
-  "recommendations": ["specific action 1", "specific action 2"]
-}
+Fill in these fields: score, positiveInsight (what works, quoting their roles), gapAnalysis (what is weak),
+specificFeedback (one weak line and its rewrite), actionItems (specific improvements).
 
 NOTE: This is a fallback analysis. Individual role analysis would provide better insights.`;
 
@@ -353,7 +347,6 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
 5. Give SPECIFIC actions: "Move your Oracle ML project mention to the first bullet" not "Highlight technical skills"
 6. Focus on STRATEGIC career trajectory patterns, not individual role nitpicks
 7. If they already have strong metrics, suggest how to REPOSITION or ENHANCE them, not add more
-8. MUST return valid JSON only - no markdown, no additional text
 </critical_rules>
 
 <profile_overview>
@@ -417,7 +410,7 @@ Analyze the OVERALL career trajectory and experience section:
    - If metrics missing, be specific: "Quantify the 'API-first products' user base or revenue impact"
 </analysis_task>
 
-Return ONLY valid JSON with this exact structure (no markdown, no extra text):
+Fill in these fields:
 {
   "score": <integer 0-10>,
   "positiveInsight": "<200-300 chars about their ACTUAL career progression, quoting specific roles/companies/achievements from above>",
@@ -460,7 +453,6 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
 5. Give SPECIFIC actions: "Request recommendation from your manager John at Avalara" not "Get more recommendations"
 6. Consider recency heavily - recent recommendations (< 1 year) are highly valuable
 7. Don't penalize for having 0-2 recommendations - this is increasingly common
-8. MUST return valid JSON only - no markdown, no extra text
 </critical_rules>
 
 <career_context>
@@ -517,7 +509,7 @@ Analyze the recommendations section:
    - If they have good recommendations, suggest how to leverage them better
 </analysis_task>
 
-Return ONLY valid JSON with this exact structure (no markdown, no extra text):
+Fill in these fields:
 {
   "score": <integer 0-10>,
   "positiveInsight": "<150-250 chars acknowledging what they have, even if it's 0>",
@@ -562,7 +554,6 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
    - Scores 7-10: START with what's working, END with refinements to reach 10/10
 3. Analyze how all elements work together for first impression
 4. Don't penalize for default banner - it's common and professional
-5. MUST return valid JSON only - no markdown, no extra text
 </critical_rules>
 
 <first_impression_data>
@@ -596,13 +587,11 @@ Analyze the first impression elements:
    - For scores 0-6: Focus on critical gaps first
 </analysis_task>
 
-Return ONLY valid JSON with this exact structure (no markdown, no extra text):
+Fill in these fields:
 {
   "score": <integer 0-10>,
   "positiveInsight": "<150-250 chars acknowledging what's working in their first impression>",
-  "headlineAnalysis": "<150-250 chars analyzing their actual headline quoted>",
-  "gapAnalysis": "<150-250 chars identifying weaknesses>",
-  "overallImpression": "<150-250 chars on unified first impression impact>",
+  "gapAnalysis": "<150-250 chars identifying weaknesses, quoting their actual headline>",
   "actionItems": [
     {
       "category": "<'Profile Photo'|'Headline Enhancement'|'Visual Branding'|'10/10 Optimization'>",
@@ -642,7 +631,6 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
 5. Focus on the opening 2-3 lines as CRITICAL (visible before "see more" click)
 6. Give SPECIFIC rewrites: Show exactly how to improve weak sentences
 7. If they have metrics, suggest how to position them better, don't ask to add metrics
-8. MUST return valid JSON only - no markdown, no extra text
 </critical_rules>
 
 <about_section_content>
@@ -669,11 +657,9 @@ Analyze the About section for strategic positioning:
    - Positioning for target role
    - Professional tone and personal brand
 
-3. Provide four distinct assessments:
+3. Provide two distinct assessments:
    - positiveInsight: What's working well (quote specific strong content)
-   - openingAssessment: Analysis of first 2-3 lines effectiveness
-   - gapAnalysis: Major weaknesses throughout (quote weak phrases)
-   - flowAnalysis: How well the story flows from beginning to end
+   - gapAnalysis: Major weaknesses throughout, including the first 2-3 lines and the story's flow (quote weak phrases)
 
 4. For action items:
    - If opening is weak: Show exact rewrite
@@ -681,13 +667,11 @@ Analyze the About section for strategic positioning:
    - If flow is poor: Identify the disconnect and suggest restructuring
 </analysis_task>
 
-Return ONLY valid JSON with this exact structure (no markdown, no extra text):
+Fill in these fields:
 {
   "score": <integer 0-10>,
   "positiveInsight": "<150-250 chars quoting their ACTUAL strong content like 'Your mention of leading $50M initiatives shows...'>"",
-  "openingAssessment": "<150-250 chars analyzing their actual opening lines effectiveness>",
   "gapAnalysis": "<150-250 chars identifying weaknesses by quoting actual weak phrases>",
-  "flowAnalysis": "<150-250 chars on narrative structure and transitions>",
   "specificFeedback": {
     "originalLine": "<Quote their weakest sentence exactly>",
     "suggestion": "<Rewritten version with improvements>",
@@ -751,7 +735,6 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
 7. DO NOT give mechanical repositioning advice with position numbers
 8. Focus on skill quality: "Consider making 'Data Analysis' more prominent" not "Move from #8 to #3"
 9. Focus on LinkedIn UI reality: Only some skills are visible without clicking "Show all"
-10. MUST return valid JSON only - no markdown, no extra text
 </critical_rules>
 
 <profile_status>
@@ -828,7 +811,7 @@ Analyze the skills section for quality and relevance:
    - Example bad feedback: "Move skill from position #1 to #1" (meaningless)
 </analysis_task>
 
-Return ONLY valid JSON with this exact structure (no markdown, no extra text):
+Fill in these fields:
 {
   "score": <integer 0-10>,
   "positiveInsight": "<200-300 chars acknowledging their ACTUAL skills like 'Your top skill Product Management with 45 endorsements shows...'>",
@@ -852,64 +835,31 @@ Return ONLY valid JSON with this exact structure (no markdown, no extra text):
   return prompt;
 }
 
-// Parse section analysis response
+// Parse section analysis response. Providers return SECTION_SCHEMA JSON; slicing to the outer
+// braces also covers local models that ignore the schema and wrap the JSON in prose or fences.
 function parseSectionAnalysis(response, sectionName) {
   try {
-    // Try to parse as JSON first
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      
-      // Handle both old and new formats
-      const actionItems = parsed.actionItems || parsed.recommendations || [];
-      const improvements = parsed.improvements || [];
-      
-      // Validate that AI included specific quotes
-      
-      
-      
-      // Validate actionItems have quotedContent
-      const validatedActionItems = actionItems.map(item => {
-        return item;
-      });
-      
-      
-      return {
-        score: Math.min(10, Math.max(0, parsed.score || 5)),
-        // New format with positiveInsight and gapAnalysis
-        positiveInsight: parsed.positiveInsight || parsed.strengths?.[0] || '',
-        gapAnalysis: parsed.gapAnalysis || '',
-        // Legacy format support
-        insight: parsed.insight || parsed.feedback || `${parsed.strengths?.join('. ')}. ${improvements.join('. ')}`,
-        strengths: parsed.strengths || [],
-        improvements: improvements,
-        actionItems: validatedActionItems,
-        specificFeedback: parsed.specificFeedback || null,
-        // Keep backwards compatibility
-        recommendations: validatedActionItems.map(item => 
-          typeof item === 'string' ? item : (item.what || item.text || item)
-        )
-      };
-    }
+    const parsed = JSON.parse(response.slice(response.indexOf('{'), response.lastIndexOf('}') + 1));
+    const actionItems = parsed.actionItems || [];
+    return {
+      score: Math.min(10, Math.max(0, parsed.score ?? 5)),
+      positiveInsight: parsed.positiveInsight || '',
+      gapAnalysis: parsed.gapAnalysis || '',
+      actionItems,
+      specificFeedback: parsed.specificFeedback || null,
+      recommendations: actionItems
+    };
   } catch (error) {
-    console.error('AI.PARSING', 'Failed to parse response', error, {
-      section: sectionName,
-      responsePreview: response.substring(0, 200)
-    });
+    console.error('Failed to parse AI response', sectionName, error);
+    return {
+      score: null,
+      errorType: 'RESPONSE_PARSE_ERROR',
+      positiveInsight: '',
+      gapAnalysis: '',
+      actionItems: [],
+      recommendations: []
+    };
   }
-  
-  // Fallback parsing
-  return {
-    score: null,
-    errorType: 'RESPONSE_PARSE_ERROR',
-    positiveInsight: '',
-    gapAnalysis: '',
-    insight: response.substring(0, 200),
-    strengths: [],
-    improvements: [],
-    actionItems: [],
-    recommendations: []
-  };
 }
 
 // Synthesize final analysis from section analyses
@@ -1125,6 +1075,47 @@ function analyzeCareerTrajectory(experienceRoles) {
   return insights;
 }
 
+// The openai provider talks to any OpenAI-compatible server; the user can point it at Ollama or LM Studio
+const OPENAI_URL = 'https://api.openai.com/v1';
+const openaiBaseUrl = async (url) =>
+  (url || (await chrome.storage.local.get('aiBaseUrl')).aiBaseUrl || OPENAI_URL).replace(/\/+$/, '');
+
+// Every section prompt asks for this shape; each provider enforces it as JSON-schema output.
+// No minimum/maximum: Anthropic rejects them, and parseSectionAnalysis clamps the score.
+const STR = { type: 'string' };
+const SECTION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['score', 'positiveInsight', 'gapAnalysis', 'specificFeedback', 'actionItems'],
+  properties: {
+    score: { type: 'integer', description: '0-10' },
+    positiveInsight: STR,
+    gapAnalysis: STR,
+    specificFeedback: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['originalLine', 'suggestion', 'why'],
+      properties: { originalLine: STR, suggestion: STR, why: STR }
+    },
+    actionItems: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['category', 'action', 'impact', 'priority', 'quotedContent', 'element'],
+        properties: {
+          category: STR,
+          action: STR,
+          impact: STR,
+          priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
+          quotedContent: STR,
+          element: { type: 'string', description: "'photo', 'headline' or 'banner' for first-impression items, else ''" }
+        }
+      }
+    }
+  }
+};
+
 // Call AI provider
 async function callAIProvider(provider, apiKey, prompt, model = null) {
   
@@ -1144,17 +1135,14 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
   
   // Get model from storage if not provided
   if (!model) {
-    const settings = await chrome.storage.local.get(['aiModel', 'aiProvider']);
-    model = settings.aiModel;
-    if (!model) {
-      const defaults = { openai: 'gpt-4.1-nano', anthropic: 'claude-haiku-4-5-20251001', gemini: 'gemini-2.5-flash-lite' };
-      model = defaults[provider] || 'gemini-2.5-flash-lite';
-    }
+    ({ aiModel: model } = await chrome.storage.local.get('aiModel'));
+    if (!model) throw new Error('No AI model selected');
   }
+  const baseUrl = await openaiBaseUrl();
 
   const config = {
     openai: {
-      url: 'https://api.openai.com/v1/chat/completions',
+      url: `${baseUrl}/chat/completions`,
       headers: {
         'Authorization': `Bearer ${cleanApiKey}`,
         'Content-Type': 'application/json'
@@ -1162,8 +1150,10 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
       body: {
         model: model,
         messages: [{ role: 'user', content: prompt }],
-        max_completion_tokens: 4000,
-        temperature: 0.1
+        max_completion_tokens: 8192,
+        // api.openai.com gets no temperature: gpt-5.5+, GPT-6 and o-series reject it
+        ...(baseUrl !== OPENAI_URL && { temperature: 0.1 }),
+        response_format: { type: 'json_schema', json_schema: { name: 'section_analysis', strict: true, schema: SECTION_SCHEMA } }
       }
     },
     anthropic: {
@@ -1177,8 +1167,8 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
       body: {
         model: model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 4000,
-        temperature: 0.1
+        max_tokens: 8192, // no temperature: Claude 4.7+ rejects anything but 1
+        output_config: { format: { type: 'json_schema', schema: SECTION_SCHEMA } }
       }
     },
     gemini: {
@@ -1191,7 +1181,8 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.1,
-          maxOutputTokens: 4000
+          maxOutputTokens: 8192,
+          responseFormat: { text: { mimeType: 'application/json', schema: SECTION_SCHEMA } }
         }
       }
     }
@@ -1241,7 +1232,7 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
     if (provider === 'openai') {
       return data.choices?.[0]?.message?.content || '';
     } else if (provider === 'anthropic') {
-      return data.content?.[0]?.text || '';
+      return data.content?.find(block => block.type === 'text')?.text || '';
     } else if (provider === 'gemini') {
       return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     }
@@ -1262,8 +1253,9 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   
   
   // Handle test API key
+  // No apiKey in the request = reload models with the saved key, which only ever goes to the saved base URL
   if (action === 'testApiKey') {
-    testApiKey(request.provider, request.apiKey, request.model).then(result => {
+    (async () => testApiKey(request.provider, request.apiKey || await getDecryptedApiKey(), request.apiKey && request.baseUrl))().then(result => {
       sendResponse(result);
     }).catch(error => {
       sendResponse({ success: false, error: error.message });
@@ -1349,7 +1341,7 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
         }
         
         // Use the existing testApiKey function
-        const result = await testApiKey(provider, apiKey, null);
+        const result = await testApiKey(provider, apiKey);
         sendResponse(result);
       } catch (error) {
         console.error('AI.PROMPTS', 'API key validation error', error);
@@ -1448,141 +1440,55 @@ class RateLimiter {
 // Create rate limiter instance
 const rateLimiter = new RateLimiter();
 
-// Test API Key function
-async function testApiKey(provider, apiKey, model) {
+// List the provider's models. Doubles as the key check: a GET, so no tokens are spent.
+async function testApiKey(provider, apiKey, baseUrl) {
+  const rateCheck = rateLimiter.canMakeRequest('test', provider);
+  if (!rateCheck.allowed) {
+    return {
+      success: false,
+      error: `Rate limit exceeded. Please wait ${rateCheck.waitTime} seconds before testing again.`
+    };
+  }
+
+  const key = typeof apiKey === 'string' ? apiKey.trim().replace(/[^\x20-\x7E]/g, '') : '';
+  if (!key) return { success: false, error: 'API key is required' };
+  baseUrl = await openaiBaseUrl(baseUrl);
+
+  const [url, headers] = {
+    openai: [`${baseUrl}/models`, { 'Authorization': `Bearer ${key}` }],
+    anthropic: ['https://api.anthropic.com/v1/models?limit=1000', {
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    }],
+    gemini: ['https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', { 'x-goog-api-key': key }]
+  }[provider] || [];
+  if (!url) return { success: false, error: 'Unknown provider' };
+
   try {
-    // Check rate limit
-    const rateCheck = rateLimiter.canMakeRequest('test', provider);
-    if (!rateCheck.allowed) {
-      return {
-        success: false,
-        error: `Rate limit exceeded. Please wait ${rateCheck.waitTime} seconds before testing again.`
-      };
+    const response = await fetch(url, { headers });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = [401, 403].includes(response.status) ? 'Invalid API key'
+        : response.status === 429 ? 'Rate limit exceeded'
+        : data.error?.message || `API error ${response.status}`;
+      return { success: false, error };
     }
 
-    // Normalize provider string
-    provider = provider?.toLowerCase()?.trim();
-    
-    // Clean and validate API key
-    if (!apiKey || typeof apiKey !== 'string') {
-      return { success: false, error: 'Invalid API key format' };
-    }
-    
-    // Remove any non-printable characters and trim whitespace
-    const cleanApiKey = apiKey.trim().replace(/[^\x20-\x7E]/g, '');
-    
-    // Check if key was significantly altered (might indicate encoding issues)
-    
-    if (!cleanApiKey) {
-      return { success: false, error: 'API key is empty or contains only invalid characters' };
-    }
-    
-    const testPrompt = 'Say "API key validated successfully" in exactly 5 words.';
-    
-    if (provider === 'openai') {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${cleanApiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: model || 'gpt-4.1-nano',
-          messages: [{ role: 'user', content: testPrompt }],
-          max_completion_tokens: 20,
-          temperature: 0.1
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-
-        if (response.status === 401) {
-          return { success: false, error: 'Invalid API key' };
-        } else if (response.status === 429) {
-          return { success: false, error: 'Rate limit exceeded' };
-        } else if (response.status === 404 && errorData.error?.code === 'model_not_found') {
-          return { success: false, error: `Model "${model}" not available for your account` };
-        } else {
-          return { success: false, error: errorData.error?.message || 'API request failed' };
-        }
-      }
-
-      const data = await response.json();
-      return { success: true, message: 'OpenAI API key is valid' };
-
-    } else if (provider === 'gemini') {
-      const testModel = model || 'gemini-2.5-flash-lite';
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${testModel}:generateContent`,
-        {
-          method: 'POST',
-          headers: { 'x-goog-api-key': cleanApiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: testPrompt }] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 20 }
-          })
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-
-        if (response.status === 400 && errorData.error?.message?.includes('API key')) {
-          return { success: false, error: 'Invalid API key' };
-        } else if (response.status === 403) {
-          return { success: false, error: 'Invalid API key or Gemini API not enabled' };
-        } else if (response.status === 429) {
-          return { success: false, error: 'Rate limit exceeded' };
-        } else {
-          return { success: false, error: errorData.error?.message || 'API request failed' };
-        }
-      }
-
-      const data = await response.json();
-      return { success: true, message: 'Gemini API key is valid' };
-
-    } else if (provider === 'anthropic') {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': cleanApiKey,
-          'Content-Type': 'application/json',
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
-        body: JSON.stringify({
-          model: model || 'claude-haiku-4-5-20251001',
-          messages: [{ role: 'user', content: testPrompt }],
-          max_tokens: 20,
-          temperature: 0.1
-        })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        
-        if (response.status === 401) {
-          return { success: false, error: 'Invalid API key' };
-        } else if (response.status === 429) {
-          return { success: false, error: 'Rate limit exceeded' };
-        } else {
-          return { success: false, error: errorData.error?.message || 'API request failed' };
-        }
-      }
-      
-      const data = await response.json();
-      return { success: true, message: 'Anthropic API key is valid' };
-    }
-    
-    return { success: false, error: 'Unknown provider' };
-    
+    const list = provider === 'gemini'
+      ? (data.models || [])
+          .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+          .map(m => ({ id: m.name.replace(/^models\//, '') }))
+      : (data.data || [])
+          // Hide models on their way out (Anthropic: lifecycle, OpenAI: shutdown_date) or without JSON-schema output (Anthropic)
+          .filter(m => m.capabilities?.structured_outputs?.supported !== false && m.lifecycle !== 'deprecated' && !m.shutdown_date)
+          .sort((a, b) => (b.created || 0) - (a.created || 0)); // OpenAI newest first; Anthropic already is
+    // ponytail: OpenAI/Gemini lists don't say which models can chat, so drop the non-chat ones by name. A wrong pick only errors on analysis.
+    const models = list.map(m => m.id)
+      .filter(id => !/embed|tts|whisper|dall-e|davinci|babbage|moderation|audio|realtime|transcribe|image|search|sora/.test(id));
+    return { success: true, models };
   } catch (error) {
-    console.error('AI.PROMPTS', 'Test API key error', error, {
-      errorType: error.name,
-      errorMessage: error.message,
-      errorStack: error.stack
-    });
+    console.error('Test API key error', error);
     return { success: false, error: error.message || 'Connection failed' };
   }
 }
@@ -1648,11 +1554,9 @@ async function handleSectionAnalysis(request, sendResponse) {
       success: true,
       section: section,
       score: analysis.score,
-      insight: analysis.positiveInsight || analysis.insight,  // Prefer positiveInsight
-      positiveInsight: analysis.positiveInsight,  // Include the actual field
+      insight: analysis.positiveInsight,
+      positiveInsight: analysis.positiveInsight,
       gapAnalysis: analysis.gapAnalysis,
-      strengths: analysis.strengths,
-      improvements: analysis.improvements,
       actionItems: analysis.actionItems,
       specificFeedback: analysis.specificFeedback,
       // Flattened into synthesis-failure fallback recommendations (analyzer-base)

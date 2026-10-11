@@ -111,35 +111,26 @@
           </label>
           
           <div id="aiConfigSection" class="ai-config-section hidden">
-            <select id="settingsAiModel" class="settings-select">
-              <option value="">Select AI model...</option>
-              <optgroup label="--- Quick &amp; Free ---">
-                <option value="gemini:gemini-2.5-flash-lite">Gemini 2.5 Flash Lite | Free (Recommended to start)</option>
-                <option value="openai:gpt-4.1-nano">GPT-4.1 Nano | $0.10/1M</option>
-              </optgroup>
-              <optgroup label="--- Balanced ---">
-                <option value="gemini:gemini-2.5-flash">Gemini 2.5 Flash | $0.15/1M</option>
-                <option value="openai:gpt-4.1-mini">GPT-4.1 Mini | $0.40/1M</option>
-                <option value="anthropic:claude-haiku-4-5-20251001">Claude Haiku 4.5 | $1/1M</option>
-                <option value="openai:gpt-5.4-nano">GPT-5.4 Nano | $0.20/1M</option>
-              </optgroup>
-              <optgroup label="--- Deep Analysis ---">
-                <option value="gemini:gemini-2.5-pro">Gemini 2.5 Pro | $1.25/1M</option>
-                <option value="openai:gpt-4.1">GPT-4.1 | $2/1M (1M context)</option>
-                <option value="anthropic:claude-sonnet-4-6">Claude Sonnet 4.6 | $3/1M</option>
-                <option value="openai:gpt-5.4-mini">GPT-5.4 Mini | $0.75/1M</option>
-                <option value="gemini:gemini-3.1-pro-preview">Gemini 3.1 Pro | $2/1M (Latest)</option>
-                <option value="openai:gpt-5.4">GPT-5.4 | $2.50/1M (Flagship)</option>
-                <option value="anthropic:claude-opus-4-6">Claude Opus 4.6 | $5/1M (Most capable)</option>
-              </optgroup>
+            <select id="settingsAiProvider" class="settings-select">
+              <option value="">Select AI provider...</option>
+              <option value="gemini" data-key-url="https://aistudio.google.com/apikey" data-pricing-url="https://ai.google.dev/gemini-api/docs/pricing">Google Gemini</option>
+              <option value="openai" data-key-url="https://platform.openai.com/api-keys" data-pricing-url="https://developers.openai.com/api/docs/pricing">OpenAI or local (Ollama, LM Studio)</option>
+              <option value="anthropic" data-key-url="https://platform.claude.com/settings/keys" data-pricing-url="https://claude.com/pricing#api">Anthropic Claude</option>
             </select>
+            <div id="baseUrlGroup" class="hidden">
+              <input type="url" id="settingsBaseUrl" placeholder="https://api.openai.com/v1" class="settings-input">
+              <p class="cost-hint">Local server: e.g. http://localhost:11434/v1, no key needed. Ollama: set OLLAMA_ORIGINS=chrome-extension://*</p>
+            </div>
             <input type="password" id="settingsApiKey" placeholder="Enter your API key" class="settings-input">
             <div id="apiKeyError" class="error-text">API key required</div>
             <div id="apiKeyTestStatus" class="test-status hidden"></div>
             <div id="apiKeyExpirationStatus" style="margin: 4px 0 8px 0; font-size: 12px; color: #666; display: none;">
               <span id="expirationText">✓ Key expires in 7 days</span>
             </div>
-            <p class="cost-hint"><span id="costHint">Free with Gemini Flash Lite</span> • <a id="getKeyLink" href="https://aistudio.google.com/apikey" target="_blank">Get key →</a></p>
+            <select id="settingsAiModel" class="settings-select">
+              <option value="">Enter your API key to load models</option>
+            </select>
+            <p class="cost-hint"><a id="pricingLink" href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank">Pricing →</a> • <a id="getKeyLink" href="https://aistudio.google.com/apikey" target="_blank">Get key →</a></p>
             
             <!-- Target Role & Custom Instructions (moved inside AI config) -->
             <div class="ai-subsection">

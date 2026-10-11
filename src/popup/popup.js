@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const backButton = document.getElementById('backButton');
   const settingsShowAnalysisToggle = document.getElementById('settingsShowAnalysis');
   const settingsEnableAIToggle = document.getElementById('settingsEnableAI');
+  const settingsAiProviderSelect = document.getElementById('settingsAiProvider');
+  const settingsBaseUrlInput = document.getElementById('settingsBaseUrl');
   const settingsAiModelSelect = document.getElementById('settingsAiModel');
   const settingsApiKeyInput = document.getElementById('settingsApiKey');
   const settingsTargetRoleSelect = document.getElementById('settingsTargetRole');
@@ -76,6 +78,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const settings = await chrome.storage.local.get([
     'aiProvider',
     'aiModel',
+    'aiBaseUrl',
     'apiKey',
     'encryptedApiKey',
     'enableAI',
@@ -146,6 +149,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         settingsViewDiv.classList.remove('hidden');
         settingsGearBtn.classList.add('hidden');
         updateSettingsView();
+        // Provider/model are set only on open, so storage syncs can't reset them mid-edit
+        settingsAiProviderSelect.value = settings.aiProvider || '';
+        settingsBaseUrlInput.value = settings.aiBaseUrl || '';
+        onProviderChange();
         break;
     }
   }
@@ -270,10 +277,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Update all settings controls with current values
     if (settingsShowAnalysisToggle) settingsShowAnalysisToggle.checked = settings.showAnalysis !== false;
     if (settingsEnableAIToggle) settingsEnableAIToggle.checked = settings.enableAI === true;
-    if (settingsAiModelSelect && settings.aiProvider) {
-      const modelValue = settings.aiModel || 'gemini-2.5-flash-lite';
-      settingsAiModelSelect.value = `${settings.aiProvider}:${modelValue}`;
-    }
     if (settingsApiKeyInput && (settings.apiKey || settings.encryptedApiKey)) {
       settingsApiKeyInput.value = '••••••••••••';
     }
@@ -601,43 +604,74 @@ document.addEventListener('DOMContentLoaded', async () => {
     clearFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'));
   });
   
-  settingsAiModelSelect?.addEventListener('change', () => {
-    clearFieldError(settingsAiModelSelect, null);
+  settingsAiModelSelect?.addEventListener('change', () => clearFieldError(settingsAiModelSelect, null));
 
-    // Update cost hint and "Get key" link based on selected model
-    const providerModel = settingsAiModelSelect.value;
-    if (providerModel) {
-      const [selectedProvider] = providerModel.split(':');
-      const costHint = document.getElementById('costHint');
-      const getKeyLink = document.getElementById('getKeyLink');
+  // Ollama / LM Studio on this machine
+  function isLocalBaseUrl() {
+    return settingsAiProviderSelect.value === 'openai' &&
+      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(settingsBaseUrlInput.value.trim());
+  }
 
-      const providerLinks = {
-        'openai': 'https://platform.openai.com/api-keys',
-        'anthropic': 'https://console.anthropic.com/settings/keys',
-        'gemini': 'https://aistudio.google.com/apikey'
-      };
+  // localhost is an optional host permission; asking needs a user gesture (change/click handlers)
+  function requestLocalAccess() {
+    return isLocalBaseUrl()
+      ? chrome.permissions.request({ origins: ['http://localhost/*', 'http://127.0.0.1/*'] }).catch(() => false)
+      : Promise.resolve(true);
+  }
 
-      const modelCosts = {
-        'gemini:gemini-2.5-flash-lite': 'Free with Gemini Flash Lite',
-        'gemini:gemini-2.5-flash': '~$0.01-0.03/analysis',
-        'gemini:gemini-2.5-pro': '~$0.03-0.10/analysis',
-        'gemini:gemini-3.1-pro-preview': '~$0.05-0.15/analysis',
-        'openai:gpt-4.1-nano': '~$0.01-0.02/analysis',
-        'openai:gpt-4.1-mini': '~$0.02-0.05/analysis',
-        'openai:gpt-4.1': '~$0.05-0.15/analysis',
-        'openai:gpt-5.4-nano': '~$0.01-0.03/analysis',
-        'openai:gpt-5.4-mini': '~$0.02-0.07/analysis',
-        'openai:gpt-5.4': '~$0.05-0.20/analysis',
-        'anthropic:claude-haiku-4-5-20251001': '~$0.02-0.05/analysis',
-        'anthropic:claude-sonnet-4-6': '~$0.05-0.15/analysis',
-        'anthropic:claude-opus-4-6': '~$0.10-0.30/analysis'
-      };
+  function typedApiKey() {
+    const key = settingsApiKeyInput.value.trim();
+    if (key === '••••••••••••') return null;
+    // ponytail: local servers need no key; the stand-in 'local' keeps every "has an API key" check unchanged
+    return key || (isLocalBaseUrl() ? 'local' : null);
+  }
 
-      if (getKeyLink) getKeyLink.href = providerLinks[selectedProvider] || providerLinks['gemini'];
-      if (costHint) costHint.textContent = modelCosts[providerModel] || '~$0.02-0.07/analysis';
+  // Fill the model list from the provider. The same call validates the key; no key = the saved one.
+  async function loadModels(apiKey) {
+    const provider = settingsAiProviderSelect.value;
+    const keep = settingsAiModelSelect.value;
+    const response = await chrome.runtime.sendMessage({
+      action: 'testApiKey', provider, apiKey, baseUrl: settingsBaseUrlInput.value.trim()
+    });
+    if (provider !== settingsAiProviderSelect.value) return; // provider changed while loading
+    if (!response?.success) {
+      showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), response?.error || 'Could not load models');
+      return;
     }
+    clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
+    settingsAiModelSelect.replaceChildren(
+      new Option('Select AI model...', ''),
+      ...response.models.map(id => new Option(id, id, false, id === keep))
+    );
+  }
+
+  // Provider picked (or settings opened): point the links at it and load its models
+  function onProviderChange() {
+    const option = settingsAiProviderSelect.selectedOptions[0];
+    if (option?.value) {
+      document.getElementById('getKeyLink').href = option.dataset.keyUrl;
+      document.getElementById('pricingLink').href = option.dataset.pricingUrl;
+    }
+    document.getElementById('baseUrlGroup').classList.toggle('hidden', option?.value !== 'openai');
+    const isSaved = !!option?.value && option.value === settings.aiProvider;
+    settingsAiModelSelect.replaceChildren(isSaved && settings.aiModel
+      ? new Option(settings.aiModel, settings.aiModel, true, true)
+      : new Option('Enter your API key to load models', ''));
+    if (option?.value && (typedApiKey() || isSaved)) loadModels(typedApiKey());
+  }
+
+  settingsAiProviderSelect?.addEventListener('change', onProviderChange);
+  settingsApiKeyInput?.addEventListener('change', () => {
+    if (settingsAiProviderSelect.value && typedApiKey()) loadModels(typedApiKey());
   });
-  
+  settingsBaseUrlInput?.addEventListener('change', async () => {
+    // The saved key belongs to the saved URL; never send it to a new one
+    if (settingsApiKeyInput.value === '••••••••••••') settingsApiKeyInput.value = '';
+    await requestLocalAccess();
+    settingsAiModelSelect.replaceChildren(new Option('Enter your API key to load models', ''));
+    if (typedApiKey()) loadModels(typedApiKey());
+  });
+
   // Handle Save Settings button
   saveSettingsBtn?.addEventListener('click', async () => {
     let hasErrors = false;
@@ -645,14 +679,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     let model = null;
     let apiKey = null;
     let isPlaceholder = false;
-    
+    const baseUrl = settingsBaseUrlInput.value.trim();
+    await requestLocalAccess(); // first, while the click still counts as a user gesture
+
     // Validate if AI is enabled AND visible
     if (settingsEnableAIToggle.checked && !aiConfigSection.classList.contains('hidden')) {
-      const providerModel = settingsAiModelSelect.value;
+      provider = settingsAiProviderSelect.value;
+      model = settingsAiModelSelect.value;
       apiKey = settingsApiKeyInput.value.trim();
       
       // Clean the API key - remove zero-width spaces and other invisible characters
       apiKey = apiKey.replace(/[\u200B-\u200D\uFEFF]/g, '');
+      if (!apiKey && isLocalBaseUrl()) apiKey = 'local'; // local servers need no key
       
       // Check if it's a placeholder or real key
       isPlaceholder = apiKey === '••••••••••••';
@@ -669,16 +707,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         hasErrors = true;
       }
       
-      if (!providerModel) {
-        showFieldError(settingsAiModelSelect, null, null);
+      // The saved key belongs to the saved provider
+      if (isPlaceholder && provider !== settings.aiProvider) {
+        showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), 'Enter an API key for this provider');
         hasErrors = true;
       }
-      
-      // Extract provider and model from combined value
-      if (providerModel) {
-        [provider, model] = providerModel.split(':');
+
+      if (!provider || !model) {
+        showFieldError(provider ? settingsAiModelSelect : settingsAiProviderSelect, null, null);
+        hasErrors = true;
       }
-      
+
+      if (hasErrors) return;
+
       // Only validate if user entered a new key (not placeholder)
       if (!isPlaceholder && apiKey) {
         // Show validating state
@@ -691,7 +732,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             action: 'testApiKey',
             provider,
             apiKey,
-            model
+            baseUrl
           });
           
           if (!testResponse || !testResponse.success) {
@@ -724,7 +765,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             await chrome.storage.local.set({
               encryptedApiKey: encryptResponse.encryptedApiKey,
               aiProvider: provider,
-              aiModel: model || 'gemini-2.5-flash-lite'
+              aiModel: model,
+              aiBaseUrl: baseUrl
             });
             await chrome.storage.local.remove('apiKey');
           } else {
@@ -801,7 +843,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Just save the provider and model if key wasn't changed (placeholder shown)
         await chrome.storage.local.set({ 
           aiProvider: provider,
-          aiModel: model || 'gemini-2.5-flash-lite'
+          aiModel: model,
+          aiBaseUrl: baseUrl
         });
       }
     }
@@ -836,11 +879,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Update settings object with saved values
     Object.assign(settings, settingsToSave);
     
-    // If AI was configured with a new key, update settings to reflect that
-    if (settingsEnableAIToggle.checked && !isPlaceholder && apiKey) {
-      settings.encryptedApiKey = true; // Mark that we have an encrypted key
+    // Reflect the saved AI config (provider/model change even when the key did not)
+    if (settingsEnableAIToggle.checked && provider) {
+      if (!isPlaceholder) settings.encryptedApiKey = true; // Mark that we have an encrypted key
       settings.aiProvider = provider;
-      settings.aiModel = model || 'gemini-2.5-flash-lite';
+      settings.aiModel = model;
+      settings.aiBaseUrl = baseUrl;
     }
     
     await SettingsManager.updateAndSync(settings);  // Pass full settings
