@@ -40,23 +40,6 @@ const BaseExtractor = {
   },
 
   /**
-   * Click "Show all" button if present
-   */
-  async expandSection(section, buttonSelector) {
-    if (!section) return false;
-    
-    const showAllButton = section.querySelector(buttonSelector);
-    if (!showAllButton || showAllButton.disabled) return false;
-    
-    showAllButton.click();
-    
-    // Wait for content to load
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    return true;
-  },
-  
-  /**
    * Find section by multiple strategies
    */
   findSection(selectors, headingText) {
@@ -152,14 +135,6 @@ const BaseExtractor = {
     }
     
     return null;
-  },
-  
-  /**
-   * Count items in a section
-   */
-  countItems(section, itemSelector) {
-    if (!section) return 0;
-    return section.querySelectorAll(itemSelector).length;
   },
   
   /**

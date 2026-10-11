@@ -225,44 +225,6 @@ const SkillsExtractor = {
   },
   
   /**
-   * Extract total count from "Show all" button
-   * @param {Element} section - Skills section
-   * @returns {number} Total count
-   */
-  async extractTotalCount(section) {
-    const showAllSelectors = [
-      'a[aria-label*="Show all"][aria-label*="skills"]',
-      'button[aria-label*="Show all"][aria-label*="skills"]',
-      'a[href*="/details/skills"]',
-      '.pvs-list__footer-wrapper a'
-    ];
-    
-    for (const selector of showAllSelectors) {
-      const element = section.querySelector(selector);
-      if (element) {
-        const text = element.textContent || element.getAttribute('aria-label') || '';
-        
-        // Try different patterns
-        const patterns = [
-          /Show all (\d+) skills?/i,
-          /(\d+)\s*skills?/i,
-          /View all\s*\((\d+)\)/i
-        ];
-        
-        for (const pattern of patterns) {
-          const match = text.match(pattern);
-          if (match) {
-            const count = parseInt(match[1]);
-            return count;
-          }
-        }
-      }
-    }
-    
-    return 0;
-  },
-  
-  /**
    * Extract visible skills from the page
    * @param {Element} section - Skills section
    * @returns {Array<Object>} Skills data
