@@ -5,7 +5,7 @@
 /**
  * Check if Chrome APIs are available
  */
-export function safeChrome() {
+function safeChrome() {
   return typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id;
 }
 
@@ -13,7 +13,7 @@ export function safeChrome() {
  * Check if extension context is still valid
  * More robust than just checking chrome.runtime.id
  */
-export function isContextValid() {
+function isContextValid() {
   try {
     // First check basic requirements
     if (!safeChrome()) {
@@ -42,7 +42,7 @@ export function isContextValid() {
 /**
  * Send message to extension with error handling and retry
  */
-export function safeSendMessage(message, callback, retryCount = 0) {
+function safeSendMessage(message, callback, retryCount = 0) {
   if (!safeChrome()) {
     // console.error('Chrome APIs not available');
     if (callback) callback(null);
@@ -113,7 +113,7 @@ export function safeSendMessage(message, callback, retryCount = 0) {
 /**
  * Get data from Chrome storage
  */
-export function safeStorageGet(keys, callback) {
+function safeStorageGet(keys, callback) {
   if (!isContextValid()) {
     // console.error('Chrome storage not available - context invalid');
     callback({});
@@ -139,7 +139,7 @@ export function safeStorageGet(keys, callback) {
 /**
  * Set data in Chrome storage
  */
-export function safeStorageSet(data, callback) {
+function safeStorageSet(data, callback) {
   if (!isContextValid()) {
     // console.error('Chrome storage not available - context invalid');
     if (callback) callback();
@@ -163,7 +163,7 @@ export function safeStorageSet(data, callback) {
 /**
  * Get storage data as Promise
  */
-export function getStorageData(keys) {
+function getStorageData(keys) {
   return new Promise((resolve) => {
     safeStorageGet(keys, (data) => {
       resolve(data || {});
@@ -174,7 +174,7 @@ export function getStorageData(keys) {
 /**
  * Set storage data as Promise
  */
-export function setStorageData(data) {
+function setStorageData(data) {
   return new Promise((resolve) => {
     safeStorageSet(data, () => {
       resolve();
