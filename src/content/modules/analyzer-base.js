@@ -542,6 +542,7 @@ class Analyzer {
       sections.push({
         type: 'first_impression',
         name: 'First Impression',
+        // [CRITICAL_PATH:FIRST_IMPRESSION_DATA] - P0: Must include all visual elements
         data: {
           headline: extractedData.headline?.text || '',
           headlineCharCount: extractedData.headline?.charCount || 0,
