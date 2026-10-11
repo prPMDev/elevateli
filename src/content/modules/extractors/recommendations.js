@@ -23,8 +23,6 @@ const RecommendationsExtractor = {
    * @returns {Object} Scan results
    */
   async scan() {
-    const startTime = Date.now();
-    
     // Custom section finding for recommendations - look for anchor and get the right sibling
     const anchor = document.querySelector('div#recommendations.pv-profile-card__anchor');
     let section = null;
@@ -166,7 +164,6 @@ const RecommendationsExtractor = {
    * @returns {Object} Basic recommendations data
    */
   async extract() {
-    const startTime = Date.now();
     const scanResult = await this.scan();
     
     if (!scanResult.exists) {
@@ -225,7 +222,6 @@ const RecommendationsExtractor = {
    * @returns {Object} Detailed recommendations data
    */
   async extractDeep() {
-    const startTime = Date.now();
     const basicData = await this.extract();
     
     if (!basicData.exists) return basicData;

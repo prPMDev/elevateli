@@ -20,8 +20,6 @@ const FeaturedExtractor = {
    * @returns {Object} Scan results
    */
   async scan() {
-    const startTime = Date.now();
-    
     const section = BaseExtractor.findSection(this.selectors, 'Featured');
     const exists = !!section;
     
@@ -43,7 +41,6 @@ const FeaturedExtractor = {
    * @returns {Object} Basic featured data
    */
   async extract() {
-    const startTime = Date.now();
     const scanResult = await this.scan();
     
     if (!scanResult.exists) {

@@ -265,13 +265,5 @@ const BaseExtractor = {
     if (data.text && data.text.length > 0) return true;
     
     return false;
-  },
-  
-  /**
-   * Log extraction timing
-   */
-  logTiming(section, startTime, metadata = {}) {
-    const duration = Date.now() - startTime;
-    // Production: timing logged silently
   }
 };

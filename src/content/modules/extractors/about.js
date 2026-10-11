@@ -31,8 +31,6 @@ const AboutExtractor = {
    * @returns {Object} Scan results
    */
   async scan() {
-    const startTime = Date.now();
-    
     const section = BaseExtractor.findSection(this.selectors, 'About');
     const exists = !!section;
     
@@ -64,7 +62,6 @@ const AboutExtractor = {
    * @returns {Object} Basic about data with character count
    */
   async extract() {
-    const startTime = Date.now();
     const scanResult = await this.scan();
     
     if (!scanResult.exists) {

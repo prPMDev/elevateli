@@ -2220,10 +2220,6 @@ const OverlayManager = {
     }
     
     unifiedSection.classList.remove('hidden');
-    
-    
-    // Verify the element is actually in the DOM
-    const verifyElement = document.querySelector('.unified-section');
   },
   
   /**
@@ -2369,7 +2365,6 @@ const OverlayManager = {
     
     
     // Headline section - now part of first impression
-    const headlineMissing = missingItems.some(item => item.section === 'headline');
     const headlineRec = missingItems.find(item => item.section === 'headline');
     
     // If we have first impression analysis, use that for headline display
@@ -2454,7 +2449,6 @@ const OverlayManager = {
     }
     
     // About/Summary section - now standalone
-    const aboutMissing = missingItems.some(item => item.section === 'about');
     const aboutRec = missingItems.find(item => item.section === 'about');
     
     // Check for standalone about section analysis
@@ -2498,7 +2492,6 @@ const OverlayManager = {
     }
     
     // Experience section - check for AI analysis scores
-    const experienceMissing = missingItems.some(item => item.section === 'experience');
     const experienceRec = missingItems.find(item => item.section === 'experience');
     
     
@@ -2589,7 +2582,6 @@ const OverlayManager = {
     sections.push(experienceSection);
     
     // Skills section
-    const skillsMissing = missingItems.some(item => item.section === 'skills');
     const skillsRec = missingItems.find(item => item.section === 'skills');
     
     // Check for AI insights for skills
@@ -2632,7 +2624,6 @@ const OverlayManager = {
     }
     
     // Recommendations section - analyze HOW they're perceived
-    const recommendationsMissing = missingItems.some(item => item.section === 'recommendations');
     const recommendationsRec = missingItems.find(item => item.section === 'recommendations');
     
     // Get recommendations data from various possible locations
@@ -2879,10 +2870,6 @@ const OverlayManager = {
    * Generate unified positive message
    */
   generateUnifiedMessage(completeness, contentScore, sections, data) {
-    // Add platform detection for debugging
-    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-    
-    
     try {
       // Force safe type conversion
       const safeCompleteness = Number(completeness) || 0;

@@ -321,7 +321,6 @@ NOTE: This is a fallback analysis. Individual role analysis would provide better
 
 // Create specialized prompt for overall experience analysis
 function createExperienceOverallPrompt(experienceData, config, context = {}) {
-  const currentYear = new Date().getFullYear();
   const totalMonths = experienceData.totalMonths || 0;
   const yearsOfExperience = Math.floor(totalMonths / 12);
   const totalRoles = experienceData.totalRoles || experienceData.count || 0;
@@ -430,7 +429,6 @@ Fill in these fields:
 // Create specialized prompt for recommendations using Anthropic best practices
 function createRecommendationsPrompt(recommendationsData, config, context = {}) {
   const recommendationCount = recommendationsData.count || recommendationsData.receivedCount || 0;
-  const currentYear = new Date().getFullYear();
   
   
   const prompt = `You are an expert LinkedIn profile optimizer analyzing recommendations for ${config.targetRole} positions at the ${config.seniorityLevel} level.
@@ -1574,7 +1572,7 @@ async function handleSectionAnalysis(request, sendResponse) {
 
 // Handle synthesis analysis request
 async function handleSynthesisAnalysis(request, sendResponse) {
-  const { sectionScores, sectionRecommendations, targetRole, seniorityLevel, customInstructions } = request;
+  const { sectionScores, targetRole, seniorityLevel, customInstructions } = request;
   
   try {
     

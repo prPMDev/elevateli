@@ -36,7 +36,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const customInstructionsStatus = document.getElementById('customInstructionsStatus');
   
   // Other elements
-  const apiKeyHelp = document.getElementById('apiKeyHelp');
   const complianceCheck = document.getElementById('complianceCheck');
   const acknowledgeComplianceBtn = document.getElementById('acknowledgeCompliance');
   const confirmDialog = document.getElementById('confirmDialog');
@@ -92,8 +91,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Check configuration states
   const hasCompliance = settings.compliance?.hasAcknowledged;
-  const hasApiKey = !!settings.encryptedApiKey;
-  const hasProvider = !!settings.aiProvider;
   
   // Sync settings across popup instances and tabs
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -109,8 +106,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
   });
-  const isAIConfigured = hasApiKey && hasProvider;
-  const hasUserProfile = !!settings.userProfile?.profileId;
   
   // View management functions
   function showView(viewName) {

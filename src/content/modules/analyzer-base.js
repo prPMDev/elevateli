@@ -723,15 +723,6 @@ class Analyzer {
         )
       };
       
-      
-      // Enhanced skills data for AI analysis
-      
-      // UNCONDITIONAL DEBUG: Log final skills section data
-      const skillsSectionData = {
-        data: skillsData,
-        context: careerContext
-      };
-      
       sections.push({
         type: 'skills',
         name: `Skills (${skillsData.totalCount || skillsData.count || 0} total)`,

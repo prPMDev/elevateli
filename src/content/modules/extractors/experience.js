@@ -38,8 +38,6 @@ const ExperienceExtractor = {
    * @returns {Object} Scan results
    */
   async scan() {
-    const startTime = Date.now();
-    
     // Use BaseExtractor's findSection method like other extractors
     const section = await BaseExtractor.findSection(this.selectors);
     
@@ -114,8 +112,6 @@ const ExperienceExtractor = {
       }
     }
     
-    BaseExtractor.logTiming('Experience scan', startTime);
-    
     return {
       exists: visibleCount > 0,
       visibleCount,
@@ -130,7 +126,6 @@ const ExperienceExtractor = {
    * @returns {Object} Basic experience data with total count
    */
   async extract() {
-    const startTime = Date.now();
     const scanResult = await this.scan();
     
     if (!scanResult.exists) {
@@ -170,7 +165,6 @@ const ExperienceExtractor = {
       showAllUrl: scanResult.showAllUrl
     };
     
-    BaseExtractor.logTiming('Experience extract', startTime);
     return result;
   },
   
@@ -179,8 +173,6 @@ const ExperienceExtractor = {
    * @returns {Object} Detailed experience data
    */
   async extractDeep() {
-    const startTime = Date.now();
-    
     const basicData = await this.extract();
     
     if (!basicData.exists) {
@@ -218,8 +210,6 @@ const ExperienceExtractor = {
       // For AI processing
       experienceChunks: this.prepareForAI(experiences)
     };
-    
-    BaseExtractor.logTiming('Experience deep extract', startTime);
     
     return result;
   },

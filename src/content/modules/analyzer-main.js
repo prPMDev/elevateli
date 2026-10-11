@@ -108,10 +108,6 @@
   // Start analysis when requested
   async function startAnalysis(forceRefresh = false) {
     
-    // Set analysis in progress
-    analysisInProgress = true;
-    analysisAborted = false;
-    
     // Check if extension context is still valid
     if (!chrome.runtime?.id) {
       
@@ -135,7 +131,6 @@
             message: 'Extension needs to be reloaded. Please refresh the page.'
           });
         }
-        analysisInProgress = false;
         return;
       }
       
@@ -181,7 +176,6 @@
           }
         }
         
-        analysisInProgress = false;
         return;
       }
     } catch (error) {
@@ -212,7 +206,6 @@
         }
       }
       
-      analysisInProgress = false;
       return;
     }
     
@@ -259,21 +252,11 @@
   }
   
   // Listen for messages from popup/background
-  // Track if analysis is in progress
-  let analysisInProgress = false;
-  let analysisAborted = false;
-  
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
     
     if (event.data.type === 'ELEVATE_REFRESH') {
-      analysisAborted = false;
       startAnalysis(true);
-    }
-    
-    if (event.data.type === 'ELEVATE_CANCEL_ANALYSIS') {
-      analysisAborted = true;
-      analysisInProgress = false;
     }
   });
   
@@ -296,14 +279,6 @@
         
         // Validate profile before reinitializing
         const newProfileId = getProfileIdFromUrl();
-        let savedProfile = null;
-        
-        try {
-          savedProfile = await getSavedProfile();
-        } catch (e) {
-          // Context might be invalid during navigation
-        }
-        
         // Check if this is the user's profile using ownership indicators
         const isOwn = await isOwnProfile();
         

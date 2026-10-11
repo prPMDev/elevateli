@@ -21,8 +21,6 @@ const EducationExtractor = {
    * @returns {Object} Scan results
    */
   async scan() {
-    const startTime = Date.now();
-    
     const section = BaseExtractor.findSection(this.selectors, 'Education');
     const exists = !!section;
     
@@ -44,7 +42,6 @@ const EducationExtractor = {
    * @returns {Object} Basic education data
    */
   async extract() {
-    const startTime = Date.now();
     const scanResult = await this.scan();
     
     if (!scanResult.exists) {

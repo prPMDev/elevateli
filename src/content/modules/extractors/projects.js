@@ -20,8 +20,6 @@ const ProjectsExtractor = {
    * @returns {Object} Scan results
    */
   async scan() {
-    const startTime = Date.now();
-    
     const section = BaseExtractor.findSection(this.selectors, 'Projects');
     const exists = !!section;
     
@@ -42,7 +40,6 @@ const ProjectsExtractor = {
    * @returns {Object} Basic projects data
    */
   async extract() {
-    const startTime = Date.now();
     const scanResult = await this.scan();
     
     if (!scanResult.exists) {
