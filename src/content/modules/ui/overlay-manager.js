@@ -695,7 +695,7 @@ const OverlayManager = {
         
         qualityBadge.replaceChildren(fragment);
       })();
-          qualityBadge.classList.remove('ai-disabled', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
+          qualityBadge.classList.remove('ai-disabled', 'error', 'ai-error', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
         }
         if (timestampBadge) {
           timestampBadge.textContent = '';
@@ -1153,8 +1153,9 @@ const OverlayManager = {
     
     // Check if AI is disabled or API key error
     const qualityBadge = this.overlayElement.querySelector('.score-badge.quality');
-    
-    
+    // Drop the previous result's state classes so e.g. a red 'error' badge can't outlive its run
+    qualityBadge?.classList.remove('ai-disabled', 'error', 'ai-error', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
+
     if (data.aiDisabled || ((data.contentScore === undefined || data.contentScore === null) && data.fromCache !== true)) {
       // Replace quality score block with AI disabled message
       const qualityBlock = this.overlayElement.querySelector('.score-block.quality');
@@ -1280,8 +1281,7 @@ const OverlayManager = {
         
         // Clear the badge first
         qualityBadge.textContent = '';
-        qualityBadge.classList.remove('ai-disabled', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
-        
+
         // Add the main text with responsive labels
         const labelSpan = document.createElement('span');
         (() => {
@@ -2912,7 +2912,7 @@ const OverlayManager = {
         
         qualityBadge.replaceChildren(fragment);
       })();
-      qualityBadge.classList.remove('ai-disabled', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
+      qualityBadge.classList.remove('ai-disabled', 'error', 'ai-error', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
     }
     if (lastAnalyzedSpan) lastAnalyzedSpan.textContent = 'Not analyzed';
     if (analyzeBtn) {
