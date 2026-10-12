@@ -91,27 +91,10 @@ const OverlayManager = {
     // Always start in collapsed view
     this.viewState = 'collapsed';
     
-    // The profile renders client-side; wait for its top card, then inject
+    // The profile renders client-side; wait for its top card, then inject. No timed retries: an overlay
+    // injected later would skip the cached-state restore below
     await BaseExtractor.waitForElement('main section h2', 10000);
     this.createAndInject();
-    
-    // If injection failed, retry with delays
-    if (!this.overlayElement) {
-      
-      // Retry after DOM settles
-      setTimeout(() => {
-        if (!this.overlayElement) {
-          this.createAndInject();
-        }
-      }, 1000);
-      
-      // Final retry after LinkedIn finishes loading
-      setTimeout(() => {
-        if (!this.overlayElement) {
-          this.createAndInject();
-        }
-      }, 3000);
-    }
     
     // CRITICAL: Restore cached data automatically after overlay is created
     // This ensures returning users see their previous analysis immediately
