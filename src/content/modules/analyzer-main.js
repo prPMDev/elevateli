@@ -105,152 +105,127 @@
     return match ? match[1] : null;
   }
   
+  // The run in progress; a second Analyze click (e.g. from a rebuilt overlay) must not start a parallel one
+  let activeAnalyzer = null;
+
   // Start analysis when requested
   async function startAnalysis(forceRefresh = false) {
-    
-    // Check if extension context is still valid
-    if (!chrome.runtime?.id) {
-      
-      // Try to show a user-friendly message if overlay exists
-      if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
-        OverlayManager.setState(OverlayManager.states.ERROR, {
-          message: 'Extension was updated. Please refresh the page to continue.'
-        });
-      }
-      
-      return;
-    }
-    
-    // Check compliance before allowing analysis
+    if (activeAnalyzer) return; // that run's finally resets the buttons
+    const analyzer = activeAnalyzer = new Analyzer();
+
     try {
-      // First check if chrome.storage.local is available
-      if (!chrome?.storage?.local?.get) {
-        // Treat as if compliance not acknowledged
+      // Check if extension context is still valid
+      if (!chrome.runtime?.id) {
+
+        // Try to show a user-friendly message if overlay exists
         if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
           OverlayManager.setState(OverlayManager.states.ERROR, {
-            message: 'Extension needs to be reloaded. Please refresh the page.'
+            message: 'Extension was updated. Please refresh the page to continue.'
           });
         }
+
         return;
       }
-      
-      const compliance = await new Promise((resolve) => {
-        try {
-          chrome.storage.local.get(['compliance'], (data) => {
-            if (chrome.runtime.lastError) {
-              resolve(null);
-              return;
-            }
-            resolve(data.compliance);
-          });
-        } catch (err) {
-          // Handle any synchronous errors in Promise executor
-          resolve(null);
-        }
-      });
-      
-      if (!compliance?.hasAcknowledged) {
-        
-        // Show error in overlay
-        if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
-          OverlayManager.setState(OverlayManager.states.ERROR, {
-            message: 'Please complete setup in the extension popup before analyzing.'
-          });
-          
-          // Re-enable analyze buttons
-          const analyzeBtn = OverlayManager.overlayElement.querySelector('.analyze-button');
-          const collapsedBtn = OverlayManager.overlayElement.querySelector('.analyze-btn-collapsed');
-          if (analyzeBtn) {
-            analyzeBtn.disabled = false;
-            (() => {
-            const iconSpan = document.createElement('span');
-            iconSpan.className = 'button-icon';
-            iconSpan.textContent = '📊';
-            const textNode = document.createTextNode('Analyze');
-            analyzeBtn.replaceChildren(iconSpan, textNode);
-          })();
+
+      // Check compliance before allowing analysis
+      try {
+        // First check if chrome.storage.local is available
+        if (!chrome?.storage?.local?.get) {
+          // Treat as if compliance not acknowledged
+          if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
+            OverlayManager.setState(OverlayManager.states.ERROR, {
+              message: 'Extension needs to be reloaded. Please refresh the page.'
+            });
           }
-          if (collapsedBtn) {
-            collapsedBtn.disabled = false;
-            collapsedBtn.textContent = 'Analyze';
-          }
-        }
-        
-        return;
-      }
-    } catch (error) {
-      console.error('COMPLIANCE', 'Failed to check compliance', error);
-      
-      // Show user-friendly error
-      if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
-        OverlayManager.setState(OverlayManager.states.ERROR, {
-          message: 'Unable to verify settings. Please refresh the page and try again.'
-        });
-        
-        // Re-enable analyze buttons
-        const analyzeBtn = OverlayManager.overlayElement.querySelector('.analyze-button');
-        const collapsedBtn = OverlayManager.overlayElement.querySelector('.analyze-btn-collapsed');
-        if (analyzeBtn) {
-          analyzeBtn.disabled = false;
-          (() => {
-            const iconSpan = document.createElement('span');
-            iconSpan.className = 'button-icon';
-            iconSpan.textContent = '📊';
-            const textNode = document.createTextNode('Analyze');
-            analyzeBtn.replaceChildren(iconSpan, textNode);
-          })();
-        }
-        if (collapsedBtn) {
-          collapsedBtn.disabled = false;
-          collapsedBtn.textContent = 'Analyze';
-        }
-      }
-      
-      return;
-    }
-    
-    const profileId = getProfileIdFromUrl();
-    if (!profileId) return;
-    
-    // CRITICAL: Always use current page's profile ID for cache operations
-    const cacheProfileId = profileId; // Never use saved profile ID for cache
-    
-    const isOwn = await isOwnProfile();
-    
-    let settings = {};
-    try {
-      settings = await new Promise((resolve, reject) => {
-        if (!chrome.runtime?.id) {
-          resolve({});
           return;
         }
-        chrome.storage.local.get(['enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions'], (data) => {
-          if (chrome.runtime.lastError) {
-            resolve({});
-          } else {
-            // Double-check context is still valid
-            if (!chrome.runtime?.id) {
-              resolve({});
-              return;
-            }
-            // "Other (specify)" stores the typed role in customRole
-            if (data.targetRole === 'other' && data.customRole) data.targetRole = data.customRole;
-            resolve(data);
+
+        const compliance = await new Promise((resolve) => {
+          try {
+            chrome.storage.local.get(['compliance'], (data) => {
+              if (chrome.runtime.lastError) {
+                resolve(null);
+                return;
+              }
+              resolve(data.compliance);
+            });
+          } catch (err) {
+            // Handle any synchronous errors in Promise executor
+            resolve(null);
           }
         });
-      });
-    } catch (error) {
-      settings = {};
+
+        if (!compliance?.hasAcknowledged) {
+
+          // Show error in overlay
+          if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
+            OverlayManager.setState(OverlayManager.states.ERROR, {
+              message: 'Please complete setup in the extension popup before analyzing.'
+            });
+          }
+
+          return;
+        }
+      } catch (error) {
+        console.error('COMPLIANCE', 'Failed to check compliance', error);
+
+        // Show user-friendly error
+        if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
+          OverlayManager.setState(OverlayManager.states.ERROR, {
+            message: 'Unable to verify settings. Please refresh the page and try again.'
+          });
+        }
+
+        return;
+      }
+
+      const profileId = getProfileIdFromUrl();
+      if (!profileId) return;
+
+      // CRITICAL: Always use current page's profile ID for cache operations
+      const cacheProfileId = profileId; // Never use saved profile ID for cache
+
+      const isOwn = await isOwnProfile();
+
+      let settings = {};
+      try {
+        settings = await new Promise((resolve, reject) => {
+          if (!chrome.runtime?.id) {
+            resolve({});
+            return;
+          }
+          chrome.storage.local.get(['enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions'], (data) => {
+            if (chrome.runtime.lastError) {
+              resolve({});
+            } else {
+              // Double-check context is still valid
+              if (!chrome.runtime?.id) {
+                resolve({});
+                return;
+              }
+              // "Other (specify)" stores the typed role in customRole
+              if (data.targetRole === 'other' && data.customRole) data.targetRole = data.customRole;
+              resolve(data);
+            }
+          });
+        });
+      } catch (error) {
+        settings = {};
+      }
+
+
+      // Initialize analyzer with consistent cache profile ID
+      await analyzer.init(cacheProfileId, isOwn, settings);
+
+      // Run analysis
+      await analyzer.analyze(forceRefresh);
+    } finally {
+      // Also covers the early returns above, which would otherwise leave the clicked button spinning
+      if (activeAnalyzer === analyzer) {
+        activeAnalyzer = null;
+        OverlayManager.resetButtons();
+      }
     }
-    
-    
-    // Create analyzer instance with consistent cache profile ID
-    const analyzer = new Analyzer();
-    await analyzer.init(cacheProfileId, isOwn, settings);
-    
-    // Run analysis
-    await analyzer.analyze(forceRefresh);
-    
   }
   
   // Listen for messages from popup/background
