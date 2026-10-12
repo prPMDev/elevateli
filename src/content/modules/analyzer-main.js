@@ -189,8 +189,9 @@
       }
 
       const profileId = getProfileIdFromUrl();
-      // A /details/ subpage lacks most sections; analyzing it would overwrite this profile's cache
-      if (!profileId || !isProfilePage()) return;
+      // A /details/ or /recent-activity/ subpage lacks most sections; analyzing it would overwrite this
+      // profile's cache. /in/<id>/overlay/... modals still have the profile behind them.
+      if (!profileId || !isProfilePage() || /^\/in\/[^\/]+\/(details|recent-activity)(\/|$)/.test(location.pathname)) return;
 
       // CRITICAL: Always use current page's profile ID for cache operations
       const cacheProfileId = profileId; // Never use saved profile ID for cache
