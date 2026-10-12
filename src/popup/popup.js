@@ -744,10 +744,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           
           // Clear any validation errors since key is valid
           clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
-          
-          // Clear any existing encrypted key first
-          await chrome.storage.local.remove(['encryptedApiKey', 'installationId']);
-          
+
+          // The set below overwrites the old key, so it stays usable until the new one is stored
           const encryptResponse = await chrome.runtime.sendMessage({
             action: 'encryptApiKey',
             apiKey: apiKey
