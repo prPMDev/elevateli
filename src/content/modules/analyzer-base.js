@@ -366,6 +366,9 @@ class Analyzer {
     
     OverlayManager.updateScanProgress(sections);
     
+    // Lower profile sections render only once scrolled into view
+    await BaseExtractor.loadLazySections();
+    
     // Run extractors in parallel
     const promises = Object.entries(this.extractors).map(async ([name, extractor]) => {
       if (!extractor) {

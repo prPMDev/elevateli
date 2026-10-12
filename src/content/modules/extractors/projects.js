@@ -7,31 +7,16 @@
 const ProjectsExtractor = {
   name: 'projects',
   
-  selectors: [
-    'section[data-section="projects"]',
-    'section:has(h2:contains("Projects"))',
-    'div[data-view-name="profile-card"]:has(h2:contains("Projects"))',
-    'section.pv-accomplishments-section:has(h3:contains("Project"))',
-    'section#projects-section'
-  ],
-  
   /**
    * Quick scan for projects section existence
    * @returns {Object} Scan results
    */
   async scan() {
-    const section = BaseExtractor.findSection(this.selectors, 'Projects');
-    const exists = !!section;
-    
-    let visibleCount = 0;
-    if (exists) {
-      const items = section.querySelectorAll('.pvs-list__paged-list-item, .artdeco-list__item');
-      visibleCount = items.length;
-    }
+    const section = BaseExtractor.findSection('Projects');
     
     return {
-      exists,
-      visibleCount
+      exists: !!section,
+      visibleCount: BaseExtractor.items(section).length
     };
   },
   
@@ -50,8 +35,9 @@ const ProjectsExtractor = {
       };
     }
     
-    const section = BaseExtractor.findSection(this.selectors, 'Projects');
-    const projects = await this.extractProjectItems(section);
+    const projects = BaseExtractor.items(BaseExtractor.findSection('Projects'))
+      .map(element => this.extractProjectItem(element))
+      .filter(project => project.name);
     
     const result = {
       exists: true,
@@ -68,64 +54,18 @@ const ProjectsExtractor = {
   },
   
   /**
-   * Extract project items
-   * @param {Element} section - Projects section
-   * @returns {Array<Object>} Project items
-   */
-  async extractProjectItems(section) {
-    const items = [];
-    const itemElements = section.querySelectorAll('.pvs-list__paged-list-item, .artdeco-list__item');
-    
-    for (const element of itemElements) {
-      const item = await this.extractProjectItem(element);
-      if (item.name) {
-        items.push(item);
-      }
-    }
-    
-    return items;
-  },
-  
-  /**
    * Extract single project item
+   * Fields: name, dates, description, "Contributors: ...", skills; name and description are both text boxes
    * @param {Element} element - Project element
    * @returns {Object} Project data
    */
-  async extractProjectItem(element) {
-    const project = {
-      name: '',
-      description: '',
-      date: '',
-      collaborators: [],
-      projectUrl: '',
-      technologies: []
-    };
+  extractProjectItem(element) {
+    const [name = '', date = ''] = BaseExtractor.fields(element);
+    const description = Array.from(element.querySelectorAll('[data-testid="expandable-text-box"]'))
+      .map(box => BaseExtractor.text(box))
+      .find(text => text !== name) || '';
     
-    // Extract project name
-    const nameEl = element.querySelector('.t-bold span[aria-hidden="true"], h3 span[aria-hidden="true"]');
-    project.name = BaseExtractor.extractTextContent(nameEl);
-    
-    // Extract date
-    const dateEl = element.querySelector('.t-14:not(.t-bold) span[aria-hidden="true"]');
-    project.date = BaseExtractor.extractTextContent(dateEl);
-    
-    // Extract description
-    const descEl = element.querySelector('.pvs-list__outer-container span[aria-hidden="true"], .inline-show-more-text span[aria-hidden="true"]');
-    project.description = BaseExtractor.extractTextContent(descEl);
-    
-    // Extract project URL
-    const linkEl = element.querySelector('a[href*="project"], a[aria-label*="project"]');
-    if (linkEl) {
-      project.projectUrl = linkEl.href;
-    }
-    
-    // Extract collaborators (if mentioned)
-    const collaboratorText = project.description.match(/collaborated with|team of|worked with/i);
-    if (collaboratorText) {
-      project.hasCollaborators = true;
-    }
-    
-    return project;
+    return { name, date, description };
   },
   
   /**
@@ -194,23 +134,5 @@ const ProjectsExtractor = {
     
     const totalLength = projects.reduce((sum, proj) => sum + proj.description.length, 0);
     return Math.round(totalLength / projects.length);
-  },
-  
-  /**
-   * Prepare projects for AI processing
-   * @param {Array<Object>} projects - Projects
-   * @returns {Array<Object>} Prepared projects
-   */
-  prepareForAI(projects) {
-    return projects.map((proj, index) => ({
-      index: index + 1,
-      name: proj.name,
-      category: proj.category,
-      type: proj.type,
-      technologies: proj.technologies.join(', '),
-      complexity: proj.complexity,
-      description: BaseExtractor.chunkText(proj.description, 500),
-      keywords: proj.keywords.slice(0, 5)
-    }));
   }
 };

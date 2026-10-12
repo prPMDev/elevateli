@@ -25,7 +25,8 @@ function debounce(func, wait) {
  */
 function isProfilePage() {
   const path = window.location.pathname;
-  return path.includes('/in/') && !path.includes('/messaging/') && !path.includes('/jobs/');
+  // /details/ and /recent-activity/ subpages list a single section; analyzing there would overwrite the cache
+  return path.includes('/in/') && !/\/(messaging|jobs|details|recent-activity)\//.test(path);
 }
 
 /**
@@ -127,8 +128,7 @@ async function saveUserProfileId() {
   if (!profileId) return;
   
   // Get profile name from the page
-  const profileNameElement = document.querySelector('h1.text-heading-xlarge');
-  const profileName = profileNameElement ? profileNameElement.textContent.trim() : profileId;
+  const profileName = BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim() || profileId;
   
   const userProfile = {
     profileId,

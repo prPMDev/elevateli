@@ -7,117 +7,21 @@
 const ExperienceExtractor = {
   name: 'experience',
   
-  selectors: [
-    'section#experience-section',
-    'section[data-section="experience"]',
-    'div[data-view-name="profile-card"][id*="experience"]',
-    'section:has(#experience)',
-    'div:has(#experience)',
-    'section:has(div#experience.pv-profile-card__anchor)', // Current LinkedIn structure
-    // New pattern: anchor + sibling
-    '#experience.pv-profile-card__anchor + div',
-    '#experience ~ div',
-    // More flexible patterns
-    'div#experience',
-    'section#experience'
-  ],
-  
-  // Selectors for experience items
-  experienceItemSelectors: [
-    '[data-view-name="profile-component-entity"]',
-    '.pvs-entity',
-    '.pvs-list__paged-list-item',
-    'li.artdeco-list__item',
-    'div.pvs-entity',
-    'li.pvs-list__item--line-separated',
-    '.experience-item'
-  ],
-  
   /**
    * Quick scan for experience section existence
    * @returns {Object} Scan results
    */
   async scan() {
-    // Use BaseExtractor's findSection method like other extractors
-    const section = await BaseExtractor.findSection(this.selectors);
-    
-    if (!section) {
-      return { exists: false, visibleCount: 0, totalCount: 0 };
-    }
-    
-    
-    // Look for experience items within the section
-    let visibleCount = 0;
-    let items = [];
-    
-    // Try each item selector
-    for (const selector of this.experienceItemSelectors) {
-      items = section.querySelectorAll(selector);
-      if (items.length > 0) {
-        visibleCount = items.length;
-        break;
-      }
-    }
-    
-    // If still no items, check for LinkedIn's anchor pattern
-    if (visibleCount === 0) {
-      const anchor = section.querySelector('#experience.pv-profile-card__anchor') || section.querySelector('#experience');
-      if (anchor) {
-        let sibling = anchor.nextElementSibling;
-        while (sibling && visibleCount < 10) {
-          if (sibling.getAttribute('data-view-name') === 'profile-component-entity' || 
-              sibling.classList.contains('pvs-entity')) {
-            visibleCount++;
-          }
-          sibling = sibling.nextElementSibling;
-        }
-      }
-    }
-    
-    // Look for "Show all" link to get total count
-    let totalCount = visibleCount;
-    let showAllUrl = null;
-    
-    if (section) {
-      // Try to find show all link
-      const showAllSelectors = [
-        'a[href*="/details/experience"]',
-        'a[aria-label*="Show all"][aria-label*="experience"]',
-        'button[aria-label*="Show all"][aria-label*="experience"]'
-      ];
-      
-      for (const selector of showAllSelectors) {
-        const showAllElement = section.querySelector(selector);
-        if (showAllElement) {
-          const text = showAllElement.textContent || showAllElement.getAttribute('aria-label') || '';
-          
-          const patterns = [
-            /Show all (\d+) experiences?/i,
-            /(\d+)\s*experiences?/i,
-            /(\d+)\s*positions?/i
-          ];
-          
-          for (const pattern of patterns) {
-            const match = text.match(pattern);
-            if (match) {
-              totalCount = parseInt(match[1]);
-              if (showAllElement.href) {
-                showAllUrl = showAllElement.href;
-              }
-              break;
-            }
-          }
-          if (totalCount > visibleCount) break;
-        }
-      }
-    }
+    const section = BaseExtractor.findSection('Experience');
+    const visibleCount = BaseExtractor.items(section).length;
+    // "Show all" carries no number on the new profile page, so the total is the visible rows
+    const totalCount = section ? BaseExtractor.count(section) : 0;
     
     return {
       exists: visibleCount > 0,
       visibleCount,
       totalCount,
-      hasMore: totalCount > visibleCount,
-      showAllUrl
+      hasMore: totalCount > visibleCount
     };
   },
   
@@ -150,19 +54,15 @@ const ExperienceExtractor = {
     // Average description length is ~200 chars per role
     const charCount = totalCount * 200;
     
-    // Also calculate based on totalMonths for tenure depth
-    const averageDescriptionLength = Math.min(500, basicInfo.totalMonths * 10); // Longer tenure = likely more content
-    
     const result = {
       exists: true,
       count: totalCount,
       charCount: charCount, // Added for completeness scoring
-      averageDescriptionLength: averageDescriptionLength, // Added for completeness scoring
+      averageDescriptionLength: basicInfo.averageDescriptionLength, // Across visible roles, empty ones included
       totalMonths: basicInfo.totalMonths,
       hasCurrentRole: basicInfo.hasCurrentRole,
       visibleCount: scanResult.visibleCount,
-      hasMoreItems: totalCount > scanResult.visibleCount,
-      showAllUrl: scanResult.showAllUrl
+      hasMoreItems: totalCount > scanResult.visibleCount
     };
     
     return result;
@@ -179,18 +79,8 @@ const ExperienceExtractor = {
       return basicData;
     }
     
-    // Click all "see more" buttons to expand descriptions
-    const allSeeMoreButtons = document.querySelectorAll('.inline-show-more-text__button');
-    
-    for (const btn of allSeeMoreButtons) {
-      if (btn && btn.offsetParent !== null && !btn.getAttribute('aria-expanded')) {
-        btn.click();
-        await BaseExtractor.wait(200);
-      }
-    }
-    
-    // Extract detailed experience items (pass null since we don't use section)
-    const experiences = await this.extractDetailedExperiences(null);
+    // Descriptions are in the DOM in full; "… more" only unclamps them
+    const experiences = await this.extractDetailedExperiences();
     
     const result = {
       ...basicData,
@@ -217,276 +107,117 @@ const ExperienceExtractor = {
   
   /**
    * Extract basic info like total months and current role
-   * @param {Element} section - Experience section
    * @returns {Object} Basic info
    */
   async extractBasicInfo() {
-    // Find experience section using BaseExtractor
-    const section = await BaseExtractor.findSection(this.selectors);
-    if (!section) return { totalMonths: 0, hasCurrentRole: false };
+    const experiences = await this.extractDetailedExperiences();
     
-    const items = [];
+    return {
+      totalMonths: this.coveredMonths(experiences),
+      hasCurrentRole: experiences.some(exp => /present/i.test(exp.duration)),
+      averageDescriptionLength: Math.round(
+        experiences.reduce((sum, exp) => sum + exp.description.length, 0) / (experiences.length || 1)
+      )
+    };
+  },
+  
+  /**
+   * Months covered by the roles, with overlapping roles merged so a side job isn't counted twice
+   * @param {Array<Object>} experiences - Experience items
+   * @returns {number} Months
+   */
+  coveredMonths(experiences) {
+    const now = new Date();
+    const toMonth = (date, isEnd) => {
+      if (/present/i.test(date)) return now.getFullYear() * 12 + now.getMonth();
+      const parsed = new Date(/^\d{4}$/.test(date) ? `${isEnd ? 'Dec' : 'Jan'} ${date}` : date);
+      return isNaN(parsed) ? null : parsed.getFullYear() * 12 + parsed.getMonth();
+    };
+    const ranges = experiences
+      .map(exp => [toMonth(exp.startDate), toMonth(exp.endDate, true)])
+      .filter(([start, end]) => start !== null && end !== null)
+      .sort((a, b) => a[0] - b[0]);
     
-    // Find experience items using selectors
-    for (const selector of this.experienceItemSelectors) {
-      const foundItems = section.querySelectorAll(selector);
-      if (foundItems.length > 0) {
-        foundItems.forEach(item => items.push(item));
-        break;
+    let total = 0;
+    let current = null;
+    for (const [start, end] of ranges) {
+      if (current && start <= current[1] + 1) {
+        current[1] = Math.max(current[1], end);
+      } else {
+        if (current) total += current[1] - current[0] + 1;
+        current = [start, end];
       }
     }
-    
-    // If no items found, try anchor pattern
-    if (items.length === 0) {
-      const anchor = section.querySelector('#experience.pv-profile-card__anchor') || section.querySelector('#experience');
-      if (anchor) {
-        let sibling = anchor.nextElementSibling;
-        while (sibling && items.length < 10) {
-          if (sibling.getAttribute('data-view-name') === 'profile-component-entity' || 
-              sibling.classList.contains('pvs-entity')) {
-            items.push(sibling);
-          }
-          sibling = sibling.nextElementSibling;
-        }
-      }
-    }
-    
-    let totalMonths = 0;
-    let hasCurrentRole = false;
-    
-    for (const item of items) {
-      // Check for current role - try multiple selectors for date text
-      const dateSelectors = [
-        '.pvs-entity__caption-wrapper',
-        '.t-14.t-normal.t-black--light',
-        '.t-14:not(.t-bold)',
-        'span.t-14.t-normal.t-black--light'
-      ];
-      
-      let dateText = '';
-      for (const selector of dateSelectors) {
-        const element = item.querySelector(selector);
-        if (element) {
-          const text = BaseExtractor.extractTextContent(element);
-          // Check if this looks like a date range
-          if (text && (text.includes('–') || text.includes('-') || text.includes('Present') || text.includes('present'))) {
-            dateText = text;
-            break;
-          }
-        }
-      }
-      
-      if (dateText && (dateText.includes('Present') || dateText.includes('present'))) {
-        hasCurrentRole = true;
-      }
-      
-      // Extract duration if available
-      const durationMatch = dateText?.match(/(\d+)\s*(yr|year|mo|month)/gi);
-      if (durationMatch) {
-        // Simple duration calculation (can be enhanced)
-        totalMonths += this.parseDuration(dateText);
-      }
-    }
-    
-    return { totalMonths, hasCurrentRole };
+    return current ? total + current[1] - current[0] + 1 : 0;
   },
   
   /**
    * Extract detailed experience items
-   * @param {Element} section - Experience section
    * @returns {Array<Object>} Detailed experiences
    */
-  async extractDetailedExperiences(passedSection) {
-    const experiences = [];
+  async extractDetailedExperiences() {
+    const roles = [];
     
-    // Find experience section if not passed
-    const section = passedSection || await BaseExtractor.findSection(this.selectors);
-    if (!section) {
-      return experiences;
-    }
-    
-    // Collect all experience items
-    const items = [];
-    
-    // Try experience item selectors
-    for (const selector of this.experienceItemSelectors) {
-      const foundItems = section.querySelectorAll(selector);
-      if (foundItems.length > 0) {
-        foundItems.forEach(item => items.push(item));
-        break;
+    for (const item of BaseExtractor.items(BaseExtractor.findSection('Experience'))) {
+      // Several roles at one employer: a company row with one <li> per role
+      const grouped = Array.from(item.querySelectorAll('li'))
+        .filter(li => BaseExtractor.fields(li).some(field => this.isDateLine(field)));
+      if (grouped.length === 0) {
+        roles.push({ element: item, company: null });
+      } else {
+        const company = BaseExtractor.fields(item)[0] || '';
+        grouped.forEach(li => roles.push({ element: li, company }));
       }
     }
     
-    // If no items found, try anchor pattern
-    if (items.length === 0) {
-      const anchor = section.querySelector('#experience.pv-profile-card__anchor') || section.querySelector('#experience');
-      if (anchor) {
-        let sibling = anchor.nextElementSibling;
-        while (sibling && items.length < 10) {
-          if (sibling.getAttribute('data-view-name') === 'profile-component-entity' || 
-              sibling.classList.contains('pvs-entity')) {
-            items.push(sibling);
-          }
-          sibling = sibling.nextElementSibling;
-        }
-      }
-    }
-    
-    const totalCount = items.length;
-    
-    for (let i = 0; i < items.length; i++) {
-      const experience = await this.extractExperienceItem(items[i], i, totalCount);
-      
-      
-      if (experience.title) {
-        experiences.push(experience);
-      }
-    }
-    
-    return experiences;
+    return roles
+      .map((role, i) => this.extractExperienceItem(role.element, i, roles.length, role.company))
+      .filter(experience => experience.title);
+  },
+  
+  /**
+   * Dates line of a role: "Jan 2022 - Present · 2 yrs", "2011 – Present"
+   */
+  isDateLine(field) {
+    return /\b\d{4}\s*[-–]\s*(?:\w{3}\s+)?(?:\d{4}|Present)\b/i.test(field) || /·\s*\d+\s*(yr|mo)s?\b/.test(field);
   },
   
   /**
    * Extract single experience item
-   * @param {Element} item - Experience item element
+   * @param {Element} item - Experience row, or one role <li> inside a company group
+   * @param {string|null} groupCompany - Company of the group the role sits in
    * @returns {Object} Experience data
    */
-  async extractExperienceItem(item, index = 0, totalCount = 1) {
+  extractExperienceItem(item, index = 0, totalCount = 1, groupCompany = null) {
+    // Fields in order: title, "Company · Full-time" (not inside a company group), "Jan 2022 - Present · 2 yrs",
+    // "City · Remote", description, skills
+    const fields = BaseExtractor.fields(item);
+    const title = fields[0] || '';
+    const companyLine = groupCompany === null ? fields[1] || '' : '';
+    const durationIndex = fields.findIndex((field, i) => i > 0 && this.isDateLine(field));
+    const duration = durationIndex > 0 ? fields[durationIndex] : '';
+    const description = BaseExtractor.longText(item);
+    const next = durationIndex > 0 ? fields[durationIndex + 1] || '' : '';
+    const dateInfo = this.parseDateInfo(duration);
     
-    const experience = {
-      title: '',
-      company: '',
+    return {
+      title,
+      company: groupCompany ?? companyLine.split('·')[0].trim(),
       companyDetails: { size: '', industry: '', type: '' },
       employment: {
-        type: '',
-        startDate: '',
-        endDate: '',
-        duration: '',
-        isCurrent: false,
-        monthsInRole: 0
+        type: /Full-time|Part-time|Contract|Freelance|Internship/i.test(companyLine) ? this.detectEmploymentType(companyLine) : '',
+        ...dateInfo
       },
-      duration: '',
-      location: '',
-      description: '', // Raw description text
+      // Prompts and years-of-experience read the dates at the top level
+      startDate: dateInfo.startDate,
+      endDate: dateInfo.endDate,
+      duration,
+      location: next && !description.startsWith(next) && !/skills?$/.test(next) ? next : '',
+      description, // Raw description text; AI judges achievements and quality
+      hasQuantifiedAchievements: this.hasQuantifiedAchievements(description),
+      hasTechStack: this.hasTechStack(description),
       recencyScore: this.calculateRecencyScore(index, totalCount)
     };
-    
-    // Extract title - multiple selectors for different LinkedIn layouts
-    const titleSelectors = [
-      '.t-bold span[aria-hidden="true"]',
-      'h3 span[aria-hidden="true"]',
-      '.t-bold:not(.t-14) span',
-      '[data-field="job_title"]'
-    ];
-    
-    for (const selector of titleSelectors) {
-      const titleElement = item.querySelector(selector);
-      if (titleElement) {
-        experience.title = BaseExtractor.extractTextContent(titleElement);
-        if (experience.title) break;
-      }
-    }
-    
-    // Extract company - look for company name in various places
-    const companySelectors = [
-      '.t-14.t-normal span[aria-hidden="true"]:not(.t-black--light)',
-      '.t-14:not(.t-bold) span[aria-hidden="true"]',
-      '[data-field="company_name"]',
-      'span.t-14.t-normal'
-    ];
-    
-    for (const selector of companySelectors) {
-      const companyElement = item.querySelector(selector);
-      const text = BaseExtractor.extractTextContent(companyElement);
-      // Filter out duration text that might be picked up
-      if (text && !text.match(/\d+\s*(yr|year|mo|month)/i)) {
-        experience.company = text.split('·')[0].trim(); // Remove employment type
-        if (experience.company) break;
-      }
-    }
-    
-    // Extract duration and location
-    const captionElements = item.querySelectorAll('.pvs-entity__caption-wrapper, .t-14.t-normal.t-black--light');
-    captionElements.forEach(element => {
-      const text = BaseExtractor.extractTextContent(element);
-      if (text) {
-        // Check if it's duration (contains time indicators)
-        if (text.match(/\d+\s*(yr|year|mo|month)/i) || text.includes('Present')) {
-          experience.duration = text;
-          // Parse detailed date info
-          const dateInfo = this.parseDateInfo(text);
-          experience.employment = { ...experience.employment, ...dateInfo };
-        }
-        // Check if it's location (contains location indicators)
-        else if (text.includes(',') || text.match(/Remote|On-site|Hybrid/i)) {
-          experience.location = text;
-        }
-        // Check for employment type
-        else if (text.match(/Full-time|Part-time|Contract|Freelance|Internship/i)) {
-          experience.employment.type = this.detectEmploymentType(text);
-        }
-        // Check for company details
-        else if (text.match(/employees|· .*industry/i)) {
-          experience.companyDetails = this.parseCompanyDetails(text);
-        }
-      }
-    });
-    
-    // Extract description - LinkedIn stores it as a single text block
-    const subComponents = item.querySelector('.pvs-entity__sub-components');
-    if (subComponents) {
-      
-      // Look for all inline-show-more-text containers within sub-components
-      const textContainers = subComponents.querySelectorAll('.inline-show-more-text');
-      
-      let allText = [];
-      
-      for (const container of textContainers) {
-        // Click "see more" if present to expand the text
-        const seeMoreBtn = container.querySelector('.inline-show-more-text__button');
-        if (seeMoreBtn && seeMoreBtn.offsetParent !== null && !seeMoreBtn.getAttribute('aria-expanded')) {
-          seeMoreBtn.click();
-          await BaseExtractor.wait(300);
-        }
-        
-        // Extract the full text
-        const textContent = BaseExtractor.extractTextContent(container);
-        if (textContent && textContent.length > 10) {
-          // Clean up the text and remove "see more" if it exists
-          const cleanText = textContent.replace(/…see more$/, '').trim();
-          allText.push(cleanText);
-        }
-      }
-      
-      // Combine all text into description
-      if (allText.length > 0) {
-        experience.description = allText.join(' ');
-      }
-    }
-    
-    // Fallback: Look for any text content in the item if nothing found yet
-    if (!experience.description) {
-      
-      // Try to find any text that looks like a description
-      const allTextElements = item.querySelectorAll('.t-14.t-normal.t-black');
-      for (const element of allTextElements) {
-        const text = BaseExtractor.extractTextContent(element);
-        // Skip if it's a date, location, or company info
-        if (text && text.length > 50 && 
-            !text.match(/\d{4}/) && 
-            !text.includes('·') && 
-            !text.match(/Present|Full-time|Part-time/)) {
-          experience.description = text;
-          break;
-        }
-      }
-    }
-    
-    // No analysis here - just send raw description to AI
-    // AI will determine achievements, responsibilities, quality, etc.
-    
-    
-    return experience;
   },
   
   /**
@@ -725,7 +456,7 @@ const ExperienceExtractor = {
     };
     
     // Extract dates
-    const datePattern = /(\w{3}\s+\d{4})\s*[-–]\s*(\w{3}\s+\d{4}|Present|present)/;
+    const datePattern = /((?:\w{3}\s+)?\d{4})\s*[-–]\s*((?:\w{3}\s+)?\d{4}|Present|present)/;
     const dateMatch = text.match(datePattern);
     
     if (dateMatch) {

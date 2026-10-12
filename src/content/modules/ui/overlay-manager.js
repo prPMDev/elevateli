@@ -91,26 +91,10 @@ const OverlayManager = {
     // Always start in collapsed view
     this.viewState = 'collapsed';
     
-    // Try to inject immediately
+    // The profile renders client-side; wait for its top card, then inject. No timed retries: an overlay
+    // injected later would skip the cached-state restore below
+    await BaseExtractor.waitForElement('main section h2', 10000);
     this.createAndInject();
-    
-    // If injection failed, retry with delays
-    if (!this.overlayElement) {
-      
-      // Retry after DOM settles
-      setTimeout(() => {
-        if (!this.overlayElement) {
-          this.createAndInject();
-        }
-      }, 1000);
-      
-      // Final retry after LinkedIn finishes loading
-      setTimeout(() => {
-        if (!this.overlayElement) {
-          this.createAndInject();
-        }
-      }, 3000);
-    }
     
     // CRITICAL: Restore cached data automatically after overlay is created
     // This ensures returning users see their previous analysis immediately
@@ -362,154 +346,44 @@ const OverlayManager = {
     const existingWrapper = document.querySelector('.elevateli-overlay-wrapper');
     if (existingWrapper) existingWrapper.remove();
     
-    // Find the right place to inject
-    let injected = false;
-    
-    
-    // Strategy 0: Look for main profile content container first
-    const profileMainContent = document.querySelector('.pv-oc') || 
-                              document.querySelector('[data-view-name="profile-view"]') ||
-                              document.querySelector('.profile-detail');
-    
-    if (profileMainContent && !injected) {
-      const topCard = profileMainContent.querySelector('.pv-top-card');
-      if (topCard) {
-        topCard.insertAdjacentHTML('afterend', wrapperHtml);
-        injected = true;
-      }
-    }
-    
-    // Strategy 1: After the profile top card (most common location)
-    const topCard = document.querySelector('.pv-top-card');
-    if (topCard) {
-      // Check if parent is the main content area, not a sidebar
-      const parent = topCard.parentElement;
-      const isMainContent = parent && !parent.classList.contains('scaffold-layout__sidebar') && 
-                           !parent.closest('.scaffold-layout__sidebar') &&
-                           !parent.classList.contains('pv-profile-sticky-header-v2__container');
-      
-      if (isMainContent) {
-        topCard.insertAdjacentHTML('afterend', wrapperHtml);
-        injected = true;
-      }
-    }
-    
-    // Strategy 2: After the profile photo/intro section
-    if (!injected) {
-      const profileSection = document.querySelector('section.artdeco-card.pv-top-card-profile-picture');
-      if (profileSection) {
-        profileSection.insertAdjacentHTML('afterend', wrapperHtml);
-        injected = true;
-      }
-    }
-    
-    // Strategy 3: After any section with class pv-profile-card
-    if (!injected) {
-      const profileCards = document.querySelectorAll('section.pv-profile-card');
-      if (profileCards.length > 0) {
-        profileCards[0].insertAdjacentHTML('afterend', wrapperHtml);
-        injected = true;
-      }
-    }
-    
-    // Strategy 4: After About section (if exists)
-    if (!injected) {
-      const aboutSection = document.querySelector('section#about, div#about');
-      if (aboutSection && aboutSection.parentElement) {
-        aboutSection.parentElement.insertAdjacentHTML('afterend', wrapperHtml);
-        injected = true;
-      }
-    }
-    
-    // Strategy 5: Any artdeco-card (very generic fallback)
-    if (!injected) {
-      const anyCard = document.querySelector('section.artdeco-card');
-      if (anyCard) {
-        anyCard.insertAdjacentHTML('afterend', wrapperHtml);
-        injected = true;
-      }
-    }
-    
-    // Strategy 6: Look for profile wrapper with data attributes
-    if (!injected) {
-      const profileWrapper = document.querySelector('[data-generated-suggestion-target]');
-      if (profileWrapper) {
-        profileWrapper.insertAdjacentHTML('afterend', wrapperHtml);
-        injected = true;
-      }
-    }
-    
-    // Strategy 7: Look for any element with class containing "profile"
-    if (!injected) {
-      const profileElements = Array.from(document.querySelectorAll('[class*="profile"]')).filter(el => 
-        el.tagName === 'SECTION' || el.tagName === 'DIV'
-      );
-      if (profileElements.length > 0) {
-        profileElements[0].insertAdjacentHTML('afterend', wrapperHtml);
-        injected = true;
-      }
-    }
-    
-    // Strategy 8: Inside main content area (safer injection)
-    if (!injected) {
-      // Look for main content area, avoiding sidebars
-      const mainContent = document.querySelector('main.scaffold-layout__main, main[role="main"], .scaffold-layout__inner');
-      if (mainContent) {
-        // Try to find the profile content specifically
-        const profileContent = mainContent.querySelector('.profile-detail, .pv-profile-body-container, [data-view-name="profile-view"]');
-        
-        if (profileContent) {
-          // Find the first section/card in profile content
-          const firstSection = profileContent.querySelector('section, .artdeco-card');
-          if (firstSection) {
-            firstSection.insertAdjacentHTML('afterend', wrapperHtml);
-            injected = true;
-          } else {
-            // Instead of afterbegin, find first child and inject after it
-            const firstChild = profileContent.querySelector('*');
-            if (firstChild) {
-              firstChild.insertAdjacentHTML('afterend', wrapperHtml);
-              injected = true;
-            }
-          }
-        } else {
-          // Instead of injecting at beginning of main, find first substantial child
-          const firstMainChild = mainContent.querySelector('section, article, div.artdeco-card, div[class*="profile"]');
-          if (firstMainChild) {
-            firstMainChild.insertAdjacentHTML('afterend', wrapperHtml);
-            injected = true;
-          }
-        }
-      }
-    }
-    
-    // Strategy 9: Delayed injection - wait for DOM to fully load
-    if (!injected) {
-      setTimeout(() => {
-        const delayedTopCard = document.querySelector('.pv-top-card, .profile-detail, section[data-member-id]');
-        if (delayedTopCard && delayedTopCard.parentElement) {
-          delayedTopCard.parentElement.insertAdjacentHTML('afterend', wrapperHtml);
-          this.overlayElement = document.getElementById('elevateli-overlay');
-          if (this.overlayElement) {
-            this.attachEventListeners();
-            // Add unified UI class
-            this.overlayElement.classList.add('unified-ui');
-            this.overlayElement.setAttribute('data-view-state', this.viewState);
-          }
-        }
-      }, 2000);
-      return; // Exit early and let delayed injection handle it
-    }
-    
-    if (!injected) {
+    // Inject right after the profile top card (name, headline, photo)
+    const topCard = BaseExtractor.topCard();
+    if (!topCard) {
       return;
     }
+    topCard.insertAdjacentHTML('afterend', wrapperHtml);
     
     this.overlayElement = document.getElementById('elevateli-overlay');
     
     // Attach event listeners
     this.attachEventListeners();
     
+    this.keepAttached();
+  },
+  
+  /**
+   * LinkedIn re-renders the profile column after load and drops nodes it doesn't own.
+   * Put the same overlay nodes back after the top card while they are still the live overlay on this page.
+   */
+  keepAttached() {
+    const wrapper = this.overlayElement.closest('.elevateli-overlay-wrapper');
+    const nodes = [wrapper.previousElementSibling, wrapper]; // inline <style>, wrapper
+    const overlay = this.overlayElement;
+    const path = location.pathname;
+    
+    this.reattachObserver?.disconnect();
+    this.reattachObserver = new MutationObserver(() => {
+      if (wrapper.isConnected) return;
+      
+      // close(), profile navigation and an extension reload (orphaned script) remove the overlay on purpose
+      if (this.overlayElement !== overlay || location.pathname !== path || !chrome.runtime?.id) {
+        this.reattachObserver.disconnect();
+        return;
+      }
+      
+      BaseExtractor.topCard()?.after(...nodes);
+    });
+    this.reattachObserver.observe(document.body, { childList: true, subtree: true });
   },
   
   /**
