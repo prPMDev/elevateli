@@ -1751,8 +1751,8 @@ const OverlayManager = {
     // Set failsafe timer to re-enable button if the analyzer never reports back
     this.setButtonFailsafeTimer();
     
-    // Send message to trigger analysis
-    window.postMessage({ type: 'ELEVATE_REFRESH' }, '*');
+    // Direct call in this isolated world; a window message could be posted by any page script
+    window.ElevateLI?.startAnalysis(true);
   },
   
   /**
@@ -1774,8 +1774,7 @@ const OverlayManager = {
     // Set failsafe timer to re-enable button if the analyzer never reports back
     this.setButtonFailsafeTimer();
     
-    // Send message to trigger re-analysis
-    window.postMessage({ type: 'ELEVATE_REFRESH' }, '*');
+    window.ElevateLI?.startAnalysis(true);
   },
   
   /**
