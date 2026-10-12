@@ -494,38 +494,6 @@ textarea {
   border-color: #5f6368;
 }
 
-/* Test Status */
-.test-status {
-  margin-top: 8px;
-  padding: 8px 12px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition: all 0.3s ease;
-}
-
-.test-status.success {
-  background: #e8f5e9;
-  color: #057642;
-  border: 1px solid #057642;
-}
-
-.test-status.error {
-  background: #fee;
-  color: #dc2626;
-  border: 1px solid #dc2626;
-  word-wrap: break-word;
-  line-height: 1.4;
-}
-
-.test-status.error a {
-  color: #0a66c2;
-  margin-left: 4px;
-}
-
 /* Form Validation Styles */
 .input-error {
   border: 1px solid #dc2626 !important;

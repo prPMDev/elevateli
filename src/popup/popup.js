@@ -120,12 +120,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
       clearFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'));
       clearFieldError(settingsAiModelSelect, null);
-      
-      // Hide status messages
-      const testStatus = document.getElementById('apiKeyTestStatus');
-      if (testStatus) {
-        testStatus.classList.add('hidden');
-      }
     }
     
     // Show requested view
@@ -587,11 +581,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Clear validation on input
   settingsApiKeyInput?.addEventListener('input', () => {
     clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
-    // Also clear the test status when user starts typing
-    const testStatus = document.getElementById('apiKeyTestStatus');
-    if (testStatus) {
-      testStatus.classList.add('hidden');
-    }
   });
   
   settingsCustomRoleInput?.addEventListener('input', () => {
@@ -762,61 +751,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             throw new Error('Failed to encrypt API key');
           }
         } catch (error) {
-          
-          // Determine error message
-          let errorMessage = 'Failed to save API key securely';
-          let showTroubleshoot = false;
-          
-          // Check if it's a Chrome runtime error
-          if (chrome.runtime.lastError) {
-            errorMessage = 'Extension error: ' + chrome.runtime.lastError.message;
-          } else if (error.message && error.message.includes('Extension context invalidated')) {
-            errorMessage = 'Extension reloaded. Please refresh the page';
-          } else if (error.message && (error.message.includes('Web Crypto API') || error.message.includes('browser'))) {
-            errorMessage = error.message;
-            showTroubleshoot = true;
-          } else if (error.message && error.message.includes('encrypt')) {
-            errorMessage = 'Encryption failed. Try resetting encryption settings';
-            showTroubleshoot = true;
-          }
-          
-          // Use consistent field validation error UI
-          showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), errorMessage);
-          
-          // Only show status div for troubleshooting scenarios
-          if (showTroubleshoot) {
-            const statusDiv = document.getElementById('apiKeyTestStatus');
-            if (statusDiv) {
-              statusDiv.textContent = '✗ ' + errorMessage + ' ';
-              const troubleshootLink = document.createElement('a');
-              troubleshootLink.href = '#';
-              troubleshootLink.id = 'troubleshoot-encryption';
-              troubleshootLink.style.color = '#0a66c2';
-              troubleshootLink.style.textDecoration = 'underline';
-              troubleshootLink.style.fontSize = '12px';
-              troubleshootLink.textContent = 'Troubleshoot';
-              statusDiv.appendChild(troubleshootLink);
-              
-              // Handle troubleshoot click
-              setTimeout(() => {
-                document.getElementById('troubleshoot-encryption')?.addEventListener('click', async (e) => {
-                  e.preventDefault();
-                  
-                  // Clear installation ID and encrypted key to force reset
-                  await chrome.storage.local.remove(['installationId', 'encryptedApiKey']);
-                  
-                  statusDiv.textContent = '✓ Encryption settings reset. Please try saving again.';
-                  statusDiv.className = 'test-status success';
-                  
-                  // Hide after 3 seconds
-                  setTimeout(() => statusDiv.classList.add('hidden'), 3000);
-                });
-              }, 100);
-            }
-            
-            // Hide error after 8 seconds (longer for troubleshooting)
-            setTimeout(() => statusDiv.classList.add('hidden'), showTroubleshoot ? 8000 : 5000);
-          }
+          showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'),
+            error.message?.includes('Extension context invalidated') ? 'Extension reloaded. Please refresh the page' : 'Failed to save API key securely');
           
           // Reset button
           saveSettingsBtn.textContent = 'Save Settings';
@@ -851,12 +787,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
     clearFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'));
     clearFieldError(settingsAiModelSelect, null);
-    
-    // Hide any status messages
-    const testStatus = document.getElementById('apiKeyTestStatus');
-    if (testStatus) {
-      testStatus.classList.add('hidden');
-    }
     
     // Enhanced visual feedback with guidance
     saveSettingsBtn.textContent = '✓ Settings Saved';
