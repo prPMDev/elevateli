@@ -201,15 +201,14 @@ class Analyzer {
       // If AI failed but we have completeness, show complete state with error
       let finalState;
       if (result.aiError && this.settings.enableAI) {
-        // Check if it's a validation error
-        if (result.aiError.type === 'validation_failed') {
+        // Cached AI results first, so the banner (with the key error, if any) explains them
+        if (result.partialUpdate || result.aiFailedWithCache) {
+          finalState = OverlayManager.states.ANALYSIS_FAILED_CACHE_FALLBACK;
+        } else if (result.aiError.type === 'validation_failed') {
           finalState = OverlayManager.states.COMPLETE;
           // Add a specific message for API key errors
           result.apiKeyError = true;
           result.apiKeyErrorMessage = result.aiError.message;
-        } else if (result.partialUpdate || result.aiFailedWithCache) {
-          // Handle partial updates where AI failed but we used cached data
-          finalState = OverlayManager.states.ANALYSIS_FAILED_CACHE_FALLBACK;
         } else {
           finalState = OverlayManager.states.ERROR;
         }
@@ -224,7 +223,7 @@ class Analyzer {
         // Ensure fromCache flag is set for partial updates
         fromCache: result.partialUpdate || result.cachedContentScore || result.fromCache,
         // Cache-fallback banner text: say what failed (e.g. rate limit wait time)
-        message: result.aiError?.message,
+        message: result.aiError && `AI analysis failed (${result.aiError.message}). Showing your previous AI results.`,
         // Only mark AI as disabled if there's no content score
         aiDisabled: result.contentScore === undefined || result.contentScore === null
       };
@@ -749,8 +748,9 @@ class Analyzer {
           sectionResults[section.type] = result;
         }
       } else {
-        // Record the failure so the overlay says this section failed instead of "Enable AI"
-        if (section.type !== 'experience_role') {
+        // Record the failure so the overlay says this section failed instead of "Enable AI".
+        // Not for experience: a failed overall falls back to the role average (a role always follows it).
+        if (section.type !== 'experience_role' && section.type !== 'experience_overall') {
           sectionResults[section.type] = { score: null, errorType: 'ANALYSIS_FAILED', error: result.error, actionItems: [] };
         }
 
