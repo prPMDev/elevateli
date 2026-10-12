@@ -246,6 +246,8 @@
     let lastProfileId = getProfileIdFromUrl();
 
     const observer = new MutationObserver(debounce(() => {
+      // Orphaned after an extension reload/update: stop, or close() would remove the new script's overlay
+      if (!chrome.runtime?.id) { observer.disconnect(); return; }
       if (location.pathname === lastPath) return;
       lastPath = location.pathname;
 
