@@ -3126,7 +3126,12 @@ const OverlayManager = {
       qualityBadge.classList.remove('ai-disabled', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
     }
     if (lastAnalyzedSpan) lastAnalyzedSpan.textContent = 'Not analyzed';
-    if (analyzeBtn) analyzeBtn.textContent = 'Analyze';
+    if (analyzeBtn) {
+      analyzeBtn.textContent = 'Analyze';
+      // Re-sync with compliance: setup can finish (or a factory reset happen) after the overlay was built
+      analyzeBtn.disabled = !this.hasCompliance;
+      analyzeBtn.title = this.hasCompliance ? '' : 'Please complete setup in extension popup first';
+    }
     
     // Update the status indicator with more informative text
     const statusText = this.overlayElement.querySelector('.status-text');
