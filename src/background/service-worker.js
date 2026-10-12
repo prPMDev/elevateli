@@ -1137,7 +1137,8 @@ class RateLimiter {
     this.limits = {
       'api': { limit: 10, window: 60000 },        // 10 API calls per minute
       'test': { limit: 5, window: 60000 },        // 5 test calls per minute
-      'analysis': { limit: 30, window: 300000 }   // 30 analyses per 5 minutes
+      // Counted per section call; an analysis makes about 10. ponytail: send a run id from content if per-run limits matter
+      'analysis': { limit: 300, window: 300000 }  // ~30 analyses per 5 minutes
     };
   }
 
@@ -1278,7 +1279,7 @@ async function handleSectionAnalysis(request, sendResponse) {
     }
     
     // Check rate limit
-    const rateCheck = rateLimiter.canMakeRequest('analysis', request.profileId || 'unknown');
+    const rateCheck = rateLimiter.canMakeRequest('analysis');
     if (!rateCheck.allowed) {
       sendResponse({
         success: false,
