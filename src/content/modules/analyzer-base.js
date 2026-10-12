@@ -269,11 +269,10 @@ class Analyzer {
     // Find earliest start date
     let earliestStart = new Date();
     experienceData.experiences.forEach(exp => {
-      if (exp.startDate) {
-        const startDate = new Date(exp.startDate);
-        if (startDate < earliestStart) {
-          earliestStart = startDate;
-        }
+      // The extractor stores 'Mon YYYY' under employment; skip roles without a parseable date
+      const startDate = new Date(exp.employment?.startDate);
+      if (!isNaN(startDate) && startDate < earliestStart) {
+        earliestStart = startDate;
       }
     });
     
