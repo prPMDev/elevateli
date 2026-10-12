@@ -703,6 +703,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         hasErrors = true;
       }
 
+      // The custom role field lives in the AI section, so it is only checked while that is shown
+      if ((settingsTargetRoleSelect.value === 'other' || settingsTargetRoleSelect.value === 'Other') && !settingsCustomRoleInput.value.trim()) {
+        showFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'), 'Please enter your target role');
+        hasErrors = true;
+      }
+
+      // Validate everything before any write, so a failed save changes nothing
       if (hasErrors) return;
 
       // Only validate if user entered a new key (not placeholder)
@@ -819,58 +826,27 @@ document.addEventListener('DOMContentLoaded', async () => {
           
           return; // Don't continue with saving
         }
-      } else if (!isPlaceholder && !apiKey) {
-        // User cleared the API key field - use consistent validation
-        showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), 'API key is required');
-        hasErrors = true;
-      } else {
-        // Just save the provider and model if key wasn't changed (placeholder shown)
-        await chrome.storage.local.set({ 
-          aiProvider: provider,
-          aiModel: model,
-          aiBaseUrl: baseUrl
-        });
       }
     }
-    
+
     // Save all other settings
     const settingsToSave = {
-      showAnalysis: settingsShowAnalysisToggle.checked,  // ADD THIS LINE
+      showAnalysis: settingsShowAnalysisToggle.checked,
       enableAI: settingsEnableAIToggle.checked,
       targetRole: settingsTargetRoleSelect.value,
+      customRole: settingsCustomRoleInput.value.trim(),
       seniorityLevel: settingsSeniorityLevelSelect.value,
       customInstructions: settingsCustomInstructionsTextarea.value.trim()
     };
-    
-    // Validate custom role if "Other" is selected
-    if (settingsTargetRoleSelect.value === 'other' || settingsTargetRoleSelect.value === 'Other') {
-      const customRole = settingsCustomRoleInput.value.trim();
-      if (!customRole) {
-        showFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'), 'Please enter your target role');
-        hasErrors = true;
-      } else {
-        settingsToSave.customRole = customRole;
-      }
-    }
-    
-    // If there are validation errors, don't save
-    if (hasErrors) {
-      return;
-    }
-    
+    // Provider/model change even when the key did not
+    if (provider) Object.assign(settingsToSave, { aiProvider: provider, aiModel: model, aiBaseUrl: baseUrl });
+
     await chrome.storage.local.set(settingsToSave);
-    
+
     // Update settings object with saved values
     Object.assign(settings, settingsToSave);
-    
-    // Reflect the saved AI config (provider/model change even when the key did not)
-    if (settingsEnableAIToggle.checked && provider) {
-      if (!isPlaceholder) settings.encryptedApiKey = true; // Mark that we have an encrypted key
-      settings.aiProvider = provider;
-      settings.aiModel = model;
-      settings.aiBaseUrl = baseUrl;
-    }
-    
+    if (provider && !isPlaceholder) settings.encryptedApiKey = true; // Mark that we have an encrypted key
+
     await SettingsManager.updateAndSync(settings);  // Pass full settings
     
     // Clear all validation errors on successful save
@@ -891,6 +867,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Navigate back to homepage after 1 second
     setTimeout(() => {
       saveSettingsBtn.textContent = 'Save Settings';
+      saveSettingsBtn.disabled = false;
       saveSettingsBtn.classList.remove('success');
       showView('activeMain'); // Navigate back to homepage
     }, 1000);
