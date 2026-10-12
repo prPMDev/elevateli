@@ -1180,20 +1180,15 @@ async function callAIProvider(provider, apiKey, prompt, model) {
     throw new Error(`Unknown provider: ${provider}`);
   }
   
-  // Add timeout to prevent hanging requests
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-  
   try {
     const response = await fetch(providerConfig.url, {
       method: 'POST',
       headers: providerConfig.headers,
       body: JSON.stringify(providerConfig.body),
-      signal: controller.signal
+      // Local models and reasoning models take minutes; stay under Chrome's 5-minute limit per event
+      signal: AbortSignal.timeout(180000)
     });
-    
-    clearTimeout(timeoutId);
-    
+
     if (!response.ok) {
       // Keep the provider's own message (e.g. "credit balance is too low"); HTTP/2 has no statusText
       const body = await response.json().catch(() => ({}));
@@ -1207,13 +1202,10 @@ async function callAIProvider(provider, apiKey, prompt, model) {
     return processProviderResponse(provider, data, model);
     
   } catch (error) {
-    clearTimeout(timeoutId);
-    
-    if (error.name === 'AbortError') {
-      console.error('AI.PROMPTS', 'Request timeout', new Error('API request timed out after 30 seconds'));
+    if (error.name === 'TimeoutError') {
       throw new Error('Request timeout - API not responding');
     }
-    
+
     throw error;
   }
   
