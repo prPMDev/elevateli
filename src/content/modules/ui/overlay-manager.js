@@ -1746,7 +1746,7 @@ const OverlayManager = {
         })();
     }
     
-    // Set failsafe timer to re-enable button after 60 seconds
+    // Set failsafe timer to re-enable button if the analyzer never reports back
     this.setButtonFailsafeTimer();
     
     // Send message to trigger analysis
@@ -1769,7 +1769,7 @@ const OverlayManager = {
           })();
     }
     
-    // Set failsafe timer to re-enable button after 60 seconds
+    // Set failsafe timer to re-enable button if the analyzer never reports back
     this.setButtonFailsafeTimer();
     
     // Send message to trigger re-analysis
@@ -1777,49 +1777,16 @@ const OverlayManager = {
   },
   
   /**
-   * Set failsafe timer to re-enable buttons after 60 seconds
+   * Set failsafe timer to re-enable buttons after 5 minutes.
+   * Long-run feedback comes from the elapsed counter; the analyzer's own timeout shows results.
    */
   setButtonFailsafeTimer() {
     // Clear any existing timer
     if (this.buttonResetTimer) {
       clearTimeout(this.buttonResetTimer);
     }
-    
-    // Progressive messaging for long-running analysis
-    const messages = [
-      { time: 30000, text: 'Still analyzing your profile...', icon: '⏳' },
-      { time: 60000, text: 'This is taking a bit longer than usual. Complex profiles need more time...', icon: '⏳' },
-      { time: 90000, text: 'Almost there! Creating personalized recommendations...', icon: '✨' },
-      { time: 120000, text: 'Finalizing your insights. Thanks for your patience...', icon: '🎯' }
-    ];
-    
-    // Set progressive message timers
-    messages.forEach(({ time, text, icon }) => {
-      setTimeout(() => {
-        if (this.currentState === this.states.SCANNING || 
-            this.currentState === this.states.EXTRACTING || 
-            this.currentState === this.states.CALCULATING || 
-            this.currentState === this.states.ANALYZING || 
-            this.currentState === this.states.AI_ANALYZING) {
-          this.updateStatus(text, icon);
-        }
-      }, time);
-    });
-    
-    // Final timeout at 3 minutes
-    this.buttonResetTimer = setTimeout(() => {
-      this.resetButtons();
-      
-      // Don't set error state here - let the analyzer handle timeout
-      // It will show partial results if available
-      if (this.currentState === this.states.SCANNING || 
-          this.currentState === this.states.EXTRACTING || 
-          this.currentState === this.states.CALCULATING || 
-          this.currentState === this.states.ANALYZING || 
-          this.currentState === this.states.AI_ANALYZING) {
-        // The analyzer's handleAnalysisTimeout will be called and will show partial results
-      }
-    }, 300000); // 5 minutes
+
+    this.buttonResetTimer = setTimeout(() => this.resetButtons(), 300000); // 5 minutes
   },
   
   // Removed development mode indicator - not needed for production
