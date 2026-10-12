@@ -117,7 +117,9 @@
 
   // Start analysis when requested
   async function startAnalysis(forceRefresh = false) {
-    if (activeAnalyzer) return; // that run's finally resets the buttons
+    // That run's finally resets the buttons. After an extension reload it may never settle, so let the
+    // orphaned-context check below run and show "Extension was updated"
+    if (activeAnalyzer && chrome.runtime?.id) return;
     const analyzer = activeAnalyzer = new Analyzer();
 
     try {
@@ -551,13 +553,8 @@
           OverlayManager.hasCompliance = request.hasCompliance;
           
           // The overlay was built before setup, so the collapsed Analyze button is disabled and the
-          // zero state says "click the extension icon". Enable it and redraw (EMPTY_CACHE or cache).
+          // zero state says "click the extension icon". Redraw (EMPTY_CACHE or cache); both re-enable the button.
           if (OverlayManager.overlayElement && request.hasCompliance) {
-            const btn = OverlayManager.overlayElement.querySelector('.analyze-btn-collapsed');
-            if (btn) {
-              btn.disabled = false;
-              btn.title = '';
-            }
             OverlayManager.restoreAppropriateState();
           }
         }
