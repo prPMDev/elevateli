@@ -113,7 +113,7 @@ const ExperienceExtractor = {
     const experiences = await this.extractDetailedExperiences();
     
     return {
-      totalMonths: experiences.reduce((sum, exp) => sum + exp.employment.monthsInRole, 0),
+      totalMonths: this.coveredMonths(experiences),
       hasCurrentRole: experiences.some(exp => /present/i.test(exp.duration)),
       averageDescriptionLength: Math.round(
         experiences.reduce((sum, exp) => sum + exp.description.length, 0) / (experiences.length || 1)
@@ -122,36 +122,87 @@ const ExperienceExtractor = {
   },
   
   /**
+   * Months covered by the roles, with overlapping roles merged so a side job isn't counted twice
+   * @param {Array<Object>} experiences - Experience items
+   * @returns {number} Months
+   */
+  coveredMonths(experiences) {
+    const now = new Date();
+    const toMonth = (date, isEnd) => {
+      if (/present/i.test(date)) return now.getFullYear() * 12 + now.getMonth();
+      const parsed = new Date(/^\d{4}$/.test(date) ? `${isEnd ? 'Dec' : 'Jan'} ${date}` : date);
+      return isNaN(parsed) ? null : parsed.getFullYear() * 12 + parsed.getMonth();
+    };
+    const ranges = experiences
+      .map(exp => [toMonth(exp.startDate), toMonth(exp.endDate, true)])
+      .filter(([start, end]) => start !== null && end !== null)
+      .sort((a, b) => a[0] - b[0]);
+    
+    let total = 0;
+    let current = null;
+    for (const [start, end] of ranges) {
+      if (current && start <= current[1] + 1) {
+        current[1] = Math.max(current[1], end);
+      } else {
+        if (current) total += current[1] - current[0] + 1;
+        current = [start, end];
+      }
+    }
+    return current ? total + current[1] - current[0] + 1 : 0;
+  },
+  
+  /**
    * Extract detailed experience items
    * @returns {Array<Object>} Detailed experiences
    */
   async extractDetailedExperiences() {
-    const items = BaseExtractor.items(BaseExtractor.findSection('Experience'));
+    const roles = [];
     
-    return items
-      .map((item, i) => this.extractExperienceItem(item, i, items.length))
+    for (const item of BaseExtractor.items(BaseExtractor.findSection('Experience'))) {
+      // Several roles at one employer: a company row with one <li> per role
+      const grouped = Array.from(item.querySelectorAll('li'))
+        .filter(li => BaseExtractor.fields(li).some(field => this.isDateLine(field)));
+      if (grouped.length === 0) {
+        roles.push({ element: item, company: null });
+      } else {
+        const company = BaseExtractor.fields(item)[0] || '';
+        grouped.forEach(li => roles.push({ element: li, company }));
+      }
+    }
+    
+    return roles
+      .map((role, i) => this.extractExperienceItem(role.element, i, roles.length, role.company))
       .filter(experience => experience.title);
   },
   
   /**
+   * Dates line of a role: "Jan 2022 - Present · 2 yrs", "2011 – Present"
+   */
+  isDateLine(field) {
+    return /\b\d{4}\s*[-–]\s*(?:\w{3}\s+)?(?:\d{4}|Present)\b/i.test(field) || /·\s*\d+\s*(yr|mo)s?\b/.test(field);
+  },
+  
+  /**
    * Extract single experience item
-   * @param {Element} item - Experience item element
+   * @param {Element} item - Experience row, or one role <li> inside a company group
+   * @param {string|null} groupCompany - Company of the group the role sits in
    * @returns {Object} Experience data
    */
-  extractExperienceItem(item, index = 0, totalCount = 1) {
-    // Fields in order: title, "Company · Full-time", "Jan 2022 - Present · 2 yrs", "City · Remote", description, skills
-    // ponytail: one role per row; a company row grouping several roles reads as its first line only
+  extractExperienceItem(item, index = 0, totalCount = 1, groupCompany = null) {
+    // Fields in order: title, "Company · Full-time" (not inside a company group), "Jan 2022 - Present · 2 yrs",
+    // "City · Remote", description, skills
     const fields = BaseExtractor.fields(item);
-    const [title = '', companyLine = ''] = fields;
-    const durationIndex = fields.findIndex((field, i) => i > 0 && /\d+\s*(yr|mo)s?\b/.test(field));
+    const title = fields[0] || '';
+    const companyLine = groupCompany === null ? fields[1] || '' : '';
+    const durationIndex = fields.findIndex((field, i) => i > 0 && this.isDateLine(field));
     const duration = durationIndex > 0 ? fields[durationIndex] : '';
     const description = BaseExtractor.longText(item);
     const next = durationIndex > 0 ? fields[durationIndex + 1] || '' : '';
     const dateInfo = this.parseDateInfo(duration);
-
+    
     return {
       title,
-      company: companyLine.split('·')[0].trim(),
+      company: groupCompany ?? companyLine.split('·')[0].trim(),
       companyDetails: { size: '', industry: '', type: '' },
       employment: {
         type: /Full-time|Part-time|Contract|Freelance|Internship/i.test(companyLine) ? this.detectEmploymentType(companyLine) : '',
@@ -405,7 +456,7 @@ const ExperienceExtractor = {
     };
     
     // Extract dates
-    const datePattern = /(\w{3}\s+\d{4})\s*[-–]\s*(\w{3}\s+\d{4}|Present|present)/;
+    const datePattern = /((?:\w{3}\s+)?\d{4})\s*[-–]\s*((?:\w{3}\s+)?\d{4}|Present|present)/;
     const dateMatch = text.match(datePattern);
     
     if (dateMatch) {

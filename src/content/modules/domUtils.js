@@ -25,7 +25,8 @@ function debounce(func, wait) {
  */
 function isProfilePage() {
   const path = window.location.pathname;
-  return path.includes('/in/') && !path.includes('/messaging/') && !path.includes('/jobs/');
+  // /details/ and /recent-activity/ subpages list a single section; analyzing there would overwrite the cache
+  return path.includes('/in/') && !/\/(messaging|jobs|details|recent-activity)\//.test(path);
 }
 
 /**
