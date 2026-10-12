@@ -237,6 +237,16 @@
     }
   }
   
+  // OverlayManager's Analyze/Refresh buttons post ELEVATE_REFRESH. ponytail: page scripts can post it too (B34);
+  // delete this listener in the same change that makes those buttons call ElevateLI.startAnalysis(true)
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    
+    if (event.data.type === 'ELEVATE_REFRESH') {
+      startAnalysis(true);
+    }
+  });
+  
   // Navigation observer for SPA navigation
   function observeNavigation() {
     let lastPath = location.pathname;
@@ -581,8 +591,7 @@
   } catch (error) {
   }
   
-  // OverlayManager's Analyze/Refresh buttons call ElevateLI.startAnalysis. This is the content script's
-  // isolated-world window, so page scripts cannot reach it (unlike window.postMessage). Also handy for debugging.
+  // Export for debugging
   window.ElevateLI = {
     startAnalysis,
     getProfileId: getProfileIdFromUrl,
