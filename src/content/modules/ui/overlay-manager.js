@@ -586,7 +586,7 @@ const OverlayManager = {
         
         qualityBadge.replaceChildren(fragment);
       })();
-          qualityBadge.classList.remove('ai-disabled', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
+          qualityBadge.classList.remove('ai-disabled', 'error', 'ai-error', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
         }
         if (timestampBadge) {
           timestampBadge.textContent = '';
@@ -612,6 +612,9 @@ const OverlayManager = {
       
       [this.states.SCANNING]: () => {
         this.clearEmptyStateMessage();
+        // COMPLETE (incl. every cache restore) hides the indicator; the status and elapsed counter live in it
+        const statusIndicator = this.overlayElement.querySelector('.status-indicator');
+        if (statusIndicator) statusIndicator.style.display = '';
         this.updateStatus('Scanning profile sections...', '⏳');
         this.showScanProgress();
         this.startElapsedTimeDisplay();
@@ -670,9 +673,7 @@ const OverlayManager = {
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
         }
-        
-        // Start elapsed time display
-        this.startElapsedTimeDisplay();
+        // Elapsed timer keeps running from SCANNING - one counter for the whole analysis
       },
       
       [this.states.COMPLETE]: () => {
@@ -681,10 +682,9 @@ const OverlayManager = {
         this.hideStatusIndicator();
         this.hideSkeletons();
         
-        // Only stop elapsed time if not from cache
-        if (!data.fromCache) {
-          this.stopElapsedTimeDisplay();
-        }
+        // Always stop: cache-backed results (analyze()'s cache hit, AI failure with cached AI
+        // fields) also arrive after SCANNING started the timer; a no-op on plain restores
+        this.stopElapsedTimeDisplay();
         
         this.populateScores(data);
         
@@ -695,8 +695,7 @@ const OverlayManager = {
         this.showUnifiedView(data);
         // Don't show action buttons in expanded view
         this.showActionButtons({ showRefresh: false });
-        
-        this.showInsights(data.insights);
+
         // Show timestamp
         if (data.timestamp) {
           this.showTimestamp(data.timestamp);
@@ -711,10 +710,9 @@ const OverlayManager = {
           }
         }
         
-        // Show toast if AI failed but completeness succeeded
-        if (data.partialUpdate && data.aiFailedWithCache) {
-          this.showToast('AI analysis failed. Showing previous AI results with updated completeness.', 'warning', 7000);
-        } else if (data.apiKeyError) {
+        // A fresh AI failure with cached AI results lands in ANALYSIS_FAILED_CACHE_FALLBACK (banner);
+        // here partialUpdate only arrives via cache restore, where the asterisk + message suffice
+        if (data.apiKeyError) {
           this.showToast('Invalid API key. Please check your settings for AI analysis.', 'error');
         }
       },
@@ -1048,13 +1046,16 @@ const OverlayManager = {
     
     // Check if AI is disabled or API key error
     const qualityBadge = this.overlayElement.querySelector('.score-badge.quality');
-    
-    
+    // Drop the previous result's state classes so e.g. a red 'error' badge can't outlive its run
+    qualityBadge?.classList.remove('ai-disabled', 'error', 'ai-error', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
+
     if (data.aiDisabled || ((data.contentScore === undefined || data.contentScore === null) && data.fromCache !== true)) {
       // Replace quality score block with AI disabled message
       const qualityBlock = this.overlayElement.querySelector('.score-block.quality');
       if (qualityBlock) {
         let message = 'Configure AI in extension settings';
+        // AI is on but the run failed or timed out: say why instead of "Configure AI"
+        if (data.aiError && data.settings?.enableAI) message = data.aiError.message;
         if (data.apiKeyError) {
           message = data.apiKeyErrorMessage || 'Invalid Key - check settings';
         }
@@ -1136,6 +1137,11 @@ const OverlayManager = {
         }
       }
     } else if (data.contentScore !== undefined && data.contentScore !== null) {
+      // An earlier AI-off render replaced the quality block with a message; rebuild it before filling it
+      const qualityBlock = this.overlayElement.querySelector('.score-block.quality');
+      if (qualityBlock && !qualityBlock.querySelector('.score-value')) {
+        qualityBlock.replaceWith(this.createScoreBlock('quality', 'Content Quality (AI)', '★'));
+      }
       // Update quality score normally
       const valueEl = this.overlayElement.querySelector('.quality .score-value');
       const barEl = this.overlayElement.querySelector('.quality .score-bar-fill');
@@ -1175,8 +1181,7 @@ const OverlayManager = {
         
         // Clear the badge first
         qualityBadge.textContent = '';
-        qualityBadge.classList.remove('ai-disabled', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
-        
+
         // Add the main text with responsive labels
         const labelSpan = document.createElement('span');
         (() => {
@@ -1244,36 +1249,6 @@ const OverlayManager = {
         const colorClass = this.getScoreClass(data.contentScore, true);
         qualityBadge.classList.add(colorClass);
       }
-    }
-  },
-  
-  /**
-   * Show insights
-   * @param {Object} insights - Insights data
-   */
-  showInsights(insights) {
-    if (!insights) return;
-    
-    const section = this.overlayElement.querySelector('.insights-section');
-    const content = this.overlayElement.querySelector('.insights-content');
-    
-    if (!section || !content) return;
-    
-    // Format insights
-    let insightText = '';
-    if (insights.strengths) {
-      insightText += `<strong>Strengths:</strong> ${insights.strengths}<br>`;
-    }
-    if (insights.improvements) {
-      insightText += `<strong>Areas to improve:</strong> ${insights.improvements}`;
-    }
-    
-    if (insightText) {
-      (() => {
-              content.textContent = '';
-              content.insertAdjacentHTML('afterbegin', insightText);
-            })();
-      section.classList.remove('hidden');
     }
   },
   
@@ -1546,8 +1521,7 @@ const OverlayManager = {
       'recommendations': 'Recommendations',
       'certifications': 'Certifications',
       'projects': 'Projects',
-      'featured': 'Featured',
-      'experience_role': 'Experience'
+      'featured': 'Featured'
     };
     
     return nameMap[name] || name.charAt(0).toUpperCase() + name.slice(1);
@@ -1564,80 +1538,20 @@ const OverlayManager = {
   },
   
   /**
-   * Format and display timestamp
-   * @param {number} timestamp - Unix timestamp
+   * Show the last-analyzed date in the collapsed bar, flagged when older than 7 days
+   * @param {string|number} timestamp - ISO string (cache) or epoch ms (timeout path)
    */
   showTimestamp(timestamp) {
-    const lastAnalyzed = this.overlayElement.querySelector('.last-analyzed');
     const collapsedTimestamp = this.overlayElement.querySelector('.last-analyzed-collapsed');
-    
-    if (!timestamp) return;
-    
-    const formatted = this.formatTimestamp(timestamp);
-    
-    // Check if data is stale (older than 7 days)
-    const now = Date.now();
-    const daysSinceAnalysis = (now - timestamp) / (1000 * 60 * 60 * 24);
-    const isStale = daysSinceAnalysis > 7;
-    
-    if (lastAnalyzed) {
-      lastAnalyzed.textContent = `Last analyzed: ${formatted}`;
-      if (isStale) {
-        lastAnalyzed.textContent += ' ⚠️';
-        lastAnalyzed.title = 'Analysis is older than 7 days - consider re-analyzing';
-      }
-      lastAnalyzed.style.opacity = '1';
-    }
-    
-    if (collapsedTimestamp) {
-      // Show date only format for collapsed view (no time)
-      const date = new Date(timestamp);
-      const options = {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric'
-      };
-      const formatted = date.toLocaleDateString('en-US', options);
-      collapsedTimestamp.textContent = `Last Analyzed: ${formatted}`;
-      if (isStale) {
-        collapsedTimestamp.textContent += ' ⚠️';
-        collapsedTimestamp.title = 'Analysis is older than 7 days - consider re-analyzing';
-        collapsedTimestamp.style.color = '#f59e0b';
-      }
-    }
-  },
-  
-  /**
-   * Format timestamp to human-readable format
-   * @param {number} timestamp - Unix timestamp
-   * @returns {string} Formatted date/time string
-   */
-  formatTimestamp(timestamp) {
+    if (!timestamp || !collapsedTimestamp) return;
+
     const date = new Date(timestamp);
-    const now = new Date();
-    
-    // Check if it's today
-    const isToday = date.toDateString() === now.toDateString();
-    
-    // Check if it's yesterday
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const isYesterday = date.toDateString() === yesterday.toDateString();
-    
-    // Format time
-    const timeOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
-    const timeStr = date.toLocaleTimeString('en-US', timeOptions);
-    
-    if (isToday) {
-      return `Today at ${timeStr}`;
-    } else if (isYesterday) {
-      return `Yesterday at ${timeStr}`;
-    } else {
-      // For older dates, show month/day and time
-      const dateOptions = { month: 'short', day: 'numeric' };
-      const dateStr = date.toLocaleDateString('en-US', dateOptions);
-      return `${dateStr} at ${timeStr}`;
-    }
+    const isStale = (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24) > 7;
+    const formatted = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+
+    collapsedTimestamp.textContent = `Last Analyzed: ${formatted}${isStale ? ' ⚠️' : ''}`;
+    collapsedTimestamp.title = isStale ? 'Analysis is older than 7 days - consider re-analyzing' : '';
+    collapsedTimestamp.style.color = isStale ? '#f59e0b' : '';
   },
   
   /**
@@ -1730,11 +1644,11 @@ const OverlayManager = {
         })();
     }
     
-    // Set failsafe timer to re-enable button after 60 seconds
+    // Set failsafe timer to re-enable button if the analyzer never reports back
     this.setButtonFailsafeTimer();
     
-    // Send message to trigger analysis
-    window.postMessage({ type: 'ELEVATE_REFRESH' }, '*');
+    // Direct call in this isolated world; a window message could be posted by any page script
+    window.ElevateLI?.startAnalysis(true);
   },
   
   /**
@@ -1753,57 +1667,23 @@ const OverlayManager = {
           })();
     }
     
-    // Set failsafe timer to re-enable button after 60 seconds
+    // Set failsafe timer to re-enable button if the analyzer never reports back
     this.setButtonFailsafeTimer();
     
-    // Send message to trigger re-analysis
-    window.postMessage({ type: 'ELEVATE_REFRESH' }, '*');
+    window.ElevateLI?.startAnalysis(true);
   },
   
   /**
-   * Set failsafe timer to re-enable buttons after 60 seconds
+   * Set failsafe timer to re-enable buttons after 20 minutes (analyzer-base ANALYSIS_TOTAL).
+   * Long-run feedback comes from the elapsed counter; the analyzer's own timeout shows results.
    */
   setButtonFailsafeTimer() {
     // Clear any existing timer
     if (this.buttonResetTimer) {
       clearTimeout(this.buttonResetTimer);
     }
-    
-    // Progressive messaging for long-running analysis
-    const messages = [
-      { time: 30000, text: 'Still analyzing your profile...', icon: '⏳' },
-      { time: 60000, text: 'This is taking a bit longer than usual. Complex profiles need more time...', icon: '⏳' },
-      { time: 90000, text: 'Almost there! Creating personalized recommendations...', icon: '✨' },
-      { time: 120000, text: 'Finalizing your insights. Thanks for your patience...', icon: '🎯' }
-    ];
-    
-    // Set progressive message timers
-    messages.forEach(({ time, text, icon }) => {
-      setTimeout(() => {
-        if (this.currentState === this.states.SCANNING || 
-            this.currentState === this.states.EXTRACTING || 
-            this.currentState === this.states.CALCULATING || 
-            this.currentState === this.states.ANALYZING || 
-            this.currentState === this.states.AI_ANALYZING) {
-          this.updateStatus(text, icon);
-        }
-      }, time);
-    });
-    
-    // Final timeout at 3 minutes
-    this.buttonResetTimer = setTimeout(() => {
-      this.resetButtons();
-      
-      // Don't set error state here - let the analyzer handle timeout
-      // It will show partial results if available
-      if (this.currentState === this.states.SCANNING || 
-          this.currentState === this.states.EXTRACTING || 
-          this.currentState === this.states.CALCULATING || 
-          this.currentState === this.states.ANALYZING || 
-          this.currentState === this.states.AI_ANALYZING) {
-        // The analyzer's handleAnalysisTimeout will be called and will show partial results
-      }
-    }, 300000); // 5 minutes
+
+    this.buttonResetTimer = setTimeout(() => this.resetButtons(), 1200000); // 20 minutes
   },
   
   // Removed development mode indicator - not needed for production
@@ -1841,51 +1721,16 @@ const OverlayManager = {
       }
     }
     
-    // Update elapsed time every second
+    // Update elapsed time every second; the hint is appended so the counter stays visible
+    // and the per-section status text (set by the analyzer) is never overwritten
     const updateElapsed = () => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
-      
-      // Update status text based on elapsed time
-      const statusEl = this.overlayElement.querySelector('.status-text');
-      
-      if (minutes > 0) {
-        elapsedDisplay.textContent = `Elapsed: ${minutes}m ${seconds}s`;
-      } else {
-        elapsedDisplay.textContent = `Elapsed: ${seconds}s`;
-      }
-      
-      // Progressive time estimates and status updates
-      // Changed from 20s/45s to 30s/60s based on alpha tester feedback
-      if (elapsed >= 60 && elapsed < 65 && statusEl) {
-        statusEl.textContent = 'Still trying to reach AI service...';
-      } else if (elapsed >= 30 && elapsed < 35 && statusEl) {
-        statusEl.textContent = 'Taking longer than expected...';
-      }
-      
-      // Additional helper messages
-      if (elapsed > 120) {
-        (() => {
-          elapsedDisplay.textContent = '';
-          elapsedDisplay.insertAdjacentHTML('afterbegin', ' <span style="color: #059669;">(Almost done!)</span>');
-        })();
-      } else if (elapsed > 90) {
-        (() => {
-          elapsedDisplay.textContent = '';
-          elapsedDisplay.insertAdjacentHTML('afterbegin', ' <span style="color: #0a66c2;">(Finalizing...)</span>');
-        })();
-      } else if (elapsed > 60) {
-        (() => {
-          elapsedDisplay.textContent = '';
-          elapsedDisplay.insertAdjacentHTML('afterbegin', ' <span style="color: #f59e0b;">(Complex analysis in progress)</span>');
-        })();
-      } else if (elapsed > 30) {
-        (() => {
-          elapsedDisplay.textContent = '';
-          elapsedDisplay.insertAdjacentHTML('afterbegin', ' <span style="color: #6b7280;">(This may take a moment...)</span>');
-        })();
-      }
+      const hint = elapsed > 90 ? ' (Finalizing...)' :
+                   elapsed > 60 ? ' (Complex analysis in progress)' :
+                   elapsed > 30 ? ' (This may take a moment...)' : '';
+      elapsedDisplay.textContent = `Elapsed: ${minutes > 0 ? `${minutes}m ` : ''}${seconds}s${hint}`;
     };
     
     updateElapsed();
@@ -1953,16 +1798,12 @@ const OverlayManager = {
    * Show overlay
    */
   show() {
-    if (this.overlayElement) {
-      // Find the wrapper through the overlay element
-      const wrapper = this.overlayElement.closest('.elevateli-overlay-wrapper');
-      if (wrapper) {
-        wrapper.style.setProperty('display', 'block', 'important');
-        return;
-      }
+    // SPA navigation can remove the wrapper without clearing overlayElement; a stale
+    // reference would block initialize()'s injection retries and cache restore
+    if (!this.overlayElement?.isConnected) {
+      this.overlayElement = null;
     }
-    
-    // Fallback to document query if overlayElement not available
+
     const wrapper = document.querySelector('.elevateli-overlay-wrapper');
     if (wrapper) {
       wrapper.style.setProperty('display', 'block', 'important');
@@ -2063,7 +1904,7 @@ const OverlayManager = {
         <!-- Unified Message (single positive message) -->
         <div style="padding: 12px; background: #e8f5e9; border-radius: 8px; text-align: center; margin-bottom: 16px;">
           <p style="margin: 0; font-size: 15px; color: #2e7d32; font-weight: 500;">
-            ${progressiveData.unifiedMessage}
+            ${this.escapeHtml(progressiveData.unifiedMessage)}
           </p>
         </div>
         
@@ -2081,7 +1922,7 @@ const OverlayManager = {
         ${progressiveData.coachingSummary ? `
           <div style="background: #f0f8ff; border-left: 3px solid #0a66c2; padding: 12px 16px; border-radius: 0 6px 6px 0;">
             <p style="font-size: 14px; line-height: 1.5; margin: 0; color: #333;">
-              ${progressiveData.coachingSummary}
+              ${this.escapeHtml(progressiveData.coachingSummary)}
             </p>
           </div>
         ` : ''}
@@ -2119,7 +1960,8 @@ const OverlayManager = {
   transformToProgressiveFormat(data) {
     const completeness = data.completeness || 0;
     const contentScore = data.contentScore || 0;
-    const missingItems = data.completenessData?.recommendations || [];
+    // Every gap, not the top-5 'recommendations' slice - smaller gaps would get a false ✓
+    const missingItems = data.completenessData?.allRecommendations || [];
 
     // Generate coaching summary
     const coachingSummary = this.generateCoachingSummary(completeness, contentScore, data);
@@ -2195,37 +2037,7 @@ const OverlayManager = {
     
     // Check if we have sectionScores from AI analysis
     const sectionScores = data.sectionScores || {};
-    const hasAIInsights = Object.keys(sectionScores).length > 0;
-    const completeness = data.completenessScore || 0;
-    
-    // MODIFIED: Skip detailed sections if high completeness without AI
-    if (completeness >= 75 && !hasAIInsights) {
-      // Return single card prompting for AI configuration
-      return [{
-        name: 'Enable AI Analysis',
-        icon: '🤖',
-        rating: null,
-        positive: 'Your profile structure meets LinkedIn best practices',
-        improvements: [
-          {
-            action: 'Click the extension icon to open settings',
-            rationale: 'Access configuration options'
-          },
-          {
-            action: 'Enable AI toggle and add your API key',
-            rationale: 'Unlock content quality analysis'
-          },
-          {
-            action: 'Set target role for personalized recommendations',
-            rationale: 'Get industry-specific insights'
-          }
-        ]
-      }];
-    }
-    
-    
-    
-    
+
     // Profile photo section - show if missing (completeness)
     const photoMissing = missingItems.some(item => item.section === 'photo');
     const photoRec = missingItems.find(item => item.section === 'photo');
@@ -2384,87 +2196,50 @@ const OverlayManager = {
     
     // Experience section - check for AI analysis scores
     const experienceRec = missingItems.find(item => item.section === 'experience');
-    
-    
-    // Check if we have experience AI scores
-    let experienceRating = 0;
+    // experience_overall, or the single 'experience' section the analyzer sends when deep extraction fails
+    const experienceScore = sectionScores.experience_overall || sectionScores.experience;
+
+    let experienceRating = null; // No rating without AI
     let experiencePositive = null;
     let experienceImprovements = [];
-    
-    // ALWAYS check for AI scores FIRST - they take priority over completeness recommendations
-    if (sectionScores.experience_overall || (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles))) {
-      // Check for experience scores from AI analysis
-      
-      
-      // Check if we have overall experience analysis
-      if (sectionScores.experience_overall) {
-        
-        // Use overall experience score and feedback
-        experienceRating = this.scoreToRating(sectionScores.experience_overall.score);
-        experiencePositive = sectionScores.experience_overall.positiveInsight;
-        
-        // Use overall strategic actionItems
-        if (sectionScores.experience_overall.actionItems?.length > 0) {
-          experienceImprovements = sectionScores.experience_overall.actionItems
-            .slice(0, this.getImprovementLimit(experienceRating, 'Experience'))
-            .map(item => ({
-              text: item.action || item.what || 'Improvement needed',
-              why: item.impact || item.how || 'Update your experience',
-              priority: item.priority
-            }));
-        }
-      } else if (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles)) {
-        // Fallback: calculate from individual roles if no overall analysis
-        
-        const experienceScores = [];
-        sectionScores.experience_roles.forEach(role => {
-          if (typeof role.score === 'number') {
-            experienceScores.push(role.score);
-          }
-        });
-        
-        if (experienceScores.length > 0) {
-          const avgScore = experienceScores.reduce((a, b) => a + b, 0) / experienceScores.length;
-          experienceRating = Math.round(avgScore / 2);
-          experiencePositive = "Your experience shows a strong professional journey with diverse roles";
-          experienceImprovements = []; // Extract from AI insights when available
-        } else {
-          experienceRating = null; // No rating without AI
-          experienceImprovements = [];
-        }
-      } else {
-        // No AI scores at all, no rating - add positive message if experience passes completeness
-        experienceRating = null; // No rating without AI
-        experienceImprovements = [];
-        
-        // Add positive message if has current role and sufficient experience
-        const experienceData = data.extractedData?.experience || 
-                             data.completenessData?.breakdown?.experience?.data;
-        if (!experienceRec && experienceData) {
-          if (experienceData.hasCurrentRole) {
-            experiencePositive = "✓ Your experience section is up to date";
-          } else if (experienceData.count >= 2) {
-            experiencePositive = `✓ ${experienceData.count} professional experiences documented`;
-          }
-        }
+
+    // AI scores take priority over completeness recommendations
+    if (experienceScore) {
+      experienceRating = this.scoreToRating(experienceScore.score);
+      experiencePositive = experienceScore.positiveInsight;
+
+      if (experienceScore.actionItems?.length > 0) {
+        experienceImprovements = experienceScore.actionItems
+          .slice(0, this.getImprovementLimit(experienceRating, 'Experience'))
+          .map(item => ({
+            text: item.action || item.what || 'Improvement needed',
+            why: item.impact || item.how || 'Update your experience',
+            priority: item.priority
+          }));
       }
-      
+
       // If we still don't have improvements but have completeness recommendation, add it
       if (experienceImprovements.length === 0 && experienceRec) {
         experienceImprovements.push({text: experienceRec.message, why: "Work experience is essential for profile visibility"});
       }
     } else if (experienceRec) {
       // No AI scores and we have completeness recommendation
-      experienceRating = null; // Show blank stars
       experienceImprovements = [{text: experienceRec.message, why: "Work experience is essential for profile visibility"}];
+    } else {
+      // No AI scores and no completeness gap - add positive message
+      const experienceData = data.extractedData?.experience ||
+                           data.completenessData?.breakdown?.experience?.data;
+      if (experienceData?.hasCurrentRole) {
+        experiencePositive = "✓ Your experience section is up to date";
+      } else if (experienceData?.count >= 2) {
+        experiencePositive = `✓ ${experienceData.count} professional experiences documented`;
+      }
     }
-    
-    // Create main experience section
-    
+
     const experienceSection = {
       name: 'Experience',
       rating: experienceRating,
-      errorType: sectionScores.experience_overall?.errorType || null,
+      errorType: experienceScore?.errorType || null,
       positive: experiencePositive,
       improvements: experienceImprovements,
       priority: 'normal'
@@ -2585,10 +2360,24 @@ const OverlayManager = {
       rating: recommendationsRating,
       positive: recommendationsPositive,
       improvements: recommendationsImprovements,
+      errorType: sectionScores.recommendations?.errorType || null,
       // Removed isDefaultRating - use null rating instead
       priority: 'high'  // Always show recommendations section
     });
-    
+
+    // Completeness gaps no card above covers (education, certifications, projects)
+    const cardSections = ['photo', 'headline', 'about', 'experience', 'skills', 'recommendations'];
+    const otherGaps = missingItems.filter(item => !cardSections.includes(item.section));
+    if (otherGaps.length > 0) {
+      sections.push({
+        name: 'Other Sections',
+        rating: null,
+        positive: null,
+        improvements: otherGaps.map(item => ({ text: item.message, why: `+${Math.round(item.impact)}% completeness` })),
+        priority: 'normal'
+      });
+    }
+
     // Sort sections to match LinkedIn's visual hierarchy
     const sectionOrder = [
       'First Impression', // Includes photo + headline when photo exists
@@ -2638,6 +2427,13 @@ const OverlayManager = {
   },
   
   /**
+   * Escape text for the HTML templates below - AI output and profile text must render as text
+   */
+  escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  },
+
+  /**
    * Render a section with star rating
    */
   renderSection(section) {
@@ -2657,13 +2453,13 @@ const OverlayManager = {
       <div style="margin-bottom: 12px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
           <h5 style="margin: 0; font-size: 14px; font-weight: 600; color: #333;">
-            ${section.name}
+            ${this.escapeHtml(section.name)}
           </h5>
           <div class="star-rating" style="font-size: 16px;" data-star-placeholder="${starPlaceholderId}"></div>
         </div>
         ${section.positive ? `
           <p style="margin: 0 0 8px 0; font-size: 12px; color: #057642;">
-            ${section.positive}
+            ${this.escapeHtml(section.positive)}
           </p>
         ` : ''}
         ${section.improvements.length > 0 ? `
@@ -2671,8 +2467,8 @@ const OverlayManager = {
             ${section.improvements.map(imp => `
               <li style="margin-bottom: 6px; position: relative; padding-left: 8px; font-size: 12px; color: #666;">
                 <span style="position: absolute; left: -8px;">→</span>
-                ${typeof imp === 'string' ? imp : imp.text}
-                ${imp.why ? `<div style="font-size: 11px; color: #999; margin-top: 2px; margin-left: 8px;">${imp.why}</div>` : ''}
+                ${this.escapeHtml(typeof imp === 'string' ? imp : imp.text)}
+                ${imp.why ? `<div style="font-size: 11px; color: #999; margin-top: 2px; margin-left: 8px;">${this.escapeHtml(imp.why)}</div>` : ''}
               </li>
             `).join('')}
           </ul>
@@ -2702,10 +2498,10 @@ const OverlayManager = {
       visualSpan.className = 'stars-visual';
       visualSpan.textContent = empty.repeat(5);
       
-      // Numeric span
+      // Numeric span (narrow screens) - 'not rated', never a fake zero score
       const numericSpan = document.createElement('span');
       numericSpan.className = 'stars-numeric';
-      numericSpan.textContent = '0/5★';
+      numericSpan.textContent = '–/5★';
       
       wrapper.appendChild(visualSpan);
       wrapper.appendChild(numericSpan);
@@ -2824,9 +2620,10 @@ const OverlayManager = {
       // Add content quality if AI is enabled
       if (hasAIAnalysis) {
         try {
-          const totalStars = sections.reduce((sum, section) => sum + (section.rating || 0), 0);
-          const maxStars = sections.length * 5;
-          const starProgress = Math.round((totalStars / maxStars) * 100);
+          // Only AI-rated cards count; unrated (null) cards are not 0 stars. hasAIAnalysis guarantees one.
+          const rated = sections.filter(section => typeof section.rating === 'number');
+          const totalStars = rated.reduce((sum, section) => sum + section.rating, 0);
+          const starProgress = Math.round((totalStars / (rated.length * 5)) * 100);
           
           let qualityMessage = "";
           if (starProgress >= 80) {
@@ -3014,10 +2811,20 @@ const OverlayManager = {
         
         qualityBadge.replaceChildren(fragment);
       })();
-      qualityBadge.classList.remove('ai-disabled', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
+      qualityBadge.classList.remove('ai-disabled', 'error', 'ai-error', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
     }
-    if (lastAnalyzedSpan) lastAnalyzedSpan.textContent = 'Not analyzed';
-    if (analyzeBtn) analyzeBtn.textContent = 'Analyze';
+    if (lastAnalyzedSpan) {
+      // Drop the stale-analysis styling a previous result left behind
+      lastAnalyzedSpan.textContent = 'Not analyzed';
+      lastAnalyzedSpan.title = '';
+      lastAnalyzedSpan.style.color = '';
+    }
+    if (analyzeBtn) {
+      analyzeBtn.textContent = 'Analyze';
+      // Re-sync with compliance: setup can finish (or a factory reset happen) after the overlay was built
+      analyzeBtn.disabled = !this.hasCompliance;
+      analyzeBtn.title = this.hasCompliance ? '' : 'Please complete setup in extension popup first';
+    }
     
     // Update the status indicator with more informative text
     const statusText = this.overlayElement.querySelector('.status-text');
@@ -3127,7 +2934,7 @@ const OverlayManager = {
           return;
         }
         
-        chrome.storage.local.get(['enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel'], (data) => {
+        chrome.storage.local.get(['enableAI', 'aiProvider', 'aiModel'], (data) => {
           if (chrome.runtime.lastError) {
             resolve({});
             return;
@@ -3182,18 +2989,12 @@ const OverlayManager = {
 
     // If we have cached data, restore it
     if (cachedData && cachedData.completeness !== undefined) {
-      const hasApiKey = settings.encryptedApiKey;
-      const enableAI = settings.enableAI && hasApiKey && settings.aiProvider;
-      
+      // Keep every cached field (insights, AI-failure flags, extractedData), as analyzer-base's cache path does
       const stateData = {
-        completeness: cachedData.completeness,
-        contentScore: cachedData.contentScore,
-        completenessData: cachedData.completenessData,
-        recommendations: cachedData.recommendations,
-        sectionScores: cachedData.sectionScores,
-        timestamp: cachedData.timestamp,
+        ...cachedData,
         fromCache: true,
-        aiDisabled: !enableAI,
+        // Only mark AI as disabled if there's no content score - matches analyzer-base's cache path
+        aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
         settings: {
           enableAI: settings.enableAI,
           aiProvider: settings.aiProvider,
@@ -3236,31 +3037,23 @@ const OverlayManager = {
    * Replaces duplicate cache restoration logic throughout the codebase
    * @param {string|null} profileId - Profile ID (will extract from URL if not provided)
    * @param {Object} context - Additional context for state determination
-   * @returns {Promise<boolean>} Success status
+   * @returns {Promise<boolean>} True only when cached results were applied
    */
   async restoreAppropriateState(profileId = null, context = {}) {
     try {
       // Prevent duplicate restoration attempts
       if (this.isRestoringState) {
-        return true;
+        return false;
       }
-      
-      // Skip restoration if we're already in a final state with data
-      if (this.currentState === this.states.COMPLETE) {
-        // Check if we have actual data displayed
-        const hasScores = this.overlayElement?.querySelector('.completeness-score')?.textContent;
-        if (hasScores && hasScores !== '0') {
-          return true;
-        }
-      }
-      
-      // Only skip restoration if actively analyzing
-      if (this.currentState === this.states.AI_ANALYZING ||
-          this.currentState === this.states.ANALYZING ||
-          this.currentState === this.states.SCANNING ||
-          this.currentState === this.states.EXTRACTING ||
-          this.currentState === this.states.CALCULATING) {
-        return true; // Don't interrupt active analysis
+
+      // Don't interrupt active analysis - unless the running analysis itself asks for its error fallback
+      if (!context.isErrorFallback &&
+          (this.currentState === this.states.AI_ANALYZING ||
+           this.currentState === this.states.ANALYZING ||
+           this.currentState === this.states.SCANNING ||
+           this.currentState === this.states.EXTRACTING ||
+           this.currentState === this.states.CALCULATING)) {
+        return false;
       }
       
       // Get profile ID if not provided
@@ -3305,20 +3098,18 @@ const OverlayManager = {
       
       
       // Determine appropriate state
-      const stateInfo = this.determineStateFromData(cachedData, settings, compliance, context) || 
-                        { state: this.states.EMPTY_CACHE, data: null };
-      
-      const { state, data } = stateInfo;
+      const { state, data } = this.determineStateFromData(cachedData, settings, compliance, context);
 
-      // Set the determined state
-      this.setState(state, data);
-      
-      
+      // An error fallback with nothing cached is left to the caller (it shows its own error)
+      if (data || !context.isErrorFallback) {
+        this.setState(state, data);
+      }
+
       // Update last restored profile and clear restoration flag
       this.lastRestoredProfile = profileId;
       this.isRestoringState = false;
 
-      return true;
+      return !!data;
 
     } catch (error) {
       // Create a proper error object if needed

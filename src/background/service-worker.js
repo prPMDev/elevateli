@@ -40,6 +40,23 @@ async function getDecryptedApiKey() {
 // Use onInstalled only for one-time setup
 if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
   chrome.runtime.onInstalled.addListener(async (details) => {
+    // Open LinkedIn tabs have no content script after an install, and a dead one after an update or
+    // reload, so popup messages to them go nowhere. Inject the current one unless the tab already
+    // loaded it; OverlayManager.initialize() replaces the overlay a dead script left behind.
+    // Tabs still loading get the manifest scripts on their own; injecting there would run them twice.
+    if (details.reason === 'install' || details.reason === 'update') {
+      const { js, css } = chrome.runtime.getManifest().content_scripts[0];
+      for (const { id } of await chrome.tabs.query({ url: 'https://www.linkedin.com/*', status: 'complete' })) {
+        const target = { tabId: id };
+        chrome.scripting.executeScript({ target, func: () => typeof OverlayManager !== 'undefined' })
+          .then(([probe]) => probe?.result || Promise.all([
+            chrome.scripting.insertCSS({ target, files: css }),
+            chrome.scripting.executeScript({ target, files: js })
+          ]))
+          .catch(() => {}); // tab closed or not scriptable (error page)
+      }
+    }
+
     if (details.reason === 'install') {
       // Open updates page on fresh install
       chrome.tabs.create({ url: 'updates.html' });
@@ -87,14 +104,9 @@ function createSectionPrompt(sectionName, content, config, context = {}) {
     currentDate: new Date().toISOString().split('T')[0] // Format: "2025-01-19"
   };
   
-  // Special handling for experience roles
-  if (sectionName === 'experience_role' && typeof content === 'object') {
-    return createExperienceRolePrompt(content, enhancedConfig, context);
-  }
-  
   // Special handling for overall experience analysis
   if (sectionName === 'experience_overall' && typeof content === 'object') {
-    return createExperienceOverallPrompt(content, enhancedConfig, context);
+    return createExperienceOverallPrompt(content, enhancedConfig);
   }
   
   // Special handling for experience section (fallback)
@@ -123,174 +135,7 @@ function createSectionPrompt(sectionName, content, config, context = {}) {
     return createSkillsPrompt(content, enhancedConfig, context);
   }
   
-  // Default prompt for other sections
-  const basePrompt = `You are an extremely experienced career coach specializing in helping professionals transition to ${config.targetRole} at the ${config.seniorityLevel} level. You have 20+ years of experience optimizing LinkedIn profiles for maximum impact.
-
-⚠️ CRITICAL ANALYSIS RULES:
-1. ALWAYS quote specific text from the profile when giving feedback
-2. NEVER give generic advice like "add skills X, Y, Z" without analyzing what's already there
-3. Your feedback must reference ACTUAL CONTENT from their profile
-4. If you can't find specific content to quote, say so explicitly
-
-Analyze this ${sectionName} section with the following approach:
-1. First acknowledge what's working (quote specific content that's effective)
-2. Identify gaps by analyzing what's actually written (not what's missing)
-3. Provide specific improvements to existing content (not generic additions)
-
-Target role: ${config.targetRole}
-Seniority level: ${config.seniorityLevel}
-${config.customInstructions ? `Additional context: ${config.customInstructions}` : ''}
-
-${sectionName.toUpperCase()} CONTENT:
-${typeof content === 'object' ? JSON.stringify(content, null, 2) : content}
-
-Fill in these fields (example):
-
-{
-  "score": 7,
-  "positiveInsight": "Your headline effectively highlights your expertise in 'API and platform integration' which is crucial for a product manager role, and your experience with 'Oracle' adds credibility.",
-  "gapAnalysis": "However, your About section currently says 'Passionate about technology' which is too generic. The phrase doesn't differentiate you from thousands of other candidates.",
-  "specificFeedback": {
-    "originalLine": "[Quote exact text from their profile here]",
-    "suggestion": "[Your improved version of that specific text]",
-    "why": "[Explain why this change makes it more compelling]"
-  },
-  "actionItems": [
-    {
-      "category": "Content Depth",
-      "action": "Replace 'Passionate about technology' with metrics like '40% adoption increase via API strategies'",
-      "impact": "Differentiates you from generic profiles",
-      "priority": "high",
-      "quotedContent": "Your current text says: '[actual quote]'"
-    },
-    {
-      "category": "Quantitative Evidence", 
-      "action": "Add specific metrics: users (50K→150K), revenue ($2M), or efficiency gains (40% faster)",
-      "impact": "Shows measurable business value",
-      "priority": "high",
-      "quotedContent": "Currently reads: '[actual quote]'"
-    }
-  ]
-}
-
-IMPORTANT: 
-- Score 0-10 where 10 is perfect for landing the target role
-- MUST quote actual text in positiveInsight, gapAnalysis, and actionItems
-- specificFeedback is REQUIRED and must quote real content
-- Each actionItem MUST include "quotedContent" field with actual text
-- ActionItems based on score:
-  * Score 9-10: Provide 0-1 improvement ONLY if absolutely critical (most 9-10 scores need NO improvements)
-  * Score 7-8: Provide 1-2 impactful improvements
-  * Score 0-6: Provide EXACTLY 2 critical improvements
-- CRITICAL actionItem structure (NEW FORMAT):
-  * "category": Improvement area (30-50 chars) - WHAT aspect needs work
-  * "action": Specific steps to take (100-150 chars) - HOW to improve it  
-  * "impact": Why it matters (50-80 chars) - Business/career impact
-  * Examples:
-    - GOOD: category="Content Depth", action="Replace generic phrases with specific metrics", impact="Makes profile stand out"
-    - BAD: category="Add metrics", action="This improves your profile", impact="Better visibility"
-    - GOOD: category="Leadership Evidence", action="Request 2 recommendations from direct reports", impact="Shows 360° management skills"
-    - BAD: category="Get recommendation from peer", action="Ask someone to recommend you", impact="More recommendations"
-- Keep positiveInsight between 200-300 characters for complete, meaningful feedback
-- Focus on improving what's there, not adding generic content`;
-
-  return basePrompt;
-}
-
-// Create specialized prompt for experience roles using Anthropic best practices
-function createExperienceRolePrompt(experience, config, context = {}) {
-  const prompt = `You are an expert career coach analyzing individual LinkedIn experience entries for ${config.targetRole} positions at the ${config.seniorityLevel} level.
-
-<context>
-Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
-Target Role: ${config.targetRole}
-Seniority Level: ${config.seniorityLevel}
-Custom Instructions: ${config.customInstructions || 'None provided'}
-</context>
-
-<critical_rules>
-⚠️ YOU MUST FOLLOW THESE RULES:
-1. READ THE FULL DESCRIPTION FIRST - Identify what IS already present before suggesting additions
-2. NEVER suggest adding metrics/achievements that already exist in the description
-3. SCORING FEEDBACK APPROACH:
-   - Scores 0-6: START with the most critical gap, then acknowledge strengths
-   - Scores 7-10: START with specific strengths, END with 1-2 refinements to reach 10/10
-4. Quote EXACT phrases from their description when giving feedback
-5. If description mentions "$50M revenue" don't ask to "add revenue metrics" - suggest how to enhance it
-6. Give SPECIFIC improvements: "Move your $50M ARR metric to the first line" not "Add metrics"
-7. Consider role recency - weight recent roles (< 2 years) more heavily
-</critical_rules>
-
-<position_details>
-Title: ${experience.title}
-Company: ${experience.company}${experience.companyDetails?.size ? ` (${experience.companyDetails.size} employees)` : ''}
-Industry: ${experience.companyDetails?.industry || 'Not specified'}
-Duration: ${experience.employment?.duration || 'Not specified'} ${experience.employment?.isCurrent ? '(CURRENT ROLE)' : ''}
-Dates: ${experience.startDate || 'Unknown'} - ${experience.endDate || (experience.employment?.isCurrent ? 'Present' : 'Unknown')}
-Role Position: ${context.position ? `#${context.position + 1} of ${context.totalRoles} total roles` : 'Unknown'}
-Visibility Level: ${context.position < 3 ? 'PREMIUM (top 3 - most visible)' : context.position < 10 ? 'Standard (requires scrolling)' : 'Hidden (requires expansion)'}
-</position_details>
-
-<role_description_full>
-Character Count: ${experience.description?.length || 0}
-Content Quality Indicators:
-- Has Quantified Achievements: ${experience.hasQuantifiedAchievements ? 'YES - READ DESCRIPTION' : 'NO'}
-- Mentions Tech Stack: ${experience.hasTechStack ? 'YES - READ DESCRIPTION' : 'NO'}
-
-FULL DESCRIPTION:
-${experience.description || '[NO DESCRIPTION PROVIDED - CRITICAL GAP]'}
-</role_description_full>
-
-<analysis_task>
-Analyze this individual role description:
-
-1. FIRST, identify from the description above:
-   - What specific metrics/numbers ARE already mentioned
-   - What technologies/tools ARE already listed
-   - What leadership/impact evidence IS already present
-   - Overall narrative quality and structure
-
-2. Score (0-10) based on:
-   - Relevance to ${config.targetRole} at ${config.seniorityLevel}
-   - Quality of existing content (not what's missing)
-   - Impact and achievement focus
-   - Clarity and specificity
-   - Role recency (recent = more weight)
-
-3. Provide feedback:
-   - positiveInsight: Quote specific strong content from their description
-   - gapAnalysis: Identify weak areas using their actual words
-   - specificFeedback: Pick their weakest sentence and rewrite it
-   - actionItems: Based on score level (see rules above)
-
-4. For high scores (7+):
-   - Acknowledge what's working with specific quotes
-   - Provide 1-2 refinements to reach 10/10
-   - Focus on repositioning/enhancing existing content
-</analysis_task>
-
-Fill in these fields:
-{
-  "score": <integer 0-10>,
-  "positiveInsight": "<200-300 chars quoting their ACTUAL strong content like 'Your mention of leading $50M ARR product shows...' or acknowledging specific achievements>",
-  "gapAnalysis": "<150-250 chars identifying weak areas by quoting their actual phrases that need improvement>",
-  "specificFeedback": {
-    "originalLine": "<Exact weak sentence from their description>",
-    "suggestion": "<Rewritten version with specific improvements>",
-    "why": "<50-100 chars explaining the improvement>"
-  },
-  "actionItems": [
-    {
-      "category": "<'Impact Metrics'|'Strategic Context'|'Leadership Evidence'|'Technical Depth'|'10/10 Optimization'>",
-      "action": "<SPECIFIC action based on their actual content - if metrics exist, suggest repositioning; if missing, be specific>",
-      "impact": "<How this helps position for ${config.targetRole}>",
-      "priority": "<'high'|'medium'|'low'>",
-      "quotedContent": "<Exact quote from their description this feedback addresses>"
-    }
-  ]
-}`;
-
-  return prompt;
+  throw new Error(`No prompt for section: ${sectionName}`);
 }
 
 // Create prompt for experience section (when not broken into individual roles)
@@ -311,7 +156,7 @@ Analyze the overall experience section and provide:
 2. Feedback on career progression and trajectory
 3. Recommendations for improving the experience section
 
-Fill in these fields: score, positiveInsight (what works, quoting their roles), gapAnalysis (what is weak),
+Reply with JSON, filling in these fields: score, positiveInsight (what works, quoting their roles), gapAnalysis (what is weak),
 specificFeedback (one weak line and its rewrite), actionItems (specific improvements).
 
 NOTE: This is a fallback analysis. Individual role analysis would provide better insights.`;
@@ -320,7 +165,7 @@ NOTE: This is a fallback analysis. Individual role analysis would provide better
 }
 
 // Create specialized prompt for overall experience analysis
-function createExperienceOverallPrompt(experienceData, config, context = {}) {
+function createExperienceOverallPrompt(experienceData, config) {
   const totalMonths = experienceData.totalMonths || 0;
   const yearsOfExperience = Math.floor(totalMonths / 12);
   const totalRoles = experienceData.totalRoles || experienceData.count || 0;
@@ -331,7 +176,6 @@ function createExperienceOverallPrompt(experienceData, config, context = {}) {
 Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
 Target Role: ${config.targetRole}  
 Seniority Level: ${config.seniorityLevel}
-Profile Completeness: ${context.completenessScore}%
 Custom Instructions: ${config.customInstructions || 'None provided'}
 </context>
 
@@ -352,14 +196,14 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
 Total Experience: ${yearsOfExperience} years across ${totalRoles} roles
 Average Tenure: ${experienceData.averageTenure ? Math.round(experienceData.averageTenure) + ' months per role' : 'Unknown'}
 Current Status: ${experienceData.hasCurrentRole ? 'Currently employed' : 'Not currently employed'}
-Career Start: ${experienceData.experiences?.[experienceData.experiences.length - 1]?.startDate || 'Unknown'}
+Career Start: ${experienceData.experiences?.[experienceData.experiences.length - 1]?.employment?.startDate || 'Unknown'}
 Industry Changes: ${experienceData.industryChanges || 0}
 </profile_overview>
 
 <career_trajectory>
 ${experienceData.experiences && experienceData.experiences.length > 0 ? 
   experienceData.experiences.slice(0, 5).map((exp, idx) => 
-    `${idx + 1}. ${exp.title} at ${exp.company} (${exp.duration || 'Duration not specified'})${exp.startDate ? ' - Started ' + exp.startDate : ''}`
+    `${idx + 1}. ${exp.title} at ${exp.company} (${exp.duration || 'Duration not specified'})${exp.employment?.startDate ? ' - Started ' + exp.employment.startDate : ''}`
   ).join('\n') : 'No experience data available'}
 </career_trajectory>
 
@@ -371,12 +215,9 @@ ${experienceData.experiences && experienceData.experiences.length > 0 ?
 Title: ${exp.title}
 Company: ${exp.company}
 Duration: ${exp.duration || 'Not specified'}
-Dates: ${exp.startDate || 'Unknown'} - ${exp.endDate || 'Present'}
+Dates: ${exp.employment?.startDate || 'Unknown'} - ${exp.employment?.endDate || 'Unknown'}
 FULL DESCRIPTION (${exp.description?.length || 0} chars):
 ${exp.description || '[NO DESCRIPTION PROVIDED]'}
-
-Metrics Already Present: ${exp.hasQuantifiedAchievements ? 'YES - READ ABOVE' : 'NO'}
-Tech Stack Mentioned: ${exp.hasTechStack ? 'YES - READ ABOVE' : 'NO'}
 `
   ).join('\n') : 'No description data available'}
 </recent_roles_full_content>
@@ -409,19 +250,7 @@ Analyze the OVERALL career trajectory and experience section:
    - If metrics missing, be specific: "Quantify the 'API-first products' user base or revenue impact"
 </analysis_task>
 
-Fill in these fields:
-{
-  "score": <integer 0-10>,
-  "positiveInsight": "<200-300 chars about their ACTUAL career progression, quoting specific roles/companies/achievements from above>",
-  "actionItems": [
-    {
-      "category": "<'Strategic Positioning'|'Career Narrative'|'Missing Elements'|'Content Enhancement'|'10/10 Optimization'>",
-      "action": "<SPECIFIC action based on content above - never generic>",
-      "impact": "<How this helps reach 10/10 for ${config.targetRole} at ${config.seniorityLevel}>",
-      "priority": "<'high'|'medium'|'low'>"
-    }
-  ]
-}`;
+Reply with JSON: fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above), gapAnalysis, specificFeedback and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or '10/10 Optimization').`;
 
   return prompt;
 }
@@ -507,26 +336,7 @@ Analyze the recommendations section:
    - If they have good recommendations, suggest how to leverage them better
 </analysis_task>
 
-Fill in these fields:
-{
-  "score": <integer 0-10>,
-  "positiveInsight": "<150-250 chars acknowledging what they have, even if it's 0>",
-  "gapAnalysis": "<150-250 chars on what's missing or could be improved>",
-  "specificFeedback": {
-    "originalLine": "<Quote from a recommendation OR describe the gap>",
-    "suggestion": "<Specific improvement action>",
-    "why": "<50-100 chars on impact>"
-  },
-  "actionItems": [
-    {
-      "category": "<'Strategic Requests'|'Perspective Gaps'|'Content Enhancement'|'10/10 Optimization'>",
-      "action": "<SPECIFIC action with names/companies when possible>",
-      "impact": "<How this helps for ${config.targetRole}>",
-      "priority": "<'high'|'medium'|'low'>",
-      "quotedContent": "<Quote from recommendations OR describe the specific gap>"
-    }
-  ]
-}`;
+Reply with JSON: fill in score, positiveInsight (what they have, even if it's 0), gapAnalysis, specificFeedback (quote a recommendation or describe the gap) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or '10/10 Optimization'; name people and companies when possible).`;
 
   return prompt;
 }
@@ -585,22 +395,7 @@ Analyze the first impression elements:
    - For scores 0-6: Focus on critical gaps first
 </analysis_task>
 
-Fill in these fields:
-{
-  "score": <integer 0-10>,
-  "positiveInsight": "<150-250 chars acknowledging what's working in their first impression>",
-  "gapAnalysis": "<150-250 chars identifying weaknesses, quoting their actual headline>",
-  "actionItems": [
-    {
-      "category": "<'Profile Photo'|'Headline Enhancement'|'Visual Branding'|'10/10 Optimization'>",
-      "action": "<SPECIFIC action based on gaps identified>",
-      "impact": "<How this improves first impression for ${config.targetRole}>",
-      "priority": "<'critical'|'high'|'medium'|'low'>",
-      "quotedContent": "<Quote their headline or describe the gap>",
-      "element": "<'photo'|'headline'|'banner'>"
-    }
-  ]
-}`;
+Reply with JSON: fill in score, positiveInsight, gapAnalysis (quote their actual headline), specificFeedback and actionItems (category: 'Profile Photo', 'Headline Enhancement', 'Visual Branding' or '10/10 Optimization'; element: 'photo', 'headline' or 'banner').`;
 
   return prompt;
 }
@@ -665,26 +460,7 @@ Analyze the About section for strategic positioning:
    - If flow is poor: Identify the disconnect and suggest restructuring
 </analysis_task>
 
-Fill in these fields:
-{
-  "score": <integer 0-10>,
-  "positiveInsight": "<150-250 chars quoting their ACTUAL strong content like 'Your mention of leading $50M initiatives shows...'>"",
-  "gapAnalysis": "<150-250 chars identifying weaknesses by quoting actual weak phrases>",
-  "specificFeedback": {
-    "originalLine": "<Quote their weakest sentence exactly>",
-    "suggestion": "<Rewritten version with improvements>",
-    "why": "<50-100 chars explaining the improvement>"
-  },
-  "actionItems": [
-    {
-      "category": "<'Opening Hook'|'Metric Specificity'|'Narrative Flow'|'Value Proposition'|'10/10 Refinement'>",
-      "action": "<SPECIFIC action quoting their actual content and showing how to improve it>",
-      "impact": "<How this helps position for ${config.targetRole}>",
-      "priority": "<'critical'|'high'|'medium'|'low'>",
-      "quotedContent": "<Exact quote from their About section this addresses>"
-    }
-  ]
-}`;
+Reply with JSON: fill in score, positiveInsight, gapAnalysis, specificFeedback (their weakest sentence) and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or '10/10 Refinement').`;
 
   return prompt;
 }
@@ -805,268 +581,35 @@ Analyze the skills section for quality and relevance:
    - Example bad feedback: "Move skill from position #1 to #1" (meaningless)
 </analysis_task>
 
-Fill in these fields:
-{
-  "score": <integer 0-10>,
-  "positiveInsight": "<200-300 chars acknowledging their ACTUAL skills like 'Your top skill Product Management with 45 endorsements shows...'>",
-  "gapAnalysis": "<150-250 chars identifying issues with specific skills quoted from their list>",
-  "specificFeedback": {
-    "originalLine": "<Quote their actual top 3 skills>",
-    "suggestion": "<How to improve the top 3 positioning>",
-    "why": "<50-100 chars explaining impact>"
-  },
-  "actionItems": [
-    {
-      "category": "<'Strategic Positioning'|'Endorsement Building'|'Skill Optimization'|'10/10 Refinement'>",
-      "action": "<SPECIFIC action referencing their actual skills by name>",
-      "impact": "<How this helps for ${config.targetRole} at ${config.seniorityLevel}>",
-      "priority": "<'high'|'medium'|'low'>",
-      "quotedContent": "<Exact skill names and endorsement counts from their list>"
-    }
-  ]
-}`;
+Reply with JSON: fill in score, positiveInsight (their actual skills and endorsement counts), gapAnalysis, specificFeedback (their actual top 3 skills and how to position them) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or '10/10 Refinement'; name their actual skills).`;
 
   return prompt;
 }
 
 // Parse section analysis response. Providers return SECTION_SCHEMA JSON; slicing to the outer
 // braces also covers local models that ignore the schema and wrap the JSON in prose or fences.
-function parseSectionAnalysis(response, sectionName) {
+// A reply without a numeric score throws, so the section is reported as failed rather than scored.
+function parseSectionAnalysis(response) {
   try {
     const parsed = JSON.parse(response.slice(response.indexOf('{'), response.lastIndexOf('}') + 1));
-    const actionItems = parsed.actionItems || [];
-    return {
-      score: Math.min(10, Math.max(0, parsed.score ?? 5)),
-      positiveInsight: parsed.positiveInsight || '',
-      gapAnalysis: parsed.gapAnalysis || '',
-      actionItems,
-      specificFeedback: parsed.specificFeedback || null,
-      recommendations: actionItems
-    };
-  } catch (error) {
-    console.error('Failed to parse AI response', sectionName, error);
-    return {
-      score: null,
-      errorType: 'RESPONSE_PARSE_ERROR',
-      positiveInsight: '',
-      gapAnalysis: '',
-      actionItems: [],
-      recommendations: []
-    };
-  }
-}
-
-// Synthesize final analysis from section analyses
-async function synthesizeFinalAnalysis(sectionAnalyses, config) {
-  
-  // Separate experience roles from other sections
-  const experienceRoles = [];
-  const otherSections = {};
-  
-  for (const [section, analysis] of Object.entries(sectionAnalyses)) {
-    if (section === 'experience_role') {
-      experienceRoles.push(analysis);
-    } else {
-      otherSections[section] = analysis;
+    const score = parseFloat(parsed.score); // NaN for a missing score; keeps 0 and "7"
+    if (Number.isFinite(score)) {
+      // Local models that ignore the schema can send a string or object; the overlay maps over this
+      const actionItems = (Array.isArray(parsed.actionItems) ? parsed.actionItems : [])
+        .map(item => typeof item === 'string' ? { action: item } : item)
+        .filter(item => item && typeof item === 'object');
+      return {
+        score: Math.min(10, Math.max(0, score)),
+        positiveInsight: parsed.positiveInsight || '',
+        gapAnalysis: parsed.gapAnalysis || '',
+        actionItems,
+        specificFeedback: parsed.specificFeedback || null
+      };
     }
+  } catch {
+    // Not JSON: falls through to the parse error below
   }
-  
-  // Analyze career trajectory if we have experience data
-  let careerInsights = '';
-  if (experienceRoles.length > 0) {
-    careerInsights = analyzeCareerTrajectory(experienceRoles);
-  }
-  
-  // Collect all recommendations and improvements
-  const allRecommendations = [];
-  const insights = {
-    strengths: [],
-    improvements: [],
-    careerTrajectory: careerInsights
-  };
-  
-  // Process all sections
-  for (const [section, analysis] of Object.entries(sectionAnalyses)) {
-    // Handle experience_roles array
-    if (section === 'experience_roles' && Array.isArray(analysis)) {
-      analysis.forEach((roleAnalysis, index) => {
-        // Use actionItems if available
-        if (roleAnalysis.actionItems?.length > 0) {
-          roleAnalysis.actionItems.forEach(item => {
-            const priority = item.priority || (roleAnalysis.score < 5 ? 'critical' : roleAnalysis.score < 7 ? 'high' : 'medium');
-            
-            allRecommendations.push({
-              section: `experience_role_${index + 1}`,
-              priority: priority,
-              action: {
-                what: item.what || 'Improve experience description',
-                why: item.why || item.how || 'Review and update this role description',
-                how: item.how || 'Add specific achievements and impact'
-              }
-            });
-          });
-        }
-        // Fallback to recommendations
-        else if (roleAnalysis.recommendations?.length > 0) {
-          roleAnalysis.recommendations.forEach(rec => {
-            const basePriority = roleAnalysis.score < 5 ? 'critical' : roleAnalysis.score < 7 ? 'high' : 'medium';
-            
-            allRecommendations.push({
-              section: `experience_role_${index + 1}`,
-              priority: basePriority,
-              action: {
-                what: typeof rec === 'string' ? rec : (rec.text || rec.action?.what || 'Improve experience description'),
-                why: rec.why || rec.action?.why || rec.how || 'Add specific achievements and impact',
-                how: rec.how || rec.action?.how || rec.example || 'Add specific achievements and impact'
-              }
-            });
-          });
-        }
-      });
-      continue;
-    }
-    
-    if (!analysis.exists) {
-      allRecommendations.push({
-        section,
-        priority: 'critical',
-        action: {
-          what: `Add ${section} section to your profile`,
-          why: `Missing ${section} significantly impacts profile completeness`,
-          how: `Navigate to your LinkedIn profile and add content to the ${section} section`
-        }
-      });
-    } else {
-      // Add strengths
-      if (analysis.strengths?.length > 0) {
-        insights.strengths.push(...analysis.strengths.map(s => `${section}: ${s}`));
-      } else if (analysis.insights?.strengths?.length > 0) {
-        insights.strengths.push(...analysis.insights.strengths.map(s => `${section}: ${s}`));
-      }
-      
-      // Add improvements as recommendations
-      const improvements = analysis.improvements || analysis.insights?.improvements || [];
-      if (improvements.length > 0) {
-        improvements.forEach(improvement => {
-          // For experience roles, prioritize recent ones
-          const isRecentRole = section === 'experience_role' && analysis.recencyScore > 0.8;
-          const basePriority = analysis.score < 5 ? 'critical' : analysis.score < 7 ? 'high' : 'medium';
-          const priority = isRecentRole && basePriority === 'medium' ? 'high' : basePriority;
-          
-          allRecommendations.push({
-            section,
-            priority,
-            action: {
-              what: improvement,
-              why: `Important for ${section} section${isRecentRole ? ' (Current/Recent Role - Higher Impact)' : ''}`,
-              how: analysis.recommendations?.[0] || 'Review and update this section'
-            }
-          });
-        });
-      }
-      
-      // Add action items if they exist
-      if (analysis.actionItems?.length > 0) {
-        analysis.actionItems.forEach((item) => {
-          // Use priority from action item if available, otherwise calculate
-          const priority = item.priority || (analysis.score < 5 ? 'critical' : analysis.score < 7 ? 'high' : 'medium');
-          
-          allRecommendations.push({
-            section,
-            priority,
-            action: {
-              what: item.what || item.text || `Improve ${section}`,
-              why: item.why || item.how || 'Review and update this section',
-              how: item.how || item.example || 'Review and update this section'
-            }
-          });
-        });
-      }
-      
-      // Fallback to old recommendations format
-      else if (analysis.recommendations?.length > 0) {
-        analysis.recommendations.forEach((rec) => {
-          const isRecentRole = section === 'experience_role' && analysis.recencyScore > 0.8;
-          const basePriority = analysis.score < 5 ? 'critical' : analysis.score < 7 ? 'high' : 'medium';
-          const priority = isRecentRole && basePriority === 'medium' ? 'high' : basePriority;
-          
-          allRecommendations.push({
-            section,
-            priority,
-            action: {
-              what: typeof rec === 'string' ? rec : (rec.text || rec.action?.what || `${section} improvement`),
-              why: rec.why || rec.action?.why || `Improves ${section} quality score from ${analysis.score}/10`,
-              how: rec.how || rec.action?.how || rec.example || 'Review and update this section'
-            }
-          });
-        });
-      }
-    }
-  }
-  
-  // Sort and categorize recommendations
-  const categorized = {
-    critical: allRecommendations.filter(r => r.priority === 'critical').slice(0, 3),
-    important: allRecommendations.filter(r => r.priority === 'high').slice(0, 3),
-    niceToHave: allRecommendations.filter(r => r.priority === 'medium').slice(0, 3)
-  };
-  
-  const result = {
-    recommendations: categorized,
-    insights: {
-      strengths: insights.strengths.slice(0, 3).join('. '),
-      improvements: insights.improvements.slice(0, 3).join('. '),
-      careerTrajectory: insights.careerTrajectory
-    },
-    summary: `Analysis complete. Found ${allRecommendations.length} recommendations across ${Object.keys(sectionAnalyses).length} sections.`
-  };
-  
-  
-  return result;
-}
-
-// Analyze career trajectory from experience roles
-function analyzeCareerTrajectory(experienceRoles) {
-  if (experienceRoles.length === 0) return 'No experience data available for trajectory analysis.';
-  
-  // Sort by recency (assuming they come in order)
-  const sortedRoles = [...experienceRoles].sort((a, b) => (b.recencyScore || 0) - (a.recencyScore || 0));
-  
-  // Calculate average scores
-  const avgScore = sortedRoles.reduce((sum, role) => sum + (role.score || 0), 0) / sortedRoles.length;
-  const recentScore = sortedRoles[0]?.score || 0;
-  const scoreTrajectory = recentScore > avgScore ? 'improving' : recentScore < avgScore ? 'declining' : 'stable';
-  
-  // Analyze progression patterns
-  const hasUpwardProgression = sortedRoles.some((role, i) => {
-    if (i === sortedRoles.length - 1) return false;
-    const current = role.title?.toLowerCase() || '';
-    const previous = sortedRoles[i + 1]?.title?.toLowerCase() || '';
-    return current.includes('senior') && !previous.includes('senior') ||
-           current.includes('lead') && !previous.includes('lead') ||
-           current.includes('director') && !previous.includes('director');
-  });
-  
-  // Build insights
-  let insights = `Career Analysis: ${sortedRoles.length} roles analyzed. `;
-  
-  if (scoreTrajectory === 'improving') {
-    insights += 'Profile quality is improving over time - recent roles are better documented. ';
-  } else if (scoreTrajectory === 'declining') {
-    insights += 'Recent roles need more detail - earlier positions are better documented. ';
-  }
-  
-  if (hasUpwardProgression) {
-    insights += 'Clear career progression visible through role titles. ';
-  }
-  
-  if (sortedRoles[0]?.hasQuantifiedAchievements) {
-    insights += 'Current role includes quantified achievements (excellent). ';
-  } else {
-    insights += 'Current role lacks quantified achievements (high priority improvement). ';
-  }
-  
-  return insights;
+  throw Object.assign(new Error('AI response could not be read'), { errorType: 'RESPONSE_PARSE_ERROR' });
 }
 
 // The openai provider talks to any OpenAI-compatible server; the user can point it at Ollama or LM Studio
@@ -1074,22 +617,40 @@ const OPENAI_URL = 'https://api.openai.com/v1';
 const openaiBaseUrl = async (url) =>
   (url || (await chrome.storage.local.get('aiBaseUrl')).aiBaseUrl || OPENAI_URL).replace(/\/+$/, '');
 
+// Trim and strip the non-printable characters a pasted key can carry
+const cleanKey = apiKey => typeof apiKey === 'string' ? apiKey.trim().replace(/[^\x20-\x7E]/g, '') : '';
+
+const authHeaders = (provider, key) => ({
+  openai: { 'Authorization': `Bearer ${key}` },
+  anthropic: {
+    'x-api-key': key,
+    'anthropic-version': '2023-06-01',
+    'anthropic-dangerous-direct-browser-access': 'true'
+  },
+  gemini: { 'x-goog-api-key': key }
+})[provider];
+
 // Every section prompt asks for this shape; each provider enforces it as JSON-schema output.
+// The descriptions carry the per-field guidance, so prompts only name the fields and their section's values.
 // No minimum/maximum: Anthropic rejects them, and parseSectionAnalysis clamps the score.
-const STR = { type: 'string' };
+const str = description => ({ type: 'string', description });
 const SECTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['score', 'positiveInsight', 'gapAnalysis', 'specificFeedback', 'actionItems'],
   properties: {
-    score: { type: 'integer', description: '0-10' },
-    positiveInsight: STR,
-    gapAnalysis: STR,
+    score: { type: 'integer', description: '0-10, where 10 is perfect for landing the target role' },
+    positiveInsight: str('150-300 chars on what works, quoting their actual content'),
+    gapAnalysis: str('150-250 chars on the weakest areas, quoting their actual phrases'),
     specificFeedback: {
       type: 'object',
       additionalProperties: false,
       required: ['originalLine', 'suggestion', 'why'],
-      properties: { originalLine: STR, suggestion: STR, why: STR }
+      properties: {
+        originalLine: str('The line or gap this addresses, quoted when it is a line'),
+        suggestion: str('The specific improvement'),
+        why: str('50-100 chars on why the rewrite is stronger')
+      }
     },
     actionItems: {
       type: 'array',
@@ -1098,12 +659,12 @@ const SECTION_SCHEMA = {
         additionalProperties: false,
         required: ['category', 'action', 'impact', 'priority', 'quotedContent', 'element'],
         properties: {
-          category: STR,
-          action: STR,
-          impact: STR,
+          category: str('Improvement area: one of the categories the prompt lists'),
+          action: str('Specific step based on their actual content, never generic'),
+          impact: str('How it helps for the target role and level'),
           priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
-          quotedContent: STR,
-          element: { type: 'string', description: "'photo', 'headline' or 'banner' for first-impression items, else ''" }
+          quotedContent: str('Exact quote from their profile this item addresses, or the specific gap'),
+          element: str("'photo', 'headline' or 'banner' for first-impression items, else ''")
         }
       }
     }
@@ -1111,36 +672,17 @@ const SECTION_SCHEMA = {
 };
 
 // Call AI provider
-async function callAIProvider(provider, apiKey, prompt, model = null) {
-  
-  // Clean and validate API key
-  if (!apiKey || typeof apiKey !== 'string') {
-    throw new Error('Invalid API key');
-  }
-  
-  // Remove any non-printable characters and trim whitespace
-  const cleanApiKey = apiKey.trim().replace(/[^\x20-\x7E]/g, '');
-  
-  // Check if key was significantly altered (might indicate encoding issues)
-  
-  if (!cleanApiKey) {
-    throw new Error('API key is empty after cleaning');
-  }
-  
-  // Get model from storage if not provided
-  if (!model) {
-    ({ aiModel: model } = await chrome.storage.local.get('aiModel'));
-    if (!model) throw new Error('No AI model selected');
-  }
+async function callAIProvider(provider, apiKey, prompt, model) {
+  const cleanApiKey = cleanKey(apiKey);
+  if (!cleanApiKey) throw new Error('API key is required');
+  if (!model) throw new Error('No AI model selected');
   const baseUrl = await openaiBaseUrl();
+  // Local servers may never show response_format's schema to the model; Ollama's docs put it in the prompt too
+  if (provider === 'openai' && baseUrl !== OPENAI_URL) prompt += `\n\nReply with JSON matching: ${JSON.stringify(SECTION_SCHEMA)}`;
 
   const config = {
     openai: {
       url: `${baseUrl}/chat/completions`,
-      headers: {
-        'Authorization': `Bearer ${cleanApiKey}`,
-        'Content-Type': 'application/json'
-      },
       body: {
         model: model,
         messages: [{ role: 'user', content: prompt }],
@@ -1152,12 +694,6 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
     },
     anthropic: {
       url: 'https://api.anthropic.com/v1/messages',
-      headers: {
-        'x-api-key': cleanApiKey,
-        'Content-Type': 'application/json',
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
       body: {
         model: model,
         messages: [{ role: 'user', content: prompt }],
@@ -1167,10 +703,6 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
     },
     gemini: {
       url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      headers: {
-        'x-goog-api-key': cleanApiKey,
-        'Content-Type': 'application/json'
-      },
       body: {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
@@ -1187,35 +719,32 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
     throw new Error(`Unknown provider: ${provider}`);
   }
   
-  // Add timeout to prevent hanging requests
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-  
   try {
     const response = await fetch(providerConfig.url, {
       method: 'POST',
-      headers: providerConfig.headers,
+      headers: { ...authHeaders(provider, cleanApiKey), 'Content-Type': 'application/json' },
       body: JSON.stringify(providerConfig.body),
-      signal: controller.signal
+      // Local models and reasoning models take minutes; stay under Chrome's 5-minute limit per event
+      signal: AbortSignal.timeout(180000)
     });
-    
-    clearTimeout(timeoutId);
-    
+
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      // Keep the provider's own message (e.g. "credit balance is too low"); HTTP/2 has no statusText
+      const body = await response.json().catch(() => ({}));
+      const s = response.status;
+      throw Object.assign(new Error(body.error?.message || `API error ${s}`), {
+        errorType: s === 401 || s === 403 ? 'AUTH' : s === 429 ? 'RATE_LIMIT' : s >= 500 ? 'SERVICE_UNAVAILABLE' : 'PROVIDER_ERROR'
+      });
     }
     
     const data = await response.json();
     return processProviderResponse(provider, data, model);
     
   } catch (error) {
-    clearTimeout(timeoutId);
-    
-    if (error.name === 'AbortError') {
-      console.error('AI.PROMPTS', 'Request timeout', new Error('API request timed out after 30 seconds'));
+    if (error.name === 'TimeoutError') {
       throw new Error('Request timeout - API not responding');
     }
-    
+
     throw error;
   }
   
@@ -1366,8 +895,8 @@ class RateLimiter {
     this.requests = new Map();
     this.limits = {
       'api': { limit: 10, window: 60000 },        // 10 API calls per minute
-      'test': { limit: 5, window: 60000 },        // 5 test calls per minute
-      'analysis': { limit: 30, window: 300000 }   // 30 analyses per 5 minutes
+      // Counted per section call; an analysis makes about 10. ponytail: send a run id from content if per-run limits matter
+      'analysis': { limit: 300, window: 300000 }  // ~30 analyses per 5 minutes
     };
   }
 
@@ -1436,31 +965,19 @@ const rateLimiter = new RateLimiter();
 
 // List the provider's models. Doubles as the key check: a GET, so no tokens are spent.
 async function testApiKey(provider, apiKey, baseUrl) {
-  const rateCheck = rateLimiter.canMakeRequest('test', provider);
-  if (!rateCheck.allowed) {
-    return {
-      success: false,
-      error: `Rate limit exceeded. Please wait ${rateCheck.waitTime} seconds before testing again.`
-    };
-  }
-
-  const key = typeof apiKey === 'string' ? apiKey.trim().replace(/[^\x20-\x7E]/g, '') : '';
+  const key = cleanKey(apiKey);
   if (!key) return { success: false, error: 'API key is required' };
   baseUrl = await openaiBaseUrl(baseUrl);
 
-  const [url, headers] = {
-    openai: [`${baseUrl}/models`, { 'Authorization': `Bearer ${key}` }],
-    anthropic: ['https://api.anthropic.com/v1/models?limit=1000', {
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    }],
-    gemini: ['https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', { 'x-goog-api-key': key }]
-  }[provider] || [];
+  const url = {
+    openai: `${baseUrl}/models`,
+    anthropic: 'https://api.anthropic.com/v1/models?limit=1000',
+    gemini: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000'
+  }[provider];
   if (!url) return { success: false, error: 'Unknown provider' };
 
   try {
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, { headers: authHeaders(provider, key) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       const error = [401, 403].includes(response.status) ? 'Invalid API key'
@@ -1489,14 +1006,14 @@ async function testApiKey(provider, apiKey, baseUrl) {
 
 // Handle individual section analysis request
 async function handleSectionAnalysis(request, sendResponse) {
-  const { section, data, context, settings } = request;
+  const { section, data, context } = request;
   const sectionStartTime = Date.now();
 
   try {
-    
-    
-    // Get provider and API key
-    const { aiProvider } = await chrome.storage.local.get('aiProvider');
+    // Read settings at call time, not from the content script's snapshot: provider, key and model then always match
+    const { aiProvider, aiModel, targetRole, customRole, seniorityLevel, customInstructions } = await chrome.storage.local.get(
+      ['aiProvider', 'aiModel', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions']
+    );
     const apiKey = await getDecryptedApiKey();
     
     if (!aiProvider || !apiKey) {
@@ -1508,7 +1025,7 @@ async function handleSectionAnalysis(request, sendResponse) {
     }
     
     // Check rate limit
-    const rateCheck = rateLimiter.canMakeRequest('analysis', request.profileId || 'unknown');
+    const rateCheck = rateLimiter.canMakeRequest('analysis');
     if (!rateCheck.allowed) {
       sendResponse({
         success: false,
@@ -1521,40 +1038,30 @@ async function handleSectionAnalysis(request, sendResponse) {
     
     // Create section-specific prompt
     const config = {
-      provider: aiProvider,
-      apiKey: apiKey,
-      targetRole: settings?.targetRole || 'general professional',
-      seniorityLevel: settings?.seniorityLevel || 'any level',
-      customInstructions: settings?.customInstructions || ''
+      targetRole: (targetRole === 'other' ? customRole : targetRole) || 'general professional',
+      seniorityLevel: seniorityLevel || 'any level',
+      customInstructions: customInstructions || ''
     };
-    
-    
+
+
     const prompt = createSectionPrompt(section, data, config, context);
-    
-    
-    const model = settings?.aiModel || null;
-    
+
     // Regular text-only analysis
-    const response = await callAIProvider(aiProvider, apiKey, prompt, model);
+    const response = await callAIProvider(aiProvider, apiKey, prompt, aiModel);
     
     
     
     // Parse the response
-    const analysis = parseSectionAnalysis(response, section);
-    
-    
-    
+    const analysis = parseSectionAnalysis(response);
+
     sendResponse({
       success: true,
       section: section,
       score: analysis.score,
       insight: analysis.positiveInsight,
-      positiveInsight: analysis.positiveInsight,
       gapAnalysis: analysis.gapAnalysis,
       actionItems: analysis.actionItems,
-      specificFeedback: analysis.specificFeedback,
-      // Flattened into synthesis-failure fallback recommendations (analyzer-base)
-      recommendations: analysis.recommendations
+      specificFeedback: analysis.specificFeedback
     });
     
   } catch (error) {
@@ -1565,94 +1072,41 @@ async function handleSectionAnalysis(request, sendResponse) {
     });
     sendResponse({
       success: false,
-      error: error.message || 'Section analysis failed'
+      error: error.message || 'Section analysis failed',
+      errorType: error.errorType
     });
   }
 }
 
-// Handle synthesis analysis request
-async function handleSynthesisAnalysis(request, sendResponse) {
-  const { sectionScores, targetRole, seniorityLevel, customInstructions } = request;
-  
-  try {
-    
-    // Calculate weighted average score from section results
-    let totalScore = 0;
-    let totalWeight = 0;
-    const weights = {
-      first_impression: 0.20,   // 20% - First impression (headline + photo + banner)
-      about: 0.25,              // 25% - Standalone about section
-      experience_role: 0.30,    // 30% - All experience roles combined
-      experience_overall: 0.30, // 30% - Overall experience (alternative to role-by-role)
-      skills: 0.15,             // 15% - Skills
-      recommendations: 0.10     // 10% - Recommendations
-    };
-    
-    // Track experience scores separately to average them
-    const experienceScores = [];
-    
-    
-    Object.entries(sectionScores || {}).forEach(([sectionType, result]) => {
-      
-      if (sectionType === 'experience_roles' && Array.isArray(result)) {
-        // Handle array of experience roles
-        result.forEach(role => {
-          if (role && role.score !== undefined && role.score !== null) {
-            experienceScores.push(role.score);
-          }
-        });
-      } else if (sectionType === 'experience_overall' && result && result.score !== undefined && result.score !== null) {
-        // Handle overall experience score
-        totalScore += result.score * weights.experience_overall;
-        totalWeight += weights.experience_overall;
-      } else if (result && result.score !== undefined && result.score !== null) {
-        // Process other sections normally
-        const weight = weights[sectionType] || 0.1;
-        totalScore += result.score * weight;
-        totalWeight += weight;
-      }
-    });
-    
-    // Add averaged experience score ONLY if we didn't already use experience_overall
-    const hasExperienceOverall = sectionScores?.experience_overall?.score !== undefined;
-    if (experienceScores.length > 0 && !hasExperienceOverall) {
-      const avgExperienceScore = experienceScores.reduce((a, b) => a + b, 0) / experienceScores.length;
-      totalScore += avgExperienceScore * weights.experience_role;
-      totalWeight += weights.experience_role;
+// Handle synthesis analysis request: the content score is the weighted average of the section scores
+function handleSynthesisAnalysis(request, sendResponse) {
+  const { sectionScores } = request;
+  let totalScore = 0;
+  let totalWeight = 0;
+  const weights = {
+    first_impression: 0.20,   // 20% - First impression (headline + photo + banner)
+    about: 0.25,              // 25% - Standalone about section
+    experience_overall: 0.30, // 30% - Overall experience
+    skills: 0.15,             // 15% - Skills
+    recommendations: 0.10     // 10% - Recommendations
+  };
+
+  Object.entries(sectionScores || {}).forEach(([sectionType, result]) => {
+    if (result && result.score !== undefined && result.score !== null) {
+      const weight = weights[sectionType] || 0.1;
+      totalScore += result.score * weight;
+      totalWeight += weight;
     }
-    
-    // Calculate final score
-    const finalScore = totalWeight > 0 ? Math.round((totalScore / totalWeight) * 10) / 10 : 5;
-    
-    
-    // Use the existing synthesizeFinalAnalysis function for recommendations
-    const config = {
-      targetRole: targetRole || 'general professional',
-      seniorityLevel: seniorityLevel || 'any level',
-      customInstructions: customInstructions || ''
-    };
-    
-    const synthesis = await synthesizeFinalAnalysis(sectionScores || {}, config);
-    
-    
-    // Return the response with calculated score
-    const responseData = {
-      success: true,
-      finalScore: finalScore,
-      synthesis: synthesis.summary,
-      overallRecommendations: synthesis.recommendations,
-      careerNarrative: synthesis.insights,
-      sectionScores: sectionScores
-    };
-    
-    sendResponse(responseData);
-  } catch (error) {
-    console.error('AI.PROMPTS', 'Synthesis error', error);
-    sendResponse({
-      success: false,
-      error: error.message || 'Failed to synthesize analysis'
-    });
+  });
+
+  // No section scored: fail instead of inventing a 5 that would be shown and cached as the content score
+  if (!totalWeight) {
+    sendResponse({ success: false, error: 'AI could not score any section' });
+    return;
   }
+  const finalScore = Math.round((totalScore / totalWeight) * 10) / 10;
+  
+  sendResponse({ success: true, finalScore, sectionScores });
 }
 
 

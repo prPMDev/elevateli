@@ -105,208 +105,165 @@
     return match ? match[1] : null;
   }
   
+  // The run in progress; a second Analyze click (e.g. from a rebuilt overlay) must not start a parallel one
+  let activeAnalyzer = null;
+
+  // Navigation away, Reset analysis and Factory Reset stop the running analysis from reading the page,
+  // saving or painting (Analyzer checks this.cancelled) and free the slot and its spinning buttons for a new run
+  function cancelAnalysis() {
+    if (!activeAnalyzer) return;
+    activeAnalyzer.cancelled = true;
+    activeAnalyzer = null;
+    OverlayManager.resetButtons();
+  }
+
   // Start analysis when requested
   async function startAnalysis(forceRefresh = false) {
-    
-    // Check if extension context is still valid
-    if (!chrome.runtime?.id) {
-      
-      // Try to show a user-friendly message if overlay exists
-      if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
-        OverlayManager.setState(OverlayManager.states.ERROR, {
-          message: 'Extension was updated. Please refresh the page to continue.'
-        });
-      }
-      
-      return;
-    }
-    
-    // Check compliance before allowing analysis
+    // That run's finally resets the buttons. After an extension reload it may never settle, so let the
+    // orphaned-context check below run and show "Extension was updated"
+    if (activeAnalyzer && chrome.runtime?.id) return;
+    const analyzer = activeAnalyzer = new Analyzer();
+
     try {
-      // First check if chrome.storage.local is available
-      if (!chrome?.storage?.local?.get) {
-        // Treat as if compliance not acknowledged
+      // Check if extension context is still valid
+      if (!chrome.runtime?.id) {
+
+        // Try to show a user-friendly message if overlay exists
         if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
           OverlayManager.setState(OverlayManager.states.ERROR, {
-            message: 'Extension needs to be reloaded. Please refresh the page.'
+            message: 'Extension was updated. Please refresh the page to continue.'
           });
         }
+
         return;
       }
-      
-      const compliance = await new Promise((resolve) => {
-        try {
-          chrome.storage.local.get(['compliance'], (data) => {
-            if (chrome.runtime.lastError) {
-              resolve(null);
-              return;
-            }
-            resolve(data.compliance);
-          });
-        } catch (err) {
-          // Handle any synchronous errors in Promise executor
-          resolve(null);
-        }
-      });
-      
-      if (!compliance?.hasAcknowledged) {
-        
-        // Show error in overlay
-        if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
-          OverlayManager.setState(OverlayManager.states.ERROR, {
-            message: 'Please complete setup in the extension popup before analyzing.'
-          });
-          
-          // Re-enable analyze buttons
-          const analyzeBtn = OverlayManager.overlayElement.querySelector('.analyze-button');
-          const collapsedBtn = OverlayManager.overlayElement.querySelector('.analyze-btn-collapsed');
-          if (analyzeBtn) {
-            analyzeBtn.disabled = false;
-            (() => {
-            const iconSpan = document.createElement('span');
-            iconSpan.className = 'button-icon';
-            iconSpan.textContent = '📊';
-            const textNode = document.createTextNode('Analyze');
-            analyzeBtn.replaceChildren(iconSpan, textNode);
-          })();
+
+      // Check compliance before allowing analysis
+      try {
+        // First check if chrome.storage.local is available
+        if (!chrome?.storage?.local?.get) {
+          // Treat as if compliance not acknowledged
+          if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
+            OverlayManager.setState(OverlayManager.states.ERROR, {
+              message: 'Extension needs to be reloaded. Please refresh the page.'
+            });
           }
-          if (collapsedBtn) {
-            collapsedBtn.disabled = false;
-            collapsedBtn.textContent = 'Analyze';
-          }
-        }
-        
-        return;
-      }
-    } catch (error) {
-      console.error('COMPLIANCE', 'Failed to check compliance', error);
-      
-      // Show user-friendly error
-      if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
-        OverlayManager.setState(OverlayManager.states.ERROR, {
-          message: 'Unable to verify settings. Please refresh the page and try again.'
-        });
-        
-        // Re-enable analyze buttons
-        const analyzeBtn = OverlayManager.overlayElement.querySelector('.analyze-button');
-        const collapsedBtn = OverlayManager.overlayElement.querySelector('.analyze-btn-collapsed');
-        if (analyzeBtn) {
-          analyzeBtn.disabled = false;
-          (() => {
-            const iconSpan = document.createElement('span');
-            iconSpan.className = 'button-icon';
-            iconSpan.textContent = '📊';
-            const textNode = document.createTextNode('Analyze');
-            analyzeBtn.replaceChildren(iconSpan, textNode);
-          })();
-        }
-        if (collapsedBtn) {
-          collapsedBtn.disabled = false;
-          collapsedBtn.textContent = 'Analyze';
-        }
-      }
-      
-      return;
-    }
-    
-    const profileId = getProfileIdFromUrl();
-    if (!profileId) return;
-    
-    // CRITICAL: Always use current page's profile ID for cache operations
-    const cacheProfileId = profileId; // Never use saved profile ID for cache
-    
-    const isOwn = await isOwnProfile();
-    
-    let settings = {};
-    try {
-      settings = await new Promise((resolve, reject) => {
-        if (!chrome.runtime?.id) {
-          resolve({});
           return;
         }
-        chrome.storage.local.get(['enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel', 'targetRole', 'seniorityLevel'], (data) => {
-          if (chrome.runtime.lastError) {
-            resolve({});
-          } else {
-            // Double-check context is still valid
-            if (!chrome.runtime?.id) {
-              resolve({});
-              return;
-            }
-            resolve(data);
+
+        const compliance = await new Promise((resolve) => {
+          try {
+            chrome.storage.local.get(['compliance'], (data) => {
+              if (chrome.runtime.lastError) {
+                resolve(null);
+                return;
+              }
+              resolve(data.compliance);
+            });
+          } catch (err) {
+            // Handle any synchronous errors in Promise executor
+            resolve(null);
           }
         });
-      });
-    } catch (error) {
-      settings = {};
+
+        if (!compliance?.hasAcknowledged) {
+
+          // Show error in overlay
+          if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
+            OverlayManager.setState(OverlayManager.states.ERROR, {
+              message: 'Please complete setup in the extension popup before analyzing.'
+            });
+          }
+
+          return;
+        }
+      } catch (error) {
+        console.error('COMPLIANCE', 'Failed to check compliance', error);
+
+        // Show user-friendly error
+        if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
+          OverlayManager.setState(OverlayManager.states.ERROR, {
+            message: 'Unable to verify settings. Please refresh the page and try again.'
+          });
+        }
+
+        return;
+      }
+
+      const profileId = getProfileIdFromUrl();
+      // A /details/ or /recent-activity/ subpage lacks most sections; analyzing it would overwrite this
+      // profile's cache. /in/<id>/overlay/... modals still have the profile behind them.
+      if (!profileId || !isProfilePage() || /^\/in\/[^\/]+\/(details|recent-activity)(\/|$)/.test(location.pathname)) return;
+
+      // CRITICAL: Always use current page's profile ID for cache operations
+      const cacheProfileId = profileId; // Never use saved profile ID for cache
+
+      const isOwn = await isOwnProfile();
+
+      let settings = {};
+      try {
+        settings = await new Promise((resolve, reject) => {
+          if (!chrome.runtime?.id) {
+            resolve({});
+            return;
+          }
+          chrome.storage.local.get(['enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel', 'targetRole', 'seniorityLevel'], (data) => {
+            if (chrome.runtime.lastError) {
+              resolve({});
+            } else {
+              // Double-check context is still valid
+              if (!chrome.runtime?.id) {
+                resolve({});
+                return;
+              }
+              resolve(data);
+            }
+          });
+        });
+      } catch (error) {
+        settings = {};
+      }
+
+
+      // Initialize analyzer with consistent cache profile ID
+      await analyzer.init(cacheProfileId, isOwn, settings);
+
+      // Run analysis
+      await analyzer.analyze(forceRefresh);
+    } finally {
+      // Also covers the early returns above, which would otherwise leave the clicked button spinning.
+      // A cancelled run no longer owns the buttons.
+      if (activeAnalyzer === analyzer) {
+        activeAnalyzer = null;
+        OverlayManager.resetButtons();
+      }
     }
-    
-    
-    // Create analyzer instance with consistent cache profile ID
-    const analyzer = new Analyzer();
-    await analyzer.init(cacheProfileId, isOwn, settings);
-    
-    // Run analysis
-    await analyzer.analyze(forceRefresh);
-    
   }
-  
-  // Listen for messages from popup/background
-  window.addEventListener('message', (event) => {
-    if (event.source !== window) return;
-    
-    if (event.data.type === 'ELEVATE_REFRESH') {
-      startAnalysis(true);
-    }
-  });
   
   // Navigation observer for SPA navigation
   function observeNavigation() {
     let lastPath = location.pathname;
-    
-    const observer = new MutationObserver(debounce(async () => {
-      if (location.pathname !== lastPath) {
-        lastPath = location.pathname;
-        
-        // Clear any displayed data immediately
-        if (OverlayManager.overlayElement) {
-          try {
-            OverlayManager.setState(OverlayManager.states.INITIALIZING);
-          } catch (e) {
-            // Ignore state change errors during navigation
-          }
-        }
-        
-        // Validate profile before reinitializing
-        const newProfileId = getProfileIdFromUrl();
-        // Check if this is the user's profile using ownership indicators
-        const isOwn = await isOwnProfile();
-        
-        if (!isOwn) {
-          // Not user's profile - remove overlay
-          const existingOverlay = document.querySelector('.elevateli-overlay-wrapper');
-          if (existingOverlay) {
-            existingOverlay.remove();
-          }
-          return; // Don't reinitialize on other profiles
-        }
-        
-        // User's profile - reinitialize if on profile page
-        if (isProfilePage() && newProfileId && isOwn) {
-          // Remove old overlay first
-          const existingOverlay = document.querySelector('.elevateli-overlay-wrapper');
-          if (existingOverlay) {
-            existingOverlay.remove();
-          }
-          
-          setTimeout(() => {
-            try {
-              init();
-            } catch (error) {
-            }
-          }, 500);
-        }
-      }
+    let lastProfileId = getProfileIdFromUrl();
+
+    const observer = new MutationObserver(debounce(() => {
+      // Orphaned after an extension reload/update: stop, or close() would remove the new script's overlay
+      if (!chrome.runtime?.id) { observer.disconnect(); return; }
+      if (location.pathname === lastPath) return;
+      lastPath = location.pathname;
+
+      // Modals (contact info, edit intro, endorsers...) push /in/<id>/overlay/... on the same page:
+      // keep the overlay and any running analysis
+      const profileId = getProfileIdFromUrl();
+      const sameProfilePage = profileId === lastProfileId && isProfilePage();
+      lastProfileId = profileId;
+      if (sameProfilePage && OverlayManager.overlayElement?.isConnected) return;
+
+      // A running analysis must not read the next page or save it under this profile
+      cancelAnalysis();
+      // close() also drops the stale overlayElement, so init() builds a fresh overlay
+      OverlayManager.close();
+      // init() checks profile page, profile id and ownership
+      setTimeout(init, 500);
     }, 500));
     
     observer.observe(document.body, {
@@ -322,17 +279,12 @@
       if (!sender || sender.id !== chrome.runtime.id) {
         return false;
       }
-      
-      
-      if (request.action === 'ping') {
-        sendResponse({ success: true, alive: true });
-        return true;
-      }
-      
+
       // Handle showOverlay message from popup after successful setup
       if (request.action === 'triggerAnalysis') {
         // Handle cache clear - update overlay to show reset state
-        
+        cancelAnalysis(); // a running analysis would save the cache right back
+
         // Show zero state UI with reset-appropriate text
         if (typeof OverlayManager !== 'undefined') {
           if (OverlayManager.showZeroState) {
@@ -354,7 +306,8 @@
       
       // Handle full extension reset
       if (request.action === 'resetToZeroState') {
-        
+        cancelAnalysis(); // a running analysis would write the profile back after storage is cleared
+
         // Reset overlay to complete zero state
         if (typeof OverlayManager !== 'undefined') {
           // Clear compliance flag since storage was cleared
@@ -585,13 +538,10 @@
           // Update the compliance state in OverlayManager
           OverlayManager.hasCompliance = request.hasCompliance;
           
-          // If the overlay exists and we have compliance, update the button states
+          // The overlay was built before setup, so the collapsed Analyze button is disabled and the
+          // zero state says "click the extension icon". Redraw (EMPTY_CACHE or cache); both re-enable the button.
           if (OverlayManager.overlayElement && request.hasCompliance) {
-            // Update button states to be clickable
-            
-            
-            
-            // The event listeners are already attached, just the compliance state needed updating
+            OverlayManager.restoreAppropriateState();
           }
         }
         
@@ -622,7 +572,7 @@
   } catch (error) {
   }
   
-  // Export for debugging
+  // Isolated-world handle: OverlayManager's Analyze/Refresh buttons call startAnalysis here (also for debugging)
   window.ElevateLI = {
     startAnalysis,
     getProfileId: getProfileIdFromUrl,

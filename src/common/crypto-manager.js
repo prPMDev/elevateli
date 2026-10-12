@@ -115,13 +115,7 @@ const CryptoManager = {
         binary += String.fromCharCode.apply(null, chunk);
       }
       const base64Result = btoa(binary);
-      
-      // Store expiration separately
-      const expirationTime = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7 days
-      await chrome.storage.local.set({
-        apiKeyExpiration: expirationTime
-      });
-      
+
       // Verify we can decrypt it immediately
       const testDecrypt = await this.decryptApiKey(base64Result);
       if (testDecrypt !== apiKey) {
@@ -151,13 +145,6 @@ const CryptoManager = {
       // Validate input
       if (!encryptedData || typeof encryptedData !== 'string') {
         throw new Error('Encrypted data is missing or invalid');
-      }
-
-      // Check expiration from separate storage FIRST
-      const { apiKeyExpiration } = await chrome.storage.local.get('apiKeyExpiration');
-      if (apiKeyExpiration && Date.now() > apiKeyExpiration) {
-        const expiredDate = new Date(apiKeyExpiration).toLocaleDateString();
-        throw new Error(`API key expired on ${expiredDate}. Please enter a new key.`);
       }
 
       const passphrase = await this.getOrCreatePassphrase();
@@ -203,30 +190,10 @@ const CryptoManager = {
   },
 
   /**
-   * Clear API key and expiration
+   * Clear API key
    */
   async clearApiKey() {
-    await chrome.storage.local.remove(['encryptedApiKey', 'apiKeyExpiration']);
-  },
-
-  /**
-   * Check if API key is expired
-   * @returns {Promise<{expired: boolean, daysRemaining: number}>}
-   */
-  async checkExpiration() {
-    const { apiKeyExpiration } = await chrome.storage.local.get('apiKeyExpiration');
-    
-    if (!apiKeyExpiration) {
-      return { expired: false, daysRemaining: 7 }; // Default if no expiration set
-    }
-    
-    const now = Date.now();
-    const daysRemaining = Math.ceil((apiKeyExpiration - now) / (24 * 60 * 60 * 1000));
-    
-    return {
-      expired: now > apiKeyExpiration,
-      daysRemaining: Math.max(0, daysRemaining)
-    };
+    await chrome.storage.local.remove('encryptedApiKey');
   }
 };
 
