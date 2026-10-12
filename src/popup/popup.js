@@ -98,7 +98,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (area === 'local') {
       const updates = {};
       ['showAnalysis', 'enableAI', 'targetRole', 'customRole', 'seniorityLevel'].forEach(key => {
-        if (changes[key]) updates[key] = changes[key].newValue;
+        // Skip values this popup already holds (its own writes), so a sync never wipes unsaved form edits
+        if (changes[key] && changes[key].newValue !== settings[key]) updates[key] = changes[key].newValue;
       });
       if (Object.keys(updates).length) {
         Object.assign(settings, updates);
@@ -234,6 +235,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       // Notify overlay only for showAnalysis changes
       if (changes.showAnalysis !== undefined) {
+        // Persist first: the toggle applies live, and the content script re-reads it from storage
+        await chrome.storage.local.set({ showAnalysis: changes.showAnalysis });
         const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
         if (tab?.url?.includes('linkedin.com/in/')) {
           chrome.tabs.sendMessage(tab.id, {
