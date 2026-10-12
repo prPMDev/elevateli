@@ -788,10 +788,9 @@ const OverlayManager = {
         this.hideStatusIndicator();
         this.hideSkeletons();
         
-        // Only stop elapsed time if not from cache
-        if (!data.fromCache) {
-          this.stopElapsedTimeDisplay();
-        }
+        // Always stop: cache-backed results (analyze()'s cache hit, AI failure with cached AI
+        // fields) also arrive after SCANNING started the timer; a no-op on plain restores
+        this.stopElapsedTimeDisplay();
         
         this.populateScores(data);
         
