@@ -337,38 +337,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (tab && tab.url && tab.url.includes('linkedin.com/in/')) {
       // Save profile ownership acknowledgment
       try {
-        // First check if content script is loaded
-        let response;
-        try {
-          // Try to ping the content script
-          await chrome.tabs.sendMessage(tab.id, { action: 'ping' });
-          
-          // If ping succeeds, check profile WITHOUT saving
-          response = await chrome.tabs.sendMessage(tab.id, { 
-            action: 'saveProfile',
-            checkOnly: true  // Just check, don't save yet
-          });
-        } catch (pingError) {
-          // Content script not loaded, try to inject it
-          
-          try {
-            await chrome.scripting.executeScript({
-              target: { tabId: tab.id },
-              files: ['src/content/analyzer.js']
-            });
-            
-            // Wait a moment for script to initialize
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            // Now try to check profile again
-            response = await chrome.tabs.sendMessage(tab.id, { 
-              action: 'saveProfile',
-              checkOnly: true  // Just check, don't save yet
-            });
-          } catch (injectError) {
-            throw new Error('Could not establish connection');
-          }
-        }
+        // Check profile WITHOUT saving. A tab opened before install/reload has no live
+        // content script, so this rejects with 'Could not establish connection' and the
+        // catch below offers a refresh (which loads the manifest's content scripts).
+        const response = await chrome.tabs.sendMessage(tab.id, {
+          action: 'saveProfile',
+          checkOnly: true  // Just check, don't save yet
+        });
         
         if (response && response.success) {
           // Check if ownership was verified
@@ -458,8 +433,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const parser = new DOMParser();
         const htmlContent = `
             <div style="text-align: center; padding: 20px; background: #fef3c7; border-radius: 8px; margin: 10px 0;">
-              <p style="color: #92400e; font-weight: 500; margin-bottom: 8px;">🔄 Extension Updated</p>
-              <p style="color: #78350f; font-size: 14px; margin-bottom: 12px;">Please refresh your LinkedIn tab to use the latest version</p>
+              <p style="color: #92400e; font-weight: 500; margin-bottom: 8px;">🔄 Refresh needed</p>
+              <p style="color: #78350f; font-size: 14px; margin-bottom: 12px;">Refresh your LinkedIn tab to finish setup</p>
               <button id="refreshTab" class="primary-button" style="background: #f59e0b;">Refresh LinkedIn Tab</button>
             </div>
           `;
