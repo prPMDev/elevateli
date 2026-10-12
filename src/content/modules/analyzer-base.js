@@ -56,14 +56,14 @@ class Analyzer {
   async analyze(forceRefresh = false) {
     // Development mode configuration
     const TIMEOUTS = {
-      ANALYSIS_TOTAL: 300000,  // 5 minutes timeout
+      ANALYSIS_TOTAL: 900000,  // 15 minutes: each AI call may take 3 (slow local models)
       SECTION_TIMEOUT: 60000,  // 60 seconds per section
       SYNTHESIS_TIMEOUT: 60000, // 60 seconds for synthesis
       DEVELOPMENT_MODE: true   // Enable extended timeouts
     };
     
     
-    // Set analysis timeout (3 minutes for development)
+    // Set analysis timeout
     const analysisTimeout = setTimeout(() => {
       this.handleAnalysisTimeout();
     }, TIMEOUTS.ANALYSIS_TOTAL);
@@ -712,11 +712,11 @@ class Analyzer {
 
         OverlayManager.updateAIProgress('analyzing', displayName);
 
-        // Analyze the section with 30-second timeout
+        // Above the SW's 180 s per AI call, so the SW's own error is the one reported
         result = await Promise.race([
           this.analyzeSection(section.type, section.data, section.context),
           new Promise((resolve) =>
-            setTimeout(() => resolve({ success: false, error: 'Section analysis timeout (30s)' }), 30000)
+            setTimeout(() => resolve({ success: false, error: 'Section analysis timeout (190s)' }), 190000)
           )
         ]);
       } catch (error) {

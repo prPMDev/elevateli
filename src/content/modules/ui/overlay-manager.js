@@ -1778,7 +1778,7 @@ const OverlayManager = {
   },
   
   /**
-   * Set failsafe timer to re-enable buttons after 5 minutes.
+   * Set failsafe timer to re-enable buttons after 15 minutes (analyzer-base ANALYSIS_TOTAL).
    * Long-run feedback comes from the elapsed counter; the analyzer's own timeout shows results.
    */
   setButtonFailsafeTimer() {
@@ -1787,7 +1787,7 @@ const OverlayManager = {
       clearTimeout(this.buttonResetTimer);
     }
 
-    this.buttonResetTimer = setTimeout(() => this.resetButtons(), 300000); // 5 minutes
+    this.buttonResetTimer = setTimeout(() => this.resetButtons(), 900000); // 15 minutes
   },
   
   // Removed development mode indicator - not needed for production
