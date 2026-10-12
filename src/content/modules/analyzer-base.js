@@ -471,7 +471,6 @@ class Analyzer {
    */
   async runDistributedAIAnalysis(extractedData) {
     const sectionResults = {};
-    const sectionRecommendations = {};
     const sections = [];
     
     // Build list of sections to analyze
@@ -724,10 +723,9 @@ class Analyzer {
     // Analyze sections sequentially
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
-      
+      let result;
+
       try {
-        // Update UI with current section
-        
         // Format display name based on section type
         let displayName = section.name;
         if (section.type === 'experience_role' && section.data) {
@@ -736,75 +734,55 @@ class Analyzer {
           const company = section.data.company || 'Unknown Company';
           displayName = `${title} role at ${company}`;
         }
-        
+
         OverlayManager.updateAIProgress('analyzing', displayName);
-        
-        // Log data size being sent
-        
+
         // Analyze the section with 30-second timeout
-        const result = await Promise.race([
+        result = await Promise.race([
           this.analyzeSection(section.type, section.data, section.context),
-          new Promise((resolve) => 
+          new Promise((resolve) =>
             setTimeout(() => resolve({ success: false, error: 'Section analysis timeout (30s)' }), 30000)
           )
         ]);
-        
-        // Log completion
-        
-        if (result.success) {
-          consecutiveFailures = 0; // Reset on success
-          // Handle multiple experience roles
-          if (section.type === 'experience_role') {
-            if (!sectionResults.experience_roles) {
-              sectionResults.experience_roles = [];
-              sectionRecommendations.experience_roles = [];
-            }
-            sectionResults.experience_roles.push(result);
-            sectionRecommendations.experience_roles.push(...(result.recommendations || []));
-          } else {
-            sectionResults[section.type] = result;
-            sectionRecommendations[section.type] = result.recommendations || [];
-          }
-          
-          // Update UI with section score
-          OverlayManager.updateSectionScore(section.type, result.score);
-        } else {
-          
-          consecutiveFailures++;
-          
-          // Check for early exit condition. analyze() keeps the previous AI results on failure.
-          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-            return {
-              success: false,
-              error: result.error,
-              errorType: result.errorType || 'NETWORK',
-              retryAfter: result.retryAfter,
-              partialResults: sectionResults
-            };
-          }
-        }
-        
       } catch (error) {
         console.error(`[AI Analysis] Error analyzing ${section.name}:`, error);
-        consecutiveFailures++;
-        
-        // Check for early exit on exception
-        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-          console.error(`[AI Analysis] ${consecutiveFailures} consecutive errors - stopping analysis`);
+        result = { success: false, error: error.message };
+      }
+
+      if (result.success) {
+        consecutiveFailures = 0; // Reset on success
+        // Handle multiple experience roles
+        if (section.type === 'experience_role') {
+          if (!sectionResults.experience_roles) {
+            sectionResults.experience_roles = [];
+          }
+          sectionResults.experience_roles.push(result);
+        } else {
+          sectionResults[section.type] = result;
+        }
+      } else {
+        // Record the failure so the overlay says this section failed instead of "Enable AI"
+        if (section.type !== 'experience_role') {
+          sectionResults[section.type] = { score: null, errorType: 'ANALYSIS_FAILED', error: result.error, actionItems: [] };
+        }
+
+        // Check for early exit condition. analyze() keeps the previous AI results on failure.
+        if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
           return {
             success: false,
-            error: 'Multiple errors occurred - analysis stopped',
-            errorType: 'NETWORK',
+            error: result.error,
+            errorType: result.errorType || 'NETWORK',
+            retryAfter: result.retryAfter,
             partialResults: sectionResults
           };
         }
       }
     }
-    
+
     // 5. Synthesize all results
     OverlayManager.updateAIProgress('synthesizing', 'Synthesizing results...');
-    
-    const synthesis = await this.synthesizeResults(sectionResults, sectionRecommendations);
+
+    const synthesis = await this.synthesizeResults(sectionResults);
     
     
     
@@ -859,13 +837,12 @@ class Analyzer {
   /**
    * Synthesize all section results
    */
-  async synthesizeResults(sectionResults, sectionRecommendations) {
-    
+  async synthesizeResults(sectionResults) {
+
     return new Promise((resolve) => {
       safeSendMessage({
         action: 'synthesizeAnalysis',
-        sectionScores: sectionResults,
-        sectionRecommendations: sectionRecommendations
+        sectionScores: sectionResults
       }, (response) => {
         
         if (response && response.success) {
@@ -882,28 +859,8 @@ class Analyzer {
           
           resolve(result);
         } else {
-          // Fallback: calculate weighted average
-          const weights = {
-            experience: 0.40,
-            skills: 0.20,
-            recommendations: 0.15
-          };
-          
-          let totalScore = 0;
-          let totalWeight = 0;
-          
-          Object.entries(sectionResults).forEach(([section, result]) => {
-            const weight = weights[section] || 0.1;
-            totalScore += (result.score || 0) * weight;
-            totalWeight += weight;
-          });
-          
-          resolve({
-            success: true,
-            score: totalWeight > 0 ? totalScore / totalWeight : 5,
-            recommendations: Object.values(sectionRecommendations).flat(),
-            insights: { message: 'Synthesis unavailable, showing section results' }
-          });
+          // Treated like any AI failure: analyze() keeps the previous AI results
+          resolve({ success: false, error: response?.error || 'Synthesis failed' });
         }
       });
     });
