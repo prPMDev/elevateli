@@ -139,7 +139,7 @@ class Analyzer {
           aiResult = { success: false, error: validationResult.error || 'Invalid Key', errorType: 'validation_failed' };
         } else {
           // API key is valid, proceed with AI analysis
-          OverlayManager.setState(OverlayManager.states.AI_ANALYZING);
+          OverlayManager.setState(OverlayManager.states.AI_ANALYZING, { completeness: completenessData.score });
 
           // Pass completeness score to AI analysis for conditional advice
           extractedData.completenessScore = completenessData?.score || 100;
