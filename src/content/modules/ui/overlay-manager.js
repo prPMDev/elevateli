@@ -2269,37 +2269,7 @@ const OverlayManager = {
     
     // Check if we have sectionScores from AI analysis
     const sectionScores = data.sectionScores || {};
-    const hasAIInsights = Object.keys(sectionScores).length > 0;
-    const completeness = data.completenessScore || 0;
-    
-    // MODIFIED: Skip detailed sections if high completeness without AI
-    if (completeness >= 75 && !hasAIInsights) {
-      // Return single card prompting for AI configuration
-      return [{
-        name: 'Enable AI Analysis',
-        icon: '🤖',
-        rating: null,
-        positive: 'Your profile structure meets LinkedIn best practices',
-        improvements: [
-          {
-            action: 'Click the extension icon to open settings',
-            rationale: 'Access configuration options'
-          },
-          {
-            action: 'Enable AI toggle and add your API key',
-            rationale: 'Unlock content quality analysis'
-          },
-          {
-            action: 'Set target role for personalized recommendations',
-            rationale: 'Get industry-specific insights'
-          }
-        ]
-      }];
-    }
-    
-    
-    
-    
+
     // Profile photo section - show if missing (completeness)
     const photoMissing = missingItems.some(item => item.section === 'photo');
     const photoRec = missingItems.find(item => item.section === 'photo');
