@@ -349,16 +349,18 @@ document.addEventListener('DOMContentLoaded', async () => {
           // Check if ownership was verified
           const hasOwnership = response.userProfile?.verifiedOwnership;
           const profileName = response.userProfile?.profileName || response.userProfile?.profileId || 'Unknown';
-          
+          // The name comes from the LinkedIn page; escape it before it goes into the HTML message
+          const safeName = String(profileName).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+
           // Build improved confirmation message
           let confirmMsg;
 
           if (hasOwnership) {
-            confirmMsg = `Ready to save profile <b>${profileName}</b><br><br>
+            confirmMsg = `Ready to save profile <b>${safeName}</b><br><br>
             ✅ Ownership verified<br><br>
             Continue?`;
           } else {
-            confirmMsg = `Profile detected <b>${profileName}</b><br><br>
+            confirmMsg = `Profile detected <b>${safeName}</b><br><br>
             ⚠️ <span style="color: #dc2626;">Ownership not verified</span><br>
             ElevateLI works best with your own profile.<br><br>
             Continue anyway?`;
