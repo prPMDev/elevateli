@@ -202,7 +202,7 @@
             resolve({});
             return;
           }
-          chrome.storage.local.get(['enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions'], (data) => {
+          chrome.storage.local.get(['enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel', 'targetRole', 'seniorityLevel'], (data) => {
             if (chrome.runtime.lastError) {
               resolve({});
             } else {
@@ -211,8 +211,6 @@
                 resolve({});
                 return;
               }
-              // "Other (specify)" stores the typed role in customRole
-              if (data.targetRole === 'other' && data.customRole) data.targetRole = data.customRole;
               resolve(data);
             }
           });
