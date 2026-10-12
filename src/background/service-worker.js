@@ -831,29 +831,26 @@ Fill in these fields:
 
 // Parse section analysis response. Providers return SECTION_SCHEMA JSON; slicing to the outer
 // braces also covers local models that ignore the schema and wrap the JSON in prose or fences.
-function parseSectionAnalysis(response, sectionName) {
+// A reply without a numeric score throws, so the section is reported as failed rather than scored.
+function parseSectionAnalysis(response) {
   try {
     const parsed = JSON.parse(response.slice(response.indexOf('{'), response.lastIndexOf('}') + 1));
-    const actionItems = parsed.actionItems || [];
-    return {
-      score: Math.min(10, Math.max(0, parsed.score ?? 5)),
-      positiveInsight: parsed.positiveInsight || '',
-      gapAnalysis: parsed.gapAnalysis || '',
-      actionItems,
-      specificFeedback: parsed.specificFeedback || null,
-      recommendations: actionItems
-    };
-  } catch (error) {
-    console.error('Failed to parse AI response', sectionName, error);
-    return {
-      score: null,
-      errorType: 'RESPONSE_PARSE_ERROR',
-      positiveInsight: '',
-      gapAnalysis: '',
-      actionItems: [],
-      recommendations: []
-    };
+    const score = parseFloat(parsed.score); // NaN for a missing score; keeps 0 and "7"
+    if (Number.isFinite(score)) {
+      const actionItems = parsed.actionItems || [];
+      return {
+        score: Math.min(10, Math.max(0, score)),
+        positiveInsight: parsed.positiveInsight || '',
+        gapAnalysis: parsed.gapAnalysis || '',
+        actionItems,
+        specificFeedback: parsed.specificFeedback || null,
+        recommendations: actionItems
+      };
+    }
+  } catch {
+    // Not JSON: falls through to the parse error below
   }
+  throw Object.assign(new Error('AI response could not be read'), { errorType: 'RESPONSE_PARSE_ERROR' });
 }
 
 // Synthesize final analysis from section analyses
@@ -1531,10 +1528,8 @@ async function handleSectionAnalysis(request, sendResponse) {
     
     
     // Parse the response
-    const analysis = parseSectionAnalysis(response, section);
-    
-    
-    
+    const analysis = parseSectionAnalysis(response);
+
     sendResponse({
       success: true,
       section: section,
@@ -1556,7 +1551,8 @@ async function handleSectionAnalysis(request, sendResponse) {
     });
     sendResponse({
       success: false,
-      error: error.message || 'Section analysis failed'
+      error: error.message || 'Section analysis failed',
+      errorType: error.errorType
     });
   }
 }
