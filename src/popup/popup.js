@@ -494,14 +494,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
     if (await showConfirmDialog('🗑️ <b>Clear Cached Analysis?</b><br><br>Settings will be preserved.', true)) {
       const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-      const profileId = tab?.url?.match(/linkedin\.com\/in\/([^\/]+)/)?.[1];
-      if (profileId) {
-        await chrome.storage.local.remove([`cache_${profileId}`]);
-        chrome.tabs.sendMessage(tab.id, {action: 'triggerAnalysis'}).catch(() => {});
-        await SettingsManager.updateAndSync({});  // Refresh UI
+      // The content script keys the cache by the URL path id (no query string); off your profile, clear your own
+      const tabProfileId = tab?.url?.match(/linkedin\.com\/in\/([^\/?#]+)/)?.[1];
+      const keys = [tabProfileId, settings.userProfile?.profileId].filter(Boolean).map(id => `cache_${id}`);
+      const cleared = Object.keys(await chrome.storage.local.get(keys)).length > 0;
+      if (cleared) {
+        await chrome.storage.local.remove(keys);
+        if (tabProfileId) chrome.tabs.sendMessage(tab.id, {action: 'triggerAnalysis'}).catch(() => {});
       }
-      e.target.textContent = '✓ Cleared';
-      setTimeout(() => e.target.textContent = 'Reset analysis', 2000);
+      e.target.textContent = cleared ? '✓ Cleared' : 'Nothing to clear';
+      setTimeout(() => e.target.textContent = 'Reset Profile Analysis', 2000);
     }
   });
   
@@ -519,7 +521,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         settingsEnableAIToggle.dispatchEvent(new Event('change'));
       }
       e.target.textContent = '✓ Cleared';
-      setTimeout(() => e.target.textContent = 'Clear API key', 2000);
+      setTimeout(() => e.target.textContent = 'Clear API Key', 2000);
     }
   });
   
