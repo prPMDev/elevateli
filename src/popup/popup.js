@@ -619,7 +619,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('pricingLink').href = option.dataset.pricingUrl;
     }
     document.getElementById('baseUrlGroup').classList.toggle('hidden', option?.value !== 'openai');
-    const isSaved = !!option?.value && option.value === settings.aiProvider;
+    const isSaved = !!option?.value && option.value === settings.aiProvider && !!settings.encryptedApiKey; // a cleared key leaves aiProvider behind
     settingsAiModelSelect.replaceChildren(isSaved && settings.aiModel
       ? new Option(settings.aiModel, settings.aiModel, true, true)
       : new Option('Enter your API key to load models', ''));
