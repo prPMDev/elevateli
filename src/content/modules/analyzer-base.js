@@ -56,14 +56,14 @@ class Analyzer {
   async analyze(forceRefresh = false) {
     // Development mode configuration
     const TIMEOUTS = {
-      ANALYSIS_TOTAL: 300000,  // 5 minutes timeout
+      ANALYSIS_TOTAL: 1200000,  // 20 minutes: 5 sections x 190s section timeout, plus extraction and synthesis
       SECTION_TIMEOUT: 60000,  // 60 seconds per section
       SYNTHESIS_TIMEOUT: 60000, // 60 seconds for synthesis
       DEVELOPMENT_MODE: true   // Enable extended timeouts
     };
     
     
-    // Set analysis timeout (3 minutes for development)
+    // Set analysis timeout
     const analysisTimeout = setTimeout(() => {
       this.handleAnalysisTimeout();
     }, TIMEOUTS.ANALYSIS_TOTAL);
@@ -105,14 +105,12 @@ class Analyzer {
       
       // Run extractors
       const extractedData = await this.runExtractors();
-      
+      // analyzer-main cancelAnalysis(): navigation, Reset analysis or Factory Reset. Stop reading, saving and painting.
+      if (this.cancelled) return { success: false, cancelled: true };
+
       // Calculate completeness
       OverlayManager.setState(OverlayManager.states.CALCULATING);
-      
-      
-      // Use requestAnimationFrame to ensure UI updates
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      
+
       const completenessData = await this.calculateCompleteness(extractedData);
       
       
@@ -134,79 +132,33 @@ class Analyzer {
       
       if (this.settings.enableAI && hasApiKey && this.settings.aiProvider) {
         
-        // Pre-flight API key validation
+        // Pre-flight API key validation. A failed check takes the same
+        // keep-previous-AI-results path as a failed AI run below.
         const validationResult = await this.validateApiKey();
-        
+        if (this.cancelled) return { success: false, cancelled: true };
+
+        let aiResult;
         if (!validationResult.isValid) {
-          
-          // Use enhanced error recovery with central state restoration
-          
-          const recovered = await OverlayManager.restoreAppropriateState(this.profileId, {
-            isErrorFallback: true,
-            error: 'API key validation failed',
-            message: validationResult.error || 'Invalid API key. Please check your settings. Showing cached results.'
-          });
-          
-          if (recovered) {
-            // Cache was restored, return early
-            clearTimeout(analysisTimeout);
-            return { success: true, fromCache: true, apiKeyError: true };
-          }
-          
-          // No cache available, continue with analysis but mark error
-          result.aiError = {
-            message: validationResult.error || 'Invalid Key',
-            type: 'validation_failed',
-            requiresConfig: true
-          };
-          
-          // Skip AI analysis but continue with completeness results
+          aiResult = { success: false, error: validationResult.error || 'Invalid Key', errorType: 'validation_failed' };
         } else {
           // API key is valid, proceed with AI analysis
-          OverlayManager.setState(OverlayManager.states.AI_ANALYZING);
-          
-          // Use requestAnimationFrame to ensure UI updates
-          await new Promise(resolve => requestAnimationFrame(resolve));
-          
+          OverlayManager.setState(OverlayManager.states.AI_ANALYZING, { completeness: completenessData.score });
+
           // Pass completeness score to AI analysis for conditional advice
           extractedData.completenessScore = completenessData?.score || 100;
-          const aiResult = await this.runAIAnalysis(extractedData);
-          
-          // Check if the AI result is actually a failure disguised as success
-          // (happens when quality-scorer returns default score on error)
-          const isDefaultFailureScore = aiResult.success && 
-                                       aiResult.score === 5.0 && 
-                                       aiResult.recommendations?.critical?.[0] === 'Unable to analyze profile quality. Please try again.';
-          
-          if (aiResult.success && !isDefaultFailureScore) {
+          aiResult = await this.runAIAnalysis(extractedData);
+        }
+
+        if (aiResult.success) {
           result.contentScore = aiResult.score;
-          result.recommendations = aiResult.recommendations;
-          result.insights = aiResult.insights;
           result.sectionScores = aiResult.sectionScores;
-          
-          // For distributed analysis, sectionScores might be nested differently
-          if (!result.sectionScores && aiResult.synthesis) {
-            result.sectionScores = aiResult.synthesis.sectionScores || aiResult.sectionScores;
-          }
-          
-          
-          
-          
-          
-          
-          
         } else {
-          
+
           // Check for cached AI data to merge with new completeness
           if (cachedData && cachedData.contentScore !== undefined) {
-            
+
             result.contentScore = cachedData.contentScore;
-            result.recommendations = cachedData.recommendations;
             result.sectionScores = cachedData.sectionScores;
-            result.insights = cachedData.insights; // Also copy insights
-            // Copy any other AI-related fields that might exist
-            if (cachedData.summary) result.summary = cachedData.summary;
-            if (cachedData.recommendationsArray) result.recommendationsArray = cachedData.recommendationsArray;
             result.partialUpdate = true;
             result.cachedContentScore = true;
             result.aiFailedWithCache = true;
@@ -219,9 +171,15 @@ class Analyzer {
             retryAfter: aiResult.retryAfter
           };
         }
-        } // Close the validation else block
       }
       
+      // Cancelled, or a factory reset during the run cleared storage: don't write this run back or show it
+      const { compliance } = await chrome.storage.local.get('compliance');
+      if (this.cancelled || !compliance?.hasAcknowledged) {
+        clearTimeout(analysisTimeout);
+        return { success: false, cancelled: true };
+      }
+
       // Save to cache
       await this.cacheManager.save(this.profileId, result, extractedData);
       
@@ -234,15 +192,14 @@ class Analyzer {
       // If AI failed but we have completeness, show complete state with error
       let finalState;
       if (result.aiError && this.settings.enableAI) {
-        // Check if it's a validation error
-        if (result.aiError.type === 'validation_failed') {
+        // Cached AI results first, so the banner (with the key error, if any) explains them
+        if (result.partialUpdate || result.aiFailedWithCache) {
+          finalState = OverlayManager.states.ANALYSIS_FAILED_CACHE_FALLBACK;
+        } else if (result.aiError.type === 'validation_failed') {
           finalState = OverlayManager.states.COMPLETE;
           // Add a specific message for API key errors
           result.apiKeyError = true;
           result.apiKeyErrorMessage = result.aiError.message;
-        } else if (result.partialUpdate || result.aiFailedWithCache) {
-          // Handle partial updates where AI failed but we used cached data
-          finalState = OverlayManager.states.ANALYSIS_FAILED_CACHE_FALLBACK;
         } else {
           finalState = OverlayManager.states.ERROR;
         }
@@ -256,6 +213,8 @@ class Analyzer {
         ...result,
         // Ensure fromCache flag is set for partial updates
         fromCache: result.partialUpdate || result.cachedContentScore || result.fromCache,
+        // Cache-fallback banner text: say what failed (e.g. rate limit wait time)
+        message: result.aiError && `AI analysis failed (${result.aiError.message}). Showing your previous AI results.`,
         // Only mark AI as disabled if there's no content score
         aiDisabled: result.contentScore === undefined || result.contentScore === null
       };
@@ -269,7 +228,8 @@ class Analyzer {
     } catch (error) {
       console.error('[Analyzer] Analysis failed:', error);
       clearTimeout(analysisTimeout);
-      
+      if (this.cancelled) return { success: false, cancelled: true };
+
       // If we have cached data, fall back to it
       if (cachedData && cachedData.completeness !== undefined) {
         
@@ -290,9 +250,6 @@ class Analyzer {
         });
         return { success: false, error: error.message };
       }
-    } finally {
-      // Always ensure buttons are re-enabled
-      OverlayManager.resetButtons();
     }
   }
   
@@ -307,11 +264,10 @@ class Analyzer {
     // Find earliest start date
     let earliestStart = new Date();
     experienceData.experiences.forEach(exp => {
-      if (exp.startDate) {
-        const startDate = new Date(exp.startDate);
-        if (startDate < earliestStart) {
-          earliestStart = startDate;
-        }
+      // The extractor stores 'Mon YYYY' under employment; skip roles without a parseable date
+      const startDate = new Date(exp.employment?.startDate);
+      if (!isNaN(startDate) && startDate < earliestStart) {
+        earliestStart = startDate;
       }
     });
     
@@ -324,6 +280,7 @@ class Analyzer {
    * Handle analysis timeout
    */
   async handleAnalysisTimeout() {
+    if (this.cancelled) return;
     try {
       // Check if we have partial results (completeness score)
       if (this.analysisResults && this.analysisResults.completeness !== undefined) {
@@ -333,17 +290,16 @@ class Analyzer {
           completeness: this.analysisResults.completeness,
           completenessData: this.analysisResults.completenessData,
           extractedData: this.analysisResults.extractedData,
-          contentScore: 0, // No AI score available
-          recommendations: null, // No AI recommendations
-          insights: {
-            summary: 'Analysis timed out. Showing completeness score only.',
-            aiError: {
-              type: 'timeout',
-              message: 'AI analysis took too long. Try again for full analysis.'
-            }
+          // The overlay's "AI failed" contract: contentScore 0 + aiError + settings.enableAI
+          // renders "No score" instead of a 0-star rating
+          contentScore: 0,
+          aiDisabled: true,
+          aiError: {
+            type: 'timeout',
+            message: 'AI analysis took too long. Try again for full analysis.'
           },
-          timestamp: Date.now(),
-          isPartial: true
+          settings: { enableAI: this.settings.enableAI },
+          timestamp: Date.now()
         };
         
         // Show partial results in the UI
@@ -501,38 +457,7 @@ class Analyzer {
    * Run distributed AI analysis (section by section)
    */
   async runDistributedAIAnalysis(extractedData) {
-    
-    // Pre-flight API key validation before showing any UI
-    const validationResult = await this.validateApiKey();
-    
-    if (!validationResult.isValid) {
-      // Check if it's a network error vs actual validation failure
-      const errorMessage = validationResult.error || 'Invalid Key';
-      const isNetworkError = errorMessage.toLowerCase().includes('network') || 
-                            errorMessage.toLowerCase().includes('fetch') ||
-                            errorMessage.toLowerCase().includes('connection');
-      
-      
-      if (isNetworkError) {
-        // Don't treat network errors as API key validation failures
-        return {
-          success: false,
-          error: errorMessage,
-          errorType: 'NETWORK',
-          requiresConfig: false
-        };
-      } else {
-        return {
-          success: false,
-          error: errorMessage,
-          errorType: 'validation_failed',
-          requiresConfig: true
-        };
-      }
-    }
-    
     const sectionResults = {};
-    const sectionRecommendations = {};
     const sections = [];
     
     // Build list of sections to analyze
@@ -549,18 +474,8 @@ class Analyzer {
           photo: {
             exists: extractedData.photo?.exists || false,
             hasPhoto: extractedData.photo?.exists || false
-          },
-          banner: {
-            exists: extractedData.banner?.exists || false,
-            isCustomBanner: extractedData.banner?.isCustomBanner || false
-          },
-          metadata: {
-            openToWork: extractedData.openToWork?.enabled || false,
-            openToWorkDetails: extractedData.openToWork?.details || null,
-            creatorMode: extractedData.creatorMode?.enabled || false,
-            connectionCount: extractedData.connections?.count || 0,
-            verified: extractedData.verified || false
           }
+          // No banner/Open to Work/Creator Mode/connections: no extractor produces them
         }
       });
     }
@@ -587,7 +502,7 @@ class Analyzer {
       });
     }
     
-    // 2. Experience Roles
+    // 2. Experience (one overall section; roles feed its prompt)
     // Check if experience exists and has count > 0
     if (extractedData.experience?.exists && extractedData.experience?.count > 0) {
       // Need to run extractDeep to get individual experiences for AI analysis
@@ -598,12 +513,12 @@ class Analyzer {
         
         if (experienceExtractor && typeof experienceExtractor.extractDeep === 'function') {
           const deepExperienceData = await experienceExtractor.extractDeep();
-          
+          if (this.cancelled) return { success: false, cancelled: true };
+
           if (deepExperienceData.experiences && deepExperienceData.experiences.length > 0) {
             // Expose roles to skills/recommendations career context below
             extractedData.experience.experiences = deepExperienceData.experiences;
 
-            // First, add overall experience section for high-level analysis
             sections.push({
               type: 'experience_overall',
               name: 'Overall Experience',
@@ -619,27 +534,6 @@ class Analyzer {
                 hasTechStack: deepExperienceData.hasTechStack
               }
             });
-            
-            
-            // Then add each experience role as a separate section for detailed analysis
-            deepExperienceData.experiences.forEach((exp, index) => {
-              // Create a display name with company
-              const companyName = exp.company || 'Unknown Company';
-              const displayName = `${companyName} - ${exp.title || 'Role'}`;
-              
-              sections.push({
-                type: 'experience_role',
-                name: displayName,
-                data: exp,
-                context: {
-                  position: index,
-                  totalRoles: deepExperienceData.experiences.length,
-                  previousRole: deepExperienceData.experiences[index - 1],
-                  nextRole: deepExperienceData.experiences[index + 1]
-                }
-              });
-            });
-            
           }
         }
       } catch (error) {
@@ -785,133 +679,50 @@ class Analyzer {
     // Analyze sections sequentially
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
-      
+      let result;
+      // Also covers the recommendations extractDeep above
+      if (this.cancelled) return { success: false, cancelled: true };
+
       try {
-        // Update UI with current section
-        
-        // Format display name based on section type
-        let displayName = section.name;
-        if (section.type === 'experience_role' && section.data) {
-          // Format as "Senior Product Manager role at Avalara"
-          const title = section.data.title || 'Role';
-          const company = section.data.company || 'Unknown Company';
-          displayName = `${title} role at ${company}`;
-        }
-        
-        OverlayManager.updateAIProgress('analyzing', displayName);
-        
-        // Log data size being sent
-        
-        // Analyze the section with 30-second timeout
-        const result = await Promise.race([
+        OverlayManager.updateAIProgress('analyzing', section.name);
+
+        // Above the SW's 180 s per AI call, so the SW's own error is the one reported
+        result = await Promise.race([
           this.analyzeSection(section.type, section.data, section.context),
-          new Promise((resolve) => 
-            setTimeout(() => resolve({ success: false, error: 'Section analysis timeout (30s)' }), 30000)
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ success: false, error: 'Section analysis timeout (190s)' }), 190000)
           )
         ]);
-        
-        // Log completion
-        
-        if (result.success) {
-          consecutiveFailures = 0; // Reset on success
-          // Handle multiple experience roles
-          if (section.type === 'experience_role') {
-            if (!sectionResults.experience_roles) {
-              sectionResults.experience_roles = [];
-              sectionRecommendations.experience_roles = [];
-            }
-            sectionResults.experience_roles.push(result);
-            sectionRecommendations.experience_roles.push(...(result.recommendations || []));
-          } else {
-            sectionResults[section.type] = result;
-            sectionRecommendations[section.type] = result.recommendations || [];
-          }
-          
-          // Update UI with section score
-          OverlayManager.updateSectionScore(section.type, result.score);
-        } else {
-          
-          consecutiveFailures++;
-          
-          // Check for early exit condition
-          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-            
-            // Use enhanced error recovery with central state restoration
-            
-            try {
-              const recovered = await OverlayManager.restoreAppropriateState(this.profileId, {
-                isErrorFallback: true,
-                error: 'Network connection lost',
-                message: 'Connection lost during AI analysis. Showing cached results.'
-              });
-              
-              if (recovered) {
-                // Cache was restored, return success with cache flag
-                return { 
-                  success: true, 
-                  fromCache: true, 
-                  networkError: true,
-                  partialResults: sectionResults 
-                };
-              }
-            } catch (recoveryError) {
-              console.error('[AI Analysis] Cache recovery failed:', recoveryError);
-            }
-            
-            // Return failure with network error indication
-            return {
-              success: false,
-              error: 'Network connection lost - analysis stopped',
-              errorType: 'NETWORK',
-              partialResults: sectionResults
-            };
-          }
-        }
-        
       } catch (error) {
         console.error(`[AI Analysis] Error analyzing ${section.name}:`, error);
-        consecutiveFailures++;
-        
-        // Check for early exit on exception
-        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-          console.error(`[AI Analysis] ${consecutiveFailures} consecutive errors - stopping analysis`);
-          
-          // Use enhanced error recovery with central state restoration
-          
-          try {
-            const recovered = await OverlayManager.restoreAppropriateState(this.profileId, {
-              isErrorFallback: true,
-              error: 'Multiple errors occurred',
-              message: 'Multiple errors during AI analysis. Showing cached results.'
-            });
-            
-            if (recovered) {
-              // Cache was restored, return success with cache flag
-              return { 
-                success: true, 
-                fromCache: true, 
-                multipleErrors: true,
-                partialResults: sectionResults 
-              };
-            }
-          } catch (recoveryError) {
-            console.error('[AI Analysis] Cache recovery failed:', recoveryError);
-          }
-          
+        result = { success: false, error: error.message };
+      }
+
+      if (result.success) {
+        consecutiveFailures = 0; // Reset on success
+        sectionResults[section.type] = result;
+      } else {
+        // Record the failure so the overlay says this section failed instead of "Enable AI"
+        sectionResults[section.type] = { score: null, errorType: 'ANALYSIS_FAILED', error: result.error, actionItems: [] };
+
+        // Check for early exit condition. analyze() keeps the previous AI results on failure.
+        if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
           return {
             success: false,
-            error: 'Multiple errors occurred - analysis stopped',
-            errorType: 'NETWORK',
+            error: result.error,
+            errorType: result.errorType || 'NETWORK',
+            retryAfter: result.retryAfter,
             partialResults: sectionResults
           };
         }
       }
     }
-    
+
     // 5. Synthesize all results
+    if (this.cancelled) return { success: false, cancelled: true };
     OverlayManager.updateAIProgress('synthesizing', 'Synthesizing results...');
-    
-    const synthesis = await this.synthesizeResults(sectionResults, sectionRecommendations);
+
+    const synthesis = await this.synthesizeResults(sectionResults);
     
     
     
@@ -928,15 +739,13 @@ class Analyzer {
         action: 'analyzeSection',
         section: sectionType,
         data: data,
-        context: context,
-        settings: this.settings
+        context: context
       }, (response) => {
         if (response && response.success) {
           resolve({
             success: true,
             section: sectionType,
             score: response.score,
-            recommendations: response.recommendations,
             // Include all AI analysis fields
             positiveInsight: response.insight,
             actionItems: response.actionItems,
@@ -953,7 +762,9 @@ class Analyzer {
           resolve({
             success: false,
             section: sectionType,
-            error: errorMessage
+            error: errorMessage,
+            errorType: response?.errorType,
+            retryAfter: response?.retryAfter
           });
         }
       });
@@ -963,51 +774,19 @@ class Analyzer {
   /**
    * Synthesize all section results
    */
-  async synthesizeResults(sectionResults, sectionRecommendations) {
-    
+  async synthesizeResults(sectionResults) {
+
     return new Promise((resolve) => {
       safeSendMessage({
         action: 'synthesizeAnalysis',
-        sectionScores: sectionResults,
-        sectionRecommendations: sectionRecommendations
+        sectionScores: sectionResults
       }, (response) => {
         
         if (response && response.success) {
-          const result = {
-            success: true,
-            score: response.finalScore,
-            synthesis: response.synthesis,
-            recommendations: response.overallRecommendations || response.recommendations || [],
-            insights: response.careerNarrative,
-            sectionScores: response.sectionScores
-          };
-          
-          
-          
-          resolve(result);
+          resolve({ success: true, score: response.finalScore, sectionScores: response.sectionScores });
         } else {
-          // Fallback: calculate weighted average
-          const weights = {
-            experience: 0.40,
-            skills: 0.20,
-            recommendations: 0.15
-          };
-          
-          let totalScore = 0;
-          let totalWeight = 0;
-          
-          Object.entries(sectionResults).forEach(([section, result]) => {
-            const weight = weights[section] || 0.1;
-            totalScore += (result.score || 0) * weight;
-            totalWeight += weight;
-          });
-          
-          resolve({
-            success: true,
-            score: totalWeight > 0 ? totalScore / totalWeight : 5,
-            recommendations: Object.values(sectionRecommendations).flat(),
-            insights: { message: 'Synthesis unavailable, showing section results' }
-          });
+          // Treated like any AI failure: analyze() keeps the previous AI results
+          resolve({ success: false, error: response?.error || 'Synthesis failed' });
         }
       });
     });

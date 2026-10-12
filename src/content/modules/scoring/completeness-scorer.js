@@ -136,14 +136,8 @@ class ProfileCompletenessCalculator {
             }
           }
           
-          // Recency bonus - recent roles get more weight
-          let recencyScore = 0.2; // Default if has current role
-          if (data.hasCurrentRole) {
-            recencyScore = 0.2;
-          } else if (data.recentRolesCount !== undefined && data.count > 0) {
-            const recencyRatio = data.recentRolesCount / data.count;
-            recencyScore = recencyRatio * 0.2;
-          }
+          // Recency bonus - only for a current role
+          const recencyScore = data.hasCurrentRole ? 0.2 : 0;
           
           const score = hasRoles + hasCurrent + contentScore + recencyScore;
           return Math.min(score, 1.0);

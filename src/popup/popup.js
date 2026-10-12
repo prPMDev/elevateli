@@ -83,6 +83,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     'showAnalysis',
     'customInstructions',
     'targetRole',
+    'customRole',
     'seniorityLevel',
     'compliance',
     'userProfile',
@@ -96,8 +97,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
       const updates = {};
-      ['showAnalysis', 'enableAI', 'targetRole', 'seniorityLevel'].forEach(key => {
-        if (changes[key]) updates[key] = changes[key].newValue;
+      ['showAnalysis', 'enableAI', 'targetRole', 'customRole', 'seniorityLevel'].forEach(key => {
+        // Skip values this popup already holds (its own writes), so a sync never wipes unsaved form edits
+        if (changes[key] && changes[key].newValue !== settings[key]) updates[key] = changes[key].newValue;
       });
       if (Object.keys(updates).length) {
         Object.assign(settings, updates);
@@ -120,12 +122,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
       clearFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'));
       clearFieldError(settingsAiModelSelect, null);
-      
-      // Hide status messages
-      const testStatus = document.getElementById('apiKeyTestStatus');
-      if (testStatus) {
-        testStatus.classList.add('hidden');
-      }
     }
     
     // Show requested view
@@ -239,6 +235,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       // Notify overlay only for showAnalysis changes
       if (changes.showAnalysis !== undefined) {
+        // Persist first: the toggle applies live, and the content script re-reads it from storage
+        await chrome.storage.local.set({ showAnalysis: changes.showAnalysis });
         const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
         if (tab?.url?.includes('linkedin.com/in/')) {
           chrome.tabs.sendMessage(tab.id, {
@@ -253,7 +251,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function updateActiveMainView() {
     // Update status displays in active main view
     if (analysisStatus) analysisStatus.textContent = settings.showAnalysis !== false ? 'On' : 'Off';
-    if (targetRoleStatus) targetRoleStatus.textContent = settings.targetRole || 'Not set';
+    if (targetRoleStatus) targetRoleStatus.textContent = (settings.targetRole === 'other' && settings.customRole) || settings.targetRole || 'Not set';
     if (aiAnalysisStatus) {
       const hasApiKey = !!settings.encryptedApiKey;
       const hasProvider = !!settings.aiProvider;
@@ -339,53 +337,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (tab && tab.url && tab.url.includes('linkedin.com/in/')) {
       // Save profile ownership acknowledgment
       try {
-        // First check if content script is loaded
-        let response;
-        try {
-          // Try to ping the content script
-          await chrome.tabs.sendMessage(tab.id, { action: 'ping' });
-          
-          // If ping succeeds, check profile WITHOUT saving
-          response = await chrome.tabs.sendMessage(tab.id, { 
-            action: 'saveProfile',
-            checkOnly: true  // Just check, don't save yet
-          });
-        } catch (pingError) {
-          // Content script not loaded, try to inject it
-          
-          try {
-            await chrome.scripting.executeScript({
-              target: { tabId: tab.id },
-              files: ['src/content/analyzer.js']
-            });
-            
-            // Wait a moment for script to initialize
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            // Now try to check profile again
-            response = await chrome.tabs.sendMessage(tab.id, { 
-              action: 'saveProfile',
-              checkOnly: true  // Just check, don't save yet
-            });
-          } catch (injectError) {
-            throw new Error('Could not establish connection');
-          }
-        }
+        // Check profile WITHOUT saving. A tab opened before install/reload has no live
+        // content script, so this rejects with 'Could not establish connection' and the
+        // catch below offers a refresh (which loads the manifest's content scripts).
+        const response = await chrome.tabs.sendMessage(tab.id, {
+          action: 'saveProfile',
+          checkOnly: true  // Just check, don't save yet
+        });
         
         if (response && response.success) {
           // Check if ownership was verified
           const hasOwnership = response.userProfile?.verifiedOwnership;
           const profileName = response.userProfile?.profileName || response.userProfile?.profileId || 'Unknown';
-          
+          // The name comes from the LinkedIn page; escape it before it goes into the HTML message
+          const safeName = String(profileName).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+
           // Build improved confirmation message
           let confirmMsg;
 
           if (hasOwnership) {
-            confirmMsg = `Ready to save profile <b>${profileName}</b><br><br>
+            confirmMsg = `Ready to save profile <b>${safeName}</b><br><br>
             ✅ Ownership verified<br><br>
             Continue?`;
           } else {
-            confirmMsg = `Profile detected <b>${profileName}</b><br><br>
+            confirmMsg = `Profile detected <b>${safeName}</b><br><br>
             ⚠️ <span style="color: #dc2626;">Ownership not verified</span><br>
             ElevateLI works best with your own profile.<br><br>
             Continue anyway?`;
@@ -446,12 +421,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           });
           
           // Move to main view (not AI setup)
-          profileSetupDiv.classList.add('hidden');
-          activeMainDiv.classList.remove('hidden');
-          
-          // Load the main view
+          settings.userProfile = response.userProfile;
           showView('activeMain');
-          updateActiveMainView();
         } else {
           alert('Failed to save profile. Please ensure you are on your LinkedIn profile.');
         }
@@ -464,8 +435,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const parser = new DOMParser();
         const htmlContent = `
             <div style="text-align: center; padding: 20px; background: #fef3c7; border-radius: 8px; margin: 10px 0;">
-              <p style="color: #92400e; font-weight: 500; margin-bottom: 8px;">🔄 Extension Updated</p>
-              <p style="color: #78350f; font-size: 14px; margin-bottom: 12px;">Please refresh your LinkedIn tab to use the latest version</p>
+              <p style="color: #92400e; font-weight: 500; margin-bottom: 8px;">🔄 Refresh needed</p>
+              <p style="color: #78350f; font-size: 14px; margin-bottom: 12px;">Refresh your LinkedIn tab to finish setup</p>
               <button id="refreshTab" class="primary-button" style="background: #f59e0b;">Refresh LinkedIn Tab</button>
             </div>
           `;
@@ -500,6 +471,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         clearFieldError(settingsAiModelSelect, null);
       }
     }
+    if (e.target.checked) onProviderChange(); // models load only once AI is on
   });
   
   // Real-time overlay sync when toggled
@@ -522,14 +494,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
     if (await showConfirmDialog('🗑️ <b>Clear Cached Analysis?</b><br><br>Settings will be preserved.', true)) {
       const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-      const profileId = tab?.url?.match(/linkedin\.com\/in\/([^\/]+)/)?.[1];
-      if (profileId) {
-        await chrome.storage.local.remove([`cache_${profileId}`]);
-        chrome.tabs.sendMessage(tab.id, {action: 'triggerAnalysis'}).catch(() => {});
-        await SettingsManager.updateAndSync({});  // Refresh UI
+      // The content script keys the cache by the URL path id (no query string); off your profile, clear your own
+      const tabProfileId = tab?.url?.match(/linkedin\.com\/in\/([^\/?#]+)/)?.[1];
+      const keys = [tabProfileId, settings.userProfile?.profileId].filter(Boolean).map(id => `cache_${id}`);
+      const cleared = Object.keys(await chrome.storage.local.get(keys)).length > 0;
+      if (cleared) {
+        await chrome.storage.local.remove(keys);
+        if (tabProfileId) chrome.tabs.sendMessage(tab.id, {action: 'triggerAnalysis'}).catch(() => {});
       }
-      e.target.textContent = '✓ Cleared';
-      setTimeout(() => e.target.textContent = 'Reset analysis', 2000);
+      e.target.textContent = cleared ? '✓ Cleared' : 'Nothing to clear';
+      setTimeout(() => e.target.textContent = 'Reset Profile Analysis', 2000);
     }
   });
   
@@ -537,15 +511,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
     if (await showConfirmDialog('Clear API key? You\'ll need to re-enter it.')) {
       await chrome.storage.local.remove(['encryptedApiKey', 'installationId']);
+      delete settings.encryptedApiKey; // or Settings shows the saved-key placeholder and 'Configured' again
       settingsApiKeyInput.value = '';
       // Update UI state
       await SettingsManager.updateAndSync({ enableAI: false });
+      await chrome.storage.local.set({ enableAI: false });
       if (settingsEnableAIToggle) {
         settingsEnableAIToggle.checked = false;
         settingsEnableAIToggle.dispatchEvent(new Event('change'));
       }
       e.target.textContent = '✓ Cleared';
-      setTimeout(() => e.target.textContent = 'Clear API key', 2000);
+      setTimeout(() => e.target.textContent = 'Clear API Key', 2000);
     }
   });
   
@@ -587,11 +563,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Clear validation on input
   settingsApiKeyInput?.addEventListener('input', () => {
     clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
-    // Also clear the test status when user starts typing
-    const testStatus = document.getElementById('apiKeyTestStatus');
-    if (testStatus) {
-      testStatus.classList.add('hidden');
-    }
   });
   
   settingsCustomRoleInput?.addEventListener('input', () => {
@@ -621,17 +592,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Fill the model list from the provider. The same call validates the key; no key = the saved one.
+  let lastValidated = null; // provider|key|baseUrl that loadModels last validated, so Save need not test it again
   async function loadModels(apiKey) {
     const provider = settingsAiProviderSelect.value;
     const keep = settingsAiModelSelect.value;
-    const response = await chrome.runtime.sendMessage({
-      action: 'testApiKey', provider, apiKey, baseUrl: settingsBaseUrlInput.value.trim()
-    });
+    const baseUrl = settingsBaseUrlInput.value.trim();
+    const response = await chrome.runtime.sendMessage({ action: 'testApiKey', provider, apiKey, baseUrl });
     if (provider !== settingsAiProviderSelect.value) return; // provider changed while loading
     if (!response?.success) {
       showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), response?.error || 'Could not load models');
       return;
     }
+    lastValidated = [provider, apiKey, baseUrl].join('|');
     clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
     settingsAiModelSelect.replaceChildren(
       new Option('Select AI model...', ''),
@@ -647,11 +619,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('pricingLink').href = option.dataset.pricingUrl;
     }
     document.getElementById('baseUrlGroup').classList.toggle('hidden', option?.value !== 'openai');
-    const isSaved = !!option?.value && option.value === settings.aiProvider;
+    const isSaved = !!option?.value && option.value === settings.aiProvider && !!settings.encryptedApiKey; // a cleared key leaves aiProvider behind
     settingsAiModelSelect.replaceChildren(isSaved && settings.aiModel
       ? new Option(settings.aiModel, settings.aiModel, true, true)
       : new Option('Enter your API key to load models', ''));
-    if (option?.value && (typedApiKey() || isSaved)) loadModels(typedApiKey());
+    // Never send the key anywhere while AI is off
+    if (option?.value && settingsEnableAIToggle.checked && (typedApiKey() || isSaved)) loadModels(typedApiKey());
   }
 
   settingsAiProviderSelect?.addEventListener('change', onProviderChange);
@@ -681,19 +654,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       provider = settingsAiProviderSelect.value;
       model = settingsAiModelSelect.value;
       apiKey = settingsApiKeyInput.value.trim();
-      
-      // Clean the API key - remove zero-width spaces and other invisible characters
-      apiKey = apiKey.replace(/[\u200B-\u200D\uFEFF]/g, '');
       if (!apiKey && isLocalBaseUrl()) apiKey = 'local'; // local servers need no key
       
       // Check if it's a placeholder or real key
       isPlaceholder = apiKey === '••••••••••••';
-      
-      // Check for non-ASCII characters if not placeholder
-      if (!isPlaceholder && apiKey && !/^[\x20-\x7E]+$/.test(apiKey)) {
-        showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), 'API key contains invalid characters');
-        hasErrors = true;
-      }
       
       // Check for empty API key if not placeholder
       if (!isPlaceholder && !apiKey) {
@@ -712,6 +676,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         hasErrors = true;
       }
 
+      // The custom role field lives in the AI section, so it is only checked while that is shown
+      if ((settingsTargetRoleSelect.value === 'other' || settingsTargetRoleSelect.value === 'Other') && !settingsCustomRoleInput.value.trim()) {
+        showFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'), 'Please enter your target role');
+        hasErrors = true;
+      }
+
+      // Validate everything before any write, so a failed save changes nothing
       if (hasErrors) return;
 
       // Only validate if user entered a new key (not placeholder)
@@ -722,12 +693,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // Validate API key first
         try {
-          const testResponse = await chrome.runtime.sendMessage({
-            action: 'testApiKey',
-            provider,
-            apiKey,
-            baseUrl
-          });
+          const testResponse = [provider, apiKey, baseUrl].join('|') === lastValidated
+            ? { success: true }
+            : await chrome.runtime.sendMessage({ action: 'testApiKey', provider, apiKey, baseUrl });
           
           if (!testResponse || !testResponse.success) {
             // Use consistent field validation error UI
@@ -746,10 +714,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           
           // Clear any validation errors since key is valid
           clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
-          
-          // Clear any existing encrypted key first
-          await chrome.storage.local.remove(['encryptedApiKey', 'installationId']);
-          
+
+          // The set below overwrites the old key, so it stays usable until the new one is stored
           const encryptResponse = await chrome.runtime.sendMessage({
             action: 'encryptApiKey',
             apiKey: apiKey
@@ -766,61 +732,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             throw new Error('Failed to encrypt API key');
           }
         } catch (error) {
-          
-          // Determine error message
-          let errorMessage = 'Failed to save API key securely';
-          let showTroubleshoot = false;
-          
-          // Check if it's a Chrome runtime error
-          if (chrome.runtime.lastError) {
-            errorMessage = 'Extension error: ' + chrome.runtime.lastError.message;
-          } else if (error.message && error.message.includes('Extension context invalidated')) {
-            errorMessage = 'Extension reloaded. Please refresh the page';
-          } else if (error.message && (error.message.includes('Web Crypto API') || error.message.includes('browser'))) {
-            errorMessage = error.message;
-            showTroubleshoot = true;
-          } else if (error.message && error.message.includes('encrypt')) {
-            errorMessage = 'Encryption failed. Try resetting encryption settings';
-            showTroubleshoot = true;
-          }
-          
-          // Use consistent field validation error UI
-          showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), errorMessage);
-          
-          // Only show status div for troubleshooting scenarios
-          if (showTroubleshoot) {
-            const statusDiv = document.getElementById('apiKeyTestStatus');
-            if (statusDiv) {
-              statusDiv.textContent = '✗ ' + errorMessage + ' ';
-              const troubleshootLink = document.createElement('a');
-              troubleshootLink.href = '#';
-              troubleshootLink.id = 'troubleshoot-encryption';
-              troubleshootLink.style.color = '#0a66c2';
-              troubleshootLink.style.textDecoration = 'underline';
-              troubleshootLink.style.fontSize = '12px';
-              troubleshootLink.textContent = 'Troubleshoot';
-              statusDiv.appendChild(troubleshootLink);
-              
-              // Handle troubleshoot click
-              setTimeout(() => {
-                document.getElementById('troubleshoot-encryption')?.addEventListener('click', async (e) => {
-                  e.preventDefault();
-                  
-                  // Clear installation ID and encrypted key to force reset
-                  await chrome.storage.local.remove(['installationId', 'encryptedApiKey']);
-                  
-                  statusDiv.textContent = '✓ Encryption settings reset. Please try saving again.';
-                  statusDiv.className = 'test-status success';
-                  
-                  // Hide after 3 seconds
-                  setTimeout(() => statusDiv.classList.add('hidden'), 3000);
-                });
-              }, 100);
-            }
-            
-            // Hide error after 8 seconds (longer for troubleshooting)
-            setTimeout(() => statusDiv.classList.add('hidden'), showTroubleshoot ? 8000 : 5000);
-          }
+          showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'),
+            error.message?.includes('Extension context invalidated') ? 'Extension reloaded. Please refresh the page' : 'Failed to save API key securely');
           
           // Reset button
           saveSettingsBtn.textContent = 'Save Settings';
@@ -828,70 +741,33 @@ document.addEventListener('DOMContentLoaded', async () => {
           
           return; // Don't continue with saving
         }
-      } else if (!isPlaceholder && !apiKey) {
-        // User cleared the API key field - use consistent validation
-        showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), 'API key is required');
-        hasErrors = true;
-      } else {
-        // Just save the provider and model if key wasn't changed (placeholder shown)
-        await chrome.storage.local.set({ 
-          aiProvider: provider,
-          aiModel: model,
-          aiBaseUrl: baseUrl
-        });
       }
     }
-    
+
     // Save all other settings
     const settingsToSave = {
-      showAnalysis: settingsShowAnalysisToggle.checked,  // ADD THIS LINE
+      showAnalysis: settingsShowAnalysisToggle.checked,
       enableAI: settingsEnableAIToggle.checked,
       targetRole: settingsTargetRoleSelect.value,
+      customRole: settingsCustomRoleInput.value.trim(),
       seniorityLevel: settingsSeniorityLevelSelect.value,
       customInstructions: settingsCustomInstructionsTextarea.value.trim()
     };
-    
-    // Validate custom role if "Other" is selected
-    if (settingsTargetRoleSelect.value === 'other' || settingsTargetRoleSelect.value === 'Other') {
-      const customRole = settingsCustomRoleInput.value.trim();
-      if (!customRole) {
-        showFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'), 'Please enter your target role');
-        hasErrors = true;
-      } else {
-        settingsToSave.customRole = customRole;
-      }
-    }
-    
-    // If there are validation errors, don't save
-    if (hasErrors) {
-      return;
-    }
-    
+    // Provider/model change even when the key did not
+    if (provider) Object.assign(settingsToSave, { aiProvider: provider, aiModel: model, aiBaseUrl: baseUrl });
+
     await chrome.storage.local.set(settingsToSave);
-    
+
     // Update settings object with saved values
     Object.assign(settings, settingsToSave);
-    
-    // Reflect the saved AI config (provider/model change even when the key did not)
-    if (settingsEnableAIToggle.checked && provider) {
-      if (!isPlaceholder) settings.encryptedApiKey = true; // Mark that we have an encrypted key
-      settings.aiProvider = provider;
-      settings.aiModel = model;
-      settings.aiBaseUrl = baseUrl;
-    }
-    
+    if (provider && !isPlaceholder) settings.encryptedApiKey = true; // Mark that we have an encrypted key
+
     await SettingsManager.updateAndSync(settings);  // Pass full settings
     
     // Clear all validation errors on successful save
     clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
     clearFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'));
     clearFieldError(settingsAiModelSelect, null);
-    
-    // Hide any status messages
-    const testStatus = document.getElementById('apiKeyTestStatus');
-    if (testStatus) {
-      testStatus.classList.add('hidden');
-    }
     
     // Enhanced visual feedback with guidance
     saveSettingsBtn.textContent = '✓ Settings Saved';
@@ -900,6 +776,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Navigate back to homepage after 1 second
     setTimeout(() => {
       saveSettingsBtn.textContent = 'Save Settings';
+      saveSettingsBtn.disabled = false;
       saveSettingsBtn.classList.remove('success');
       showView('activeMain'); // Navigate back to homepage
     }, 1000);
