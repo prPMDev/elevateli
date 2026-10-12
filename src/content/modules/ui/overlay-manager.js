@@ -817,10 +817,9 @@ const OverlayManager = {
           }
         }
         
-        // Show toast if AI failed but completeness succeeded
-        if (data.partialUpdate && data.aiFailedWithCache) {
-          this.showToast('AI analysis failed. Showing previous AI results with updated completeness.', 'warning', 7000);
-        } else if (data.apiKeyError) {
+        // A fresh AI failure with cached AI results lands in ANALYSIS_FAILED_CACHE_FALLBACK (banner);
+        // here partialUpdate only arrives via cache restore, where the asterisk + message suffice
+        if (data.apiKeyError) {
           this.showToast('Invalid API key. Please check your settings for AI analysis.', 'error');
         }
       },
@@ -3016,7 +3015,7 @@ const OverlayManager = {
           return;
         }
         
-        chrome.storage.local.get(['enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel'], (data) => {
+        chrome.storage.local.get(['enableAI', 'aiProvider', 'aiModel'], (data) => {
           if (chrome.runtime.lastError) {
             resolve({});
             return;
@@ -3071,18 +3070,12 @@ const OverlayManager = {
 
     // If we have cached data, restore it
     if (cachedData && cachedData.completeness !== undefined) {
-      const hasApiKey = settings.encryptedApiKey;
-      const enableAI = settings.enableAI && hasApiKey && settings.aiProvider;
-      
+      // Keep every cached field (insights, AI-failure flags, extractedData), as analyzer-base's cache path does
       const stateData = {
-        completeness: cachedData.completeness,
-        contentScore: cachedData.contentScore,
-        completenessData: cachedData.completenessData,
-        recommendations: cachedData.recommendations,
-        sectionScores: cachedData.sectionScores,
-        timestamp: cachedData.timestamp,
+        ...cachedData,
         fromCache: true,
-        aiDisabled: !enableAI,
+        // Only mark AI as disabled if there's no content score - matches analyzer-base's cache path
+        aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
         settings: {
           enableAI: settings.enableAI,
           aiProvider: settings.aiProvider,
