@@ -744,8 +744,7 @@ class Analyzer {
             // Include all AI analysis fields
             positiveInsight: response.insight,
             actionItems: response.actionItems,
-            specificFeedback: response.specificFeedback,
-            errorType: response.errorType
+            specificFeedback: response.specificFeedback
           });
         } else {
           // Ensure error is always a string
