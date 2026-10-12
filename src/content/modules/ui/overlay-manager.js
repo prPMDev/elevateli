@@ -2031,16 +2031,12 @@ const OverlayManager = {
    * Show overlay
    */
   show() {
-    if (this.overlayElement) {
-      // Find the wrapper through the overlay element
-      const wrapper = this.overlayElement.closest('.elevateli-overlay-wrapper');
-      if (wrapper) {
-        wrapper.style.setProperty('display', 'block', 'important');
-        return;
-      }
+    // SPA navigation can remove the wrapper without clearing overlayElement; a stale
+    // reference would block initialize()'s injection retries and cache restore
+    if (!this.overlayElement?.isConnected) {
+      this.overlayElement = null;
     }
-    
-    // Fallback to document query if overlayElement not available
+
     const wrapper = document.querySelector('.elevateli-overlay-wrapper');
     if (wrapper) {
       wrapper.style.setProperty('display', 'block', 'important');
