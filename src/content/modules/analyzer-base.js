@@ -134,69 +134,37 @@ class Analyzer {
       
       if (this.settings.enableAI && hasApiKey && this.settings.aiProvider) {
         
-        // Pre-flight API key validation
+        // Pre-flight API key validation. A failed check takes the same
+        // keep-previous-AI-results path as a failed AI run below.
         const validationResult = await this.validateApiKey();
-        
+
+        let aiResult;
         if (!validationResult.isValid) {
-          
-          // Use enhanced error recovery with central state restoration
-          
-          const recovered = await OverlayManager.restoreAppropriateState(this.profileId, {
-            isErrorFallback: true,
-            error: 'API key validation failed',
-            message: validationResult.error || 'Invalid API key. Please check your settings. Showing cached results.'
-          });
-          
-          if (recovered) {
-            // Cache was restored, return early
-            clearTimeout(analysisTimeout);
-            return { success: true, fromCache: true, apiKeyError: true };
-          }
-          
-          // No cache available, continue with analysis but mark error
-          result.aiError = {
-            message: validationResult.error || 'Invalid Key',
-            type: 'validation_failed',
-            requiresConfig: true
-          };
-          
-          // Skip AI analysis but continue with completeness results
+          aiResult = { success: false, error: validationResult.error || 'Invalid Key', errorType: 'validation_failed' };
         } else {
           // API key is valid, proceed with AI analysis
           OverlayManager.setState(OverlayManager.states.AI_ANALYZING);
-          
+
           // Use requestAnimationFrame to ensure UI updates
           await new Promise(resolve => requestAnimationFrame(resolve));
-          
+
           // Pass completeness score to AI analysis for conditional advice
           extractedData.completenessScore = completenessData?.score || 100;
-          const aiResult = await this.runAIAnalysis(extractedData);
-          
-          // Check if the AI result is actually a failure disguised as success
-          // (happens when quality-scorer returns default score on error)
-          const isDefaultFailureScore = aiResult.success && 
-                                       aiResult.score === 5.0 && 
-                                       aiResult.recommendations?.critical?.[0] === 'Unable to analyze profile quality. Please try again.';
-          
-          if (aiResult.success && !isDefaultFailureScore) {
+          aiResult = await this.runAIAnalysis(extractedData);
+        }
+
+        if (aiResult.success) {
           result.contentScore = aiResult.score;
           result.recommendations = aiResult.recommendations;
           result.insights = aiResult.insights;
           result.sectionScores = aiResult.sectionScores;
-          
+
           // For distributed analysis, sectionScores might be nested differently
           if (!result.sectionScores && aiResult.synthesis) {
             result.sectionScores = aiResult.synthesis.sectionScores || aiResult.sectionScores;
           }
-          
-          
-          
-          
-          
-          
-          
         } else {
-          
+
           // Check for cached AI data to merge with new completeness
           if (cachedData && cachedData.contentScore !== undefined) {
             
@@ -219,7 +187,6 @@ class Analyzer {
             retryAfter: aiResult.retryAfter
           };
         }
-        } // Close the validation else block
       }
       
       // Save to cache
@@ -803,32 +770,8 @@ class Analyzer {
           
           consecutiveFailures++;
           
-          // Check for early exit condition
+          // Check for early exit condition. analyze() keeps the previous AI results on failure.
           if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-            
-            // Use enhanced error recovery with central state restoration
-            
-            try {
-              const recovered = await OverlayManager.restoreAppropriateState(this.profileId, {
-                isErrorFallback: true,
-                error: 'Network connection lost',
-                message: 'Connection lost during AI analysis. Showing cached results.'
-              });
-              
-              if (recovered) {
-                // Cache was restored, return success with cache flag
-                return { 
-                  success: true, 
-                  fromCache: true, 
-                  networkError: true,
-                  partialResults: sectionResults 
-                };
-              }
-            } catch (recoveryError) {
-              console.error('[AI Analysis] Cache recovery failed:', recoveryError);
-            }
-            
-            // Return failure with network error indication
             return {
               success: false,
               error: 'Network connection lost - analysis stopped',
@@ -845,29 +788,6 @@ class Analyzer {
         // Check for early exit on exception
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
           console.error(`[AI Analysis] ${consecutiveFailures} consecutive errors - stopping analysis`);
-          
-          // Use enhanced error recovery with central state restoration
-          
-          try {
-            const recovered = await OverlayManager.restoreAppropriateState(this.profileId, {
-              isErrorFallback: true,
-              error: 'Multiple errors occurred',
-              message: 'Multiple errors during AI analysis. Showing cached results.'
-            });
-            
-            if (recovered) {
-              // Cache was restored, return success with cache flag
-              return { 
-                success: true, 
-                fromCache: true, 
-                multipleErrors: true,
-                partialResults: sectionResults 
-              };
-            }
-          } catch (recoveryError) {
-            console.error('[AI Analysis] Cache recovery failed:', recoveryError);
-          }
-          
           return {
             success: false,
             error: 'Multiple errors occurred - analysis stopped',
