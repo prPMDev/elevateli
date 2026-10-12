@@ -1598,7 +1598,7 @@ async function handleSynthesisAnalysis(request, sendResponse) {
     });
     
     // Add averaged experience score ONLY if we didn't already use experience_overall
-    const hasExperienceOverall = sectionScores?.experience_overall?.score !== undefined;
+    const hasExperienceOverall = typeof sectionScores?.experience_overall?.score === 'number';
     if (experienceScores.length > 0 && !hasExperienceOverall) {
       const avgExperienceScore = experienceScores.reduce((a, b) => a + b, 0) / experienceScores.length;
       totalScore += avgExperienceScore * weights.experience_role;
