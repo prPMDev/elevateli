@@ -211,26 +211,7 @@ Analyze this individual role description:
    - Focus on repositioning/enhancing existing content
 </analysis_task>
 
-Fill in these fields:
-{
-  "score": <integer 0-10>,
-  "positiveInsight": "<200-300 chars quoting their ACTUAL strong content like 'Your mention of leading $50M ARR product shows...' or acknowledging specific achievements>",
-  "gapAnalysis": "<150-250 chars identifying weak areas by quoting their actual phrases that need improvement>",
-  "specificFeedback": {
-    "originalLine": "<Exact weak sentence from their description>",
-    "suggestion": "<Rewritten version with specific improvements>",
-    "why": "<50-100 chars explaining the improvement>"
-  },
-  "actionItems": [
-    {
-      "category": "<'Impact Metrics'|'Strategic Context'|'Leadership Evidence'|'Technical Depth'|'10/10 Optimization'>",
-      "action": "<SPECIFIC action based on their actual content - if metrics exist, suggest repositioning; if missing, be specific>",
-      "impact": "<How this helps position for ${config.targetRole}>",
-      "priority": "<'high'|'medium'|'low'>",
-      "quotedContent": "<Exact quote from their description this feedback addresses>"
-    }
-  ]
-}`;
+Fill in score, positiveInsight, gapAnalysis, specificFeedback (their weakest description sentence and its rewrite) and actionItems (category: 'Impact Metrics', 'Strategic Context', 'Leadership Evidence', 'Technical Depth' or '10/10 Optimization'; if metrics exist, suggest repositioning them).`;
 
   return prompt;
 }
@@ -347,19 +328,7 @@ Analyze the OVERALL career trajectory and experience section:
    - If metrics missing, be specific: "Quantify the 'API-first products' user base or revenue impact"
 </analysis_task>
 
-Fill in these fields:
-{
-  "score": <integer 0-10>,
-  "positiveInsight": "<200-300 chars about their ACTUAL career progression, quoting specific roles/companies/achievements from above>",
-  "actionItems": [
-    {
-      "category": "<'Strategic Positioning'|'Career Narrative'|'Missing Elements'|'Content Enhancement'|'10/10 Optimization'>",
-      "action": "<SPECIFIC action based on content above - never generic>",
-      "impact": "<How this helps reach 10/10 for ${config.targetRole} at ${config.seniorityLevel}>",
-      "priority": "<'high'|'medium'|'low'>"
-    }
-  ]
-}`;
+Fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above), gapAnalysis, specificFeedback and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or '10/10 Optimization').`;
 
   return prompt;
 }
@@ -445,26 +414,7 @@ Analyze the recommendations section:
    - If they have good recommendations, suggest how to leverage them better
 </analysis_task>
 
-Fill in these fields:
-{
-  "score": <integer 0-10>,
-  "positiveInsight": "<150-250 chars acknowledging what they have, even if it's 0>",
-  "gapAnalysis": "<150-250 chars on what's missing or could be improved>",
-  "specificFeedback": {
-    "originalLine": "<Quote from a recommendation OR describe the gap>",
-    "suggestion": "<Specific improvement action>",
-    "why": "<50-100 chars on impact>"
-  },
-  "actionItems": [
-    {
-      "category": "<'Strategic Requests'|'Perspective Gaps'|'Content Enhancement'|'10/10 Optimization'>",
-      "action": "<SPECIFIC action with names/companies when possible>",
-      "impact": "<How this helps for ${config.targetRole}>",
-      "priority": "<'high'|'medium'|'low'>",
-      "quotedContent": "<Quote from recommendations OR describe the specific gap>"
-    }
-  ]
-}`;
+Fill in score, positiveInsight (what they have, even if it's 0), gapAnalysis, specificFeedback (quote a recommendation or describe the gap) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or '10/10 Optimization'; name people and companies when possible).`;
 
   return prompt;
 }
@@ -523,22 +473,7 @@ Analyze the first impression elements:
    - For scores 0-6: Focus on critical gaps first
 </analysis_task>
 
-Fill in these fields:
-{
-  "score": <integer 0-10>,
-  "positiveInsight": "<150-250 chars acknowledging what's working in their first impression>",
-  "gapAnalysis": "<150-250 chars identifying weaknesses, quoting their actual headline>",
-  "actionItems": [
-    {
-      "category": "<'Profile Photo'|'Headline Enhancement'|'Visual Branding'|'10/10 Optimization'>",
-      "action": "<SPECIFIC action based on gaps identified>",
-      "impact": "<How this improves first impression for ${config.targetRole}>",
-      "priority": "<'critical'|'high'|'medium'|'low'>",
-      "quotedContent": "<Quote their headline or describe the gap>",
-      "element": "<'photo'|'headline'|'banner'>"
-    }
-  ]
-}`;
+Fill in score, positiveInsight, gapAnalysis (quote their actual headline), specificFeedback and actionItems (category: 'Profile Photo', 'Headline Enhancement', 'Visual Branding' or '10/10 Optimization'; element: 'photo', 'headline' or 'banner').`;
 
   return prompt;
 }
@@ -603,26 +538,7 @@ Analyze the About section for strategic positioning:
    - If flow is poor: Identify the disconnect and suggest restructuring
 </analysis_task>
 
-Fill in these fields:
-{
-  "score": <integer 0-10>,
-  "positiveInsight": "<150-250 chars quoting their ACTUAL strong content like 'Your mention of leading $50M initiatives shows...'>"",
-  "gapAnalysis": "<150-250 chars identifying weaknesses by quoting actual weak phrases>",
-  "specificFeedback": {
-    "originalLine": "<Quote their weakest sentence exactly>",
-    "suggestion": "<Rewritten version with improvements>",
-    "why": "<50-100 chars explaining the improvement>"
-  },
-  "actionItems": [
-    {
-      "category": "<'Opening Hook'|'Metric Specificity'|'Narrative Flow'|'Value Proposition'|'10/10 Refinement'>",
-      "action": "<SPECIFIC action quoting their actual content and showing how to improve it>",
-      "impact": "<How this helps position for ${config.targetRole}>",
-      "priority": "<'critical'|'high'|'medium'|'low'>",
-      "quotedContent": "<Exact quote from their About section this addresses>"
-    }
-  ]
-}`;
+Fill in score, positiveInsight, gapAnalysis, specificFeedback (their weakest sentence) and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or '10/10 Refinement').`;
 
   return prompt;
 }
@@ -743,26 +659,7 @@ Analyze the skills section for quality and relevance:
    - Example bad feedback: "Move skill from position #1 to #1" (meaningless)
 </analysis_task>
 
-Fill in these fields:
-{
-  "score": <integer 0-10>,
-  "positiveInsight": "<200-300 chars acknowledging their ACTUAL skills like 'Your top skill Product Management with 45 endorsements shows...'>",
-  "gapAnalysis": "<150-250 chars identifying issues with specific skills quoted from their list>",
-  "specificFeedback": {
-    "originalLine": "<Quote their actual top 3 skills>",
-    "suggestion": "<How to improve the top 3 positioning>",
-    "why": "<50-100 chars explaining impact>"
-  },
-  "actionItems": [
-    {
-      "category": "<'Strategic Positioning'|'Endorsement Building'|'Skill Optimization'|'10/10 Refinement'>",
-      "action": "<SPECIFIC action referencing their actual skills by name>",
-      "impact": "<How this helps for ${config.targetRole} at ${config.seniorityLevel}>",
-      "priority": "<'high'|'medium'|'low'>",
-      "quotedContent": "<Exact skill names and endorsement counts from their list>"
-    }
-  ]
-}`;
+Fill in score, positiveInsight (their actual skills and endorsement counts), gapAnalysis, specificFeedback (their actual top 3 skills and how to position them) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or '10/10 Refinement'; name their actual skills).`;
 
   return prompt;
 }
@@ -797,21 +694,26 @@ const openaiBaseUrl = async (url) =>
   (url || (await chrome.storage.local.get('aiBaseUrl')).aiBaseUrl || OPENAI_URL).replace(/\/+$/, '');
 
 // Every section prompt asks for this shape; each provider enforces it as JSON-schema output.
+// The descriptions carry the per-field guidance, so prompts only name the fields and their section's values.
 // No minimum/maximum: Anthropic rejects them, and parseSectionAnalysis clamps the score.
-const STR = { type: 'string' };
+const str = description => ({ type: 'string', description });
 const SECTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['score', 'positiveInsight', 'gapAnalysis', 'specificFeedback', 'actionItems'],
   properties: {
-    score: { type: 'integer', description: '0-10' },
-    positiveInsight: STR,
-    gapAnalysis: STR,
+    score: { type: 'integer', description: '0-10, where 10 is perfect for landing the target role' },
+    positiveInsight: str('150-300 chars on what works, quoting their actual content'),
+    gapAnalysis: str('150-250 chars on the weakest areas, quoting their actual phrases'),
     specificFeedback: {
       type: 'object',
       additionalProperties: false,
       required: ['originalLine', 'suggestion', 'why'],
-      properties: { originalLine: STR, suggestion: STR, why: STR }
+      properties: {
+        originalLine: str('Their exact weak line, quoted (or the gap, when there is nothing to quote)'),
+        suggestion: str('That line rewritten with specific improvements'),
+        why: str('50-100 chars on why the rewrite is stronger')
+      }
     },
     actionItems: {
       type: 'array',
@@ -820,12 +722,12 @@ const SECTION_SCHEMA = {
         additionalProperties: false,
         required: ['category', 'action', 'impact', 'priority', 'quotedContent', 'element'],
         properties: {
-          category: STR,
-          action: STR,
-          impact: STR,
+          category: str('Improvement area: one of the categories the prompt lists'),
+          action: str('Specific step based on their actual content, never generic; 100-150 chars'),
+          impact: str('How it helps for the target role and level, 50-80 chars'),
           priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
-          quotedContent: STR,
-          element: { type: 'string', description: "'photo', 'headline' or 'banner' for first-impression items, else ''" }
+          quotedContent: str('Exact quote from their profile this item addresses, or the specific gap'),
+          element: str("'photo', 'headline' or 'banner' for first-impression items, else ''")
         }
       }
     }
