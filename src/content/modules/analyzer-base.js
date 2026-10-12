@@ -108,11 +108,7 @@ class Analyzer {
       
       // Calculate completeness
       OverlayManager.setState(OverlayManager.states.CALCULATING);
-      
-      
-      // Use requestAnimationFrame to ensure UI updates
-      await new Promise(resolve => requestAnimationFrame(resolve));
-      
+
       const completenessData = await this.calculateCompleteness(extractedData);
       
       
@@ -144,9 +140,6 @@ class Analyzer {
         } else {
           // API key is valid, proceed with AI analysis
           OverlayManager.setState(OverlayManager.states.AI_ANALYZING);
-
-          // Use requestAnimationFrame to ensure UI updates
-          await new Promise(resolve => requestAnimationFrame(resolve));
 
           // Pass completeness score to AI analysis for conditional advice
           extractedData.completenessScore = completenessData?.score || 100;
