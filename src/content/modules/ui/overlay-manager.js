@@ -804,8 +804,7 @@ const OverlayManager = {
         this.showUnifiedView(data);
         // Don't show action buttons in expanded view
         this.showActionButtons({ showRefresh: false });
-        
-        this.showInsights(data.insights);
+
         // Show timestamp
         if (data.timestamp) {
           this.showTimestamp(data.timestamp);
@@ -1353,36 +1352,6 @@ const OverlayManager = {
         const colorClass = this.getScoreClass(data.contentScore, true);
         qualityBadge.classList.add(colorClass);
       }
-    }
-  },
-  
-  /**
-   * Show insights
-   * @param {Object} insights - Insights data
-   */
-  showInsights(insights) {
-    if (!insights) return;
-    
-    const section = this.overlayElement.querySelector('.insights-section');
-    const content = this.overlayElement.querySelector('.insights-content');
-    
-    if (!section || !content) return;
-    
-    // Format insights
-    let insightText = '';
-    if (insights.strengths) {
-      insightText += `<strong>Strengths:</strong> ${insights.strengths}<br>`;
-    }
-    if (insights.improvements) {
-      insightText += `<strong>Areas to improve:</strong> ${insights.improvements}`;
-    }
-    
-    if (insightText) {
-      (() => {
-              content.textContent = '';
-              content.insertAdjacentHTML('afterbegin', insightText);
-            })();
-      section.classList.remove('hidden');
     }
   },
   
@@ -2172,7 +2141,7 @@ const OverlayManager = {
         <!-- Unified Message (single positive message) -->
         <div style="padding: 12px; background: #e8f5e9; border-radius: 8px; text-align: center; margin-bottom: 16px;">
           <p style="margin: 0; font-size: 15px; color: #2e7d32; font-weight: 500;">
-            ${progressiveData.unifiedMessage}
+            ${this.escapeHtml(progressiveData.unifiedMessage)}
           </p>
         </div>
         
@@ -2190,7 +2159,7 @@ const OverlayManager = {
         ${progressiveData.coachingSummary ? `
           <div style="background: #f0f8ff; border-left: 3px solid #0a66c2; padding: 12px 16px; border-radius: 0 6px 6px 0;">
             <p style="font-size: 14px; line-height: 1.5; margin: 0; color: #333;">
-              ${progressiveData.coachingSummary}
+              ${this.escapeHtml(progressiveData.coachingSummary)}
             </p>
           </div>
         ` : ''}
@@ -2747,6 +2716,13 @@ const OverlayManager = {
   },
   
   /**
+   * Escape text for the HTML templates below - AI output and profile text must render as text
+   */
+  escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  },
+
+  /**
    * Render a section with star rating
    */
   renderSection(section) {
@@ -2766,13 +2742,13 @@ const OverlayManager = {
       <div style="margin-bottom: 12px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
           <h5 style="margin: 0; font-size: 14px; font-weight: 600; color: #333;">
-            ${section.name}
+            ${this.escapeHtml(section.name)}
           </h5>
           <div class="star-rating" style="font-size: 16px;" data-star-placeholder="${starPlaceholderId}"></div>
         </div>
         ${section.positive ? `
           <p style="margin: 0 0 8px 0; font-size: 12px; color: #057642;">
-            ${section.positive}
+            ${this.escapeHtml(section.positive)}
           </p>
         ` : ''}
         ${section.improvements.length > 0 ? `
@@ -2780,8 +2756,8 @@ const OverlayManager = {
             ${section.improvements.map(imp => `
               <li style="margin-bottom: 6px; position: relative; padding-left: 8px; font-size: 12px; color: #666;">
                 <span style="position: absolute; left: -8px;">→</span>
-                ${typeof imp === 'string' ? imp : imp.text}
-                ${imp.why ? `<div style="font-size: 11px; color: #999; margin-top: 2px; margin-left: 8px;">${imp.why}</div>` : ''}
+                ${this.escapeHtml(typeof imp === 'string' ? imp : imp.text)}
+                ${imp.why ? `<div style="font-size: 11px; color: #999; margin-top: 2px; margin-left: 8px;">${this.escapeHtml(imp.why)}</div>` : ''}
               </li>
             `).join('')}
           </ul>
