@@ -56,7 +56,7 @@ class Analyzer {
   async analyze(forceRefresh = false) {
     // Development mode configuration
     const TIMEOUTS = {
-      ANALYSIS_TOTAL: 900000,  // 15 minutes: each AI call may take 3 (slow local models)
+      ANALYSIS_TOTAL: 1200000,  // 20 minutes: 5 sections x 190s section timeout, plus extraction and synthesis
       SECTION_TIMEOUT: 60000,  // 60 seconds per section
       SYNTHESIS_TIMEOUT: 60000, // 60 seconds for synthesis
       DEVELOPMENT_MODE: true   // Enable extended timeouts

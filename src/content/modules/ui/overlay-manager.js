@@ -1246,6 +1246,11 @@ const OverlayManager = {
         }
       }
     } else if (data.contentScore !== undefined && data.contentScore !== null) {
+      // An earlier AI-off render replaced the quality block with a message; rebuild it before filling it
+      const qualityBlock = this.overlayElement.querySelector('.score-block.quality');
+      if (qualityBlock && !qualityBlock.querySelector('.score-value')) {
+        qualityBlock.replaceWith(this.createScoreBlock('quality', 'Content Quality (AI)', '★'));
+      }
       // Update quality score normally
       const valueEl = this.overlayElement.querySelector('.quality .score-value');
       const barEl = this.overlayElement.querySelector('.quality .score-bar-fill');
@@ -1778,7 +1783,7 @@ const OverlayManager = {
   },
   
   /**
-   * Set failsafe timer to re-enable buttons after 15 minutes (analyzer-base ANALYSIS_TOTAL).
+   * Set failsafe timer to re-enable buttons after 20 minutes (analyzer-base ANALYSIS_TOTAL).
    * Long-run feedback comes from the elapsed counter; the analyzer's own timeout shows results.
    */
   setButtonFailsafeTimer() {
@@ -1787,7 +1792,7 @@ const OverlayManager = {
       clearTimeout(this.buttonResetTimer);
     }
 
-    this.buttonResetTimer = setTimeout(() => this.resetButtons(), 900000); // 15 minutes
+    this.buttonResetTimer = setTimeout(() => this.resetButtons(), 1200000); // 20 minutes
   },
   
   // Removed development mode indicator - not needed for production
