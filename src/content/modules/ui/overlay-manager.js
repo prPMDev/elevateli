@@ -1642,80 +1642,20 @@ const OverlayManager = {
   },
   
   /**
-   * Format and display timestamp
-   * @param {number} timestamp - Unix timestamp
+   * Show the last-analyzed date in the collapsed bar, flagged when older than 7 days
+   * @param {string|number} timestamp - ISO string (cache) or epoch ms (timeout path)
    */
   showTimestamp(timestamp) {
-    const lastAnalyzed = this.overlayElement.querySelector('.last-analyzed');
     const collapsedTimestamp = this.overlayElement.querySelector('.last-analyzed-collapsed');
-    
-    if (!timestamp) return;
-    
-    const formatted = this.formatTimestamp(timestamp);
-    
-    // Check if data is stale (older than 7 days)
-    const now = Date.now();
-    const daysSinceAnalysis = (now - timestamp) / (1000 * 60 * 60 * 24);
-    const isStale = daysSinceAnalysis > 7;
-    
-    if (lastAnalyzed) {
-      lastAnalyzed.textContent = `Last analyzed: ${formatted}`;
-      if (isStale) {
-        lastAnalyzed.textContent += ' ⚠️';
-        lastAnalyzed.title = 'Analysis is older than 7 days - consider re-analyzing';
-      }
-      lastAnalyzed.style.opacity = '1';
-    }
-    
-    if (collapsedTimestamp) {
-      // Show date only format for collapsed view (no time)
-      const date = new Date(timestamp);
-      const options = {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric'
-      };
-      const formatted = date.toLocaleDateString('en-US', options);
-      collapsedTimestamp.textContent = `Last Analyzed: ${formatted}`;
-      if (isStale) {
-        collapsedTimestamp.textContent += ' ⚠️';
-        collapsedTimestamp.title = 'Analysis is older than 7 days - consider re-analyzing';
-        collapsedTimestamp.style.color = '#f59e0b';
-      }
-    }
-  },
-  
-  /**
-   * Format timestamp to human-readable format
-   * @param {number} timestamp - Unix timestamp
-   * @returns {string} Formatted date/time string
-   */
-  formatTimestamp(timestamp) {
+    if (!timestamp || !collapsedTimestamp) return;
+
     const date = new Date(timestamp);
-    const now = new Date();
-    
-    // Check if it's today
-    const isToday = date.toDateString() === now.toDateString();
-    
-    // Check if it's yesterday
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const isYesterday = date.toDateString() === yesterday.toDateString();
-    
-    // Format time
-    const timeOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
-    const timeStr = date.toLocaleTimeString('en-US', timeOptions);
-    
-    if (isToday) {
-      return `Today at ${timeStr}`;
-    } else if (isYesterday) {
-      return `Yesterday at ${timeStr}`;
-    } else {
-      // For older dates, show month/day and time
-      const dateOptions = { month: 'short', day: 'numeric' };
-      const dateStr = date.toLocaleDateString('en-US', dateOptions);
-      return `${dateStr} at ${timeStr}`;
-    }
+    const isStale = (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24) > 7;
+    const formatted = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+
+    collapsedTimestamp.textContent = `Last Analyzed: ${formatted}${isStale ? ' ⚠️' : ''}`;
+    collapsedTimestamp.title = isStale ? 'Analysis is older than 7 days - consider re-analyzing' : '';
+    collapsedTimestamp.style.color = isStale ? '#f59e0b' : '';
   },
   
   /**
