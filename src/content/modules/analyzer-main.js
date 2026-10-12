@@ -228,15 +228,6 @@
     }
   }
   
-  // Listen for messages from popup/background
-  window.addEventListener('message', (event) => {
-    if (event.source !== window) return;
-    
-    if (event.data.type === 'ELEVATE_REFRESH') {
-      startAnalysis(true);
-    }
-  });
-  
   // Navigation observer for SPA navigation
   function observeNavigation() {
     let lastPath = location.pathname;
@@ -604,7 +595,8 @@
   } catch (error) {
   }
   
-  // Export for debugging
+  // OverlayManager's Analyze/Refresh buttons call ElevateLI.startAnalysis. This is the content script's
+  // isolated-world window, so page scripts cannot reach it (unlike window.postMessage). Also handy for debugging.
   window.ElevateLI = {
     startAnalysis,
     getProfileId: getProfileIdFromUrl,
