@@ -3345,31 +3345,23 @@ const OverlayManager = {
    * Replaces duplicate cache restoration logic throughout the codebase
    * @param {string|null} profileId - Profile ID (will extract from URL if not provided)
    * @param {Object} context - Additional context for state determination
-   * @returns {Promise<boolean>} Success status
+   * @returns {Promise<boolean>} True only when cached results were applied
    */
   async restoreAppropriateState(profileId = null, context = {}) {
     try {
       // Prevent duplicate restoration attempts
       if (this.isRestoringState) {
-        return true;
+        return false;
       }
-      
-      // Skip restoration if we're already in a final state with data
-      if (this.currentState === this.states.COMPLETE) {
-        // Check if we have actual data displayed
-        const hasScores = this.overlayElement?.querySelector('.completeness-score')?.textContent;
-        if (hasScores && hasScores !== '0') {
-          return true;
-        }
-      }
-      
-      // Only skip restoration if actively analyzing
-      if (this.currentState === this.states.AI_ANALYZING ||
-          this.currentState === this.states.ANALYZING ||
-          this.currentState === this.states.SCANNING ||
-          this.currentState === this.states.EXTRACTING ||
-          this.currentState === this.states.CALCULATING) {
-        return true; // Don't interrupt active analysis
+
+      // Don't interrupt active analysis - unless the running analysis itself asks for its error fallback
+      if (!context.isErrorFallback &&
+          (this.currentState === this.states.AI_ANALYZING ||
+           this.currentState === this.states.ANALYZING ||
+           this.currentState === this.states.SCANNING ||
+           this.currentState === this.states.EXTRACTING ||
+           this.currentState === this.states.CALCULATING)) {
+        return false;
       }
       
       // Get profile ID if not provided
@@ -3414,20 +3406,18 @@ const OverlayManager = {
       
       
       // Determine appropriate state
-      const stateInfo = this.determineStateFromData(cachedData, settings, compliance, context) || 
-                        { state: this.states.EMPTY_CACHE, data: null };
-      
-      const { state, data } = stateInfo;
+      const { state, data } = this.determineStateFromData(cachedData, settings, compliance, context);
 
-      // Set the determined state
-      this.setState(state, data);
-      
-      
+      // An error fallback with nothing cached is left to the caller (it shows its own error)
+      if (data || !context.isErrorFallback) {
+        this.setState(state, data);
+      }
+
       // Update last restored profile and clear restoration flag
       this.lastRestoredProfile = profileId;
       this.isRestoringState = false;
 
-      return true;
+      return !!data;
 
     } catch (error) {
       // Create a proper error object if needed
