@@ -2062,7 +2062,8 @@ const OverlayManager = {
   transformToProgressiveFormat(data) {
     const completeness = data.completeness || 0;
     const contentScore = data.contentScore || 0;
-    const missingItems = data.completenessData?.recommendations || [];
+    // Every gap, not the top-5 'recommendations' slice - smaller gaps would get a false ✓
+    const missingItems = data.completenessData?.allRecommendations || [];
 
     // Generate coaching summary
     const coachingSummary = this.generateCoachingSummary(completeness, contentScore, data);
@@ -2464,7 +2465,20 @@ const OverlayManager = {
       // Removed isDefaultRating - use null rating instead
       priority: 'high'  // Always show recommendations section
     });
-    
+
+    // Completeness gaps no card above covers (education, certifications, projects)
+    const cardSections = ['photo', 'headline', 'about', 'experience', 'skills', 'recommendations'];
+    const otherGaps = missingItems.filter(item => !cardSections.includes(item.section));
+    if (otherGaps.length > 0) {
+      sections.push({
+        name: 'Other Sections',
+        rating: null,
+        positive: null,
+        improvements: otherGaps.map(item => ({ text: item.message, why: `+${Math.round(item.impact)}% completeness` })),
+        priority: 'normal'
+      });
+    }
+
     // Sort sections to match LinkedIn's visual hierarchy
     const sectionOrder = [
       'First Impression', // Includes photo + headline when photo exists
