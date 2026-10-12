@@ -2462,87 +2462,50 @@ const OverlayManager = {
     
     // Experience section - check for AI analysis scores
     const experienceRec = missingItems.find(item => item.section === 'experience');
-    
-    
-    // Check if we have experience AI scores
-    let experienceRating = 0;
+    // experience_overall, or the single 'experience' section the analyzer sends when deep extraction fails
+    const experienceScore = sectionScores.experience_overall || sectionScores.experience;
+
+    let experienceRating = null; // No rating without AI
     let experiencePositive = null;
     let experienceImprovements = [];
-    
-    // ALWAYS check for AI scores FIRST - they take priority over completeness recommendations
-    if (sectionScores.experience_overall || (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles))) {
-      // Check for experience scores from AI analysis
-      
-      
-      // Check if we have overall experience analysis
-      if (sectionScores.experience_overall) {
-        
-        // Use overall experience score and feedback
-        experienceRating = this.scoreToRating(sectionScores.experience_overall.score);
-        experiencePositive = sectionScores.experience_overall.positiveInsight;
-        
-        // Use overall strategic actionItems
-        if (sectionScores.experience_overall.actionItems?.length > 0) {
-          experienceImprovements = sectionScores.experience_overall.actionItems
-            .slice(0, this.getImprovementLimit(experienceRating, 'Experience'))
-            .map(item => ({
-              text: item.action || item.what || 'Improvement needed',
-              why: item.impact || item.how || 'Update your experience',
-              priority: item.priority
-            }));
-        }
-      } else if (sectionScores.experience_roles && Array.isArray(sectionScores.experience_roles)) {
-        // Fallback: calculate from individual roles if no overall analysis
-        
-        const experienceScores = [];
-        sectionScores.experience_roles.forEach(role => {
-          if (typeof role.score === 'number') {
-            experienceScores.push(role.score);
-          }
-        });
-        
-        if (experienceScores.length > 0) {
-          const avgScore = experienceScores.reduce((a, b) => a + b, 0) / experienceScores.length;
-          experienceRating = Math.round(avgScore / 2);
-          experiencePositive = "Your experience shows a strong professional journey with diverse roles";
-          experienceImprovements = []; // Extract from AI insights when available
-        } else {
-          experienceRating = null; // No rating without AI
-          experienceImprovements = [];
-        }
-      } else {
-        // No AI scores at all, no rating - add positive message if experience passes completeness
-        experienceRating = null; // No rating without AI
-        experienceImprovements = [];
-        
-        // Add positive message if has current role and sufficient experience
-        const experienceData = data.extractedData?.experience || 
-                             data.completenessData?.breakdown?.experience?.data;
-        if (!experienceRec && experienceData) {
-          if (experienceData.hasCurrentRole) {
-            experiencePositive = "✓ Your experience section is up to date";
-          } else if (experienceData.count >= 2) {
-            experiencePositive = `✓ ${experienceData.count} professional experiences documented`;
-          }
-        }
+
+    // AI scores take priority over completeness recommendations
+    if (experienceScore) {
+      experienceRating = this.scoreToRating(experienceScore.score);
+      experiencePositive = experienceScore.positiveInsight;
+
+      if (experienceScore.actionItems?.length > 0) {
+        experienceImprovements = experienceScore.actionItems
+          .slice(0, this.getImprovementLimit(experienceRating, 'Experience'))
+          .map(item => ({
+            text: item.action || item.what || 'Improvement needed',
+            why: item.impact || item.how || 'Update your experience',
+            priority: item.priority
+          }));
       }
-      
+
       // If we still don't have improvements but have completeness recommendation, add it
       if (experienceImprovements.length === 0 && experienceRec) {
         experienceImprovements.push({text: experienceRec.message, why: "Work experience is essential for profile visibility"});
       }
     } else if (experienceRec) {
       // No AI scores and we have completeness recommendation
-      experienceRating = null; // Show blank stars
       experienceImprovements = [{text: experienceRec.message, why: "Work experience is essential for profile visibility"}];
+    } else {
+      // No AI scores and no completeness gap - add positive message
+      const experienceData = data.extractedData?.experience ||
+                           data.completenessData?.breakdown?.experience?.data;
+      if (experienceData?.hasCurrentRole) {
+        experiencePositive = "✓ Your experience section is up to date";
+      } else if (experienceData?.count >= 2) {
+        experiencePositive = `✓ ${experienceData.count} professional experiences documented`;
+      }
     }
-    
-    // Create main experience section
-    
+
     const experienceSection = {
       name: 'Experience',
       rating: experienceRating,
-      errorType: sectionScores.experience_overall?.errorType || null,
+      errorType: experienceScore?.errorType || null,
       positive: experiencePositive,
       improvements: experienceImprovements,
       priority: 'normal'
