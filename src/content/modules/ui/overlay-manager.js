@@ -2599,10 +2599,10 @@ const OverlayManager = {
       visualSpan.className = 'stars-visual';
       visualSpan.textContent = empty.repeat(5);
       
-      // Numeric span
+      // Numeric span (narrow screens) - 'not rated', never a fake zero score
       const numericSpan = document.createElement('span');
       numericSpan.className = 'stars-numeric';
-      numericSpan.textContent = '0/5★';
+      numericSpan.textContent = '–/5★';
       
       wrapper.appendChild(visualSpan);
       wrapper.appendChild(numericSpan);
