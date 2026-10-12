@@ -983,7 +983,6 @@ class RateLimiter {
     this.requests = new Map();
     this.limits = {
       'api': { limit: 10, window: 60000 },        // 10 API calls per minute
-      'test': { limit: 5, window: 60000 },        // 5 test calls per minute
       // Counted per section call; an analysis makes about 10. ponytail: send a run id from content if per-run limits matter
       'analysis': { limit: 300, window: 300000 }  // ~30 analyses per 5 minutes
     };
@@ -1054,14 +1053,6 @@ const rateLimiter = new RateLimiter();
 
 // List the provider's models. Doubles as the key check: a GET, so no tokens are spent.
 async function testApiKey(provider, apiKey, baseUrl) {
-  const rateCheck = rateLimiter.canMakeRequest('test', provider);
-  if (!rateCheck.allowed) {
-    return {
-      success: false,
-      error: `Rate limit exceeded. Please wait ${rateCheck.waitTime} seconds before testing again.`
-    };
-  }
-
   const key = typeof apiKey === 'string' ? apiKey.trim().replace(/[^\x20-\x7E]/g, '') : '';
   if (!key) return { success: false, error: 'API key is required' };
   baseUrl = await openaiBaseUrl(baseUrl);
