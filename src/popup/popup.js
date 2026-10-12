@@ -494,6 +494,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         clearFieldError(settingsAiModelSelect, null);
       }
     }
+    if (e.target.checked) onProviderChange(); // models load only once AI is on
   });
   
   // Real-time overlay sync when toggled
@@ -610,17 +611,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Fill the model list from the provider. The same call validates the key; no key = the saved one.
+  let lastValidated = null; // provider|key|baseUrl that loadModels last validated, so Save need not test it again
   async function loadModels(apiKey) {
     const provider = settingsAiProviderSelect.value;
     const keep = settingsAiModelSelect.value;
-    const response = await chrome.runtime.sendMessage({
-      action: 'testApiKey', provider, apiKey, baseUrl: settingsBaseUrlInput.value.trim()
-    });
+    const baseUrl = settingsBaseUrlInput.value.trim();
+    const response = await chrome.runtime.sendMessage({ action: 'testApiKey', provider, apiKey, baseUrl });
     if (provider !== settingsAiProviderSelect.value) return; // provider changed while loading
     if (!response?.success) {
       showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), response?.error || 'Could not load models');
       return;
     }
+    lastValidated = [provider, apiKey, baseUrl].join('|');
     clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
     settingsAiModelSelect.replaceChildren(
       new Option('Select AI model...', ''),
@@ -640,7 +642,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     settingsAiModelSelect.replaceChildren(isSaved && settings.aiModel
       ? new Option(settings.aiModel, settings.aiModel, true, true)
       : new Option('Enter your API key to load models', ''));
-    if (option?.value && (typedApiKey() || isSaved)) loadModels(typedApiKey());
+    // Never send the key anywhere while AI is off
+    if (option?.value && settingsEnableAIToggle.checked && (typedApiKey() || isSaved)) loadModels(typedApiKey());
   }
 
   settingsAiProviderSelect?.addEventListener('change', onProviderChange);
@@ -709,12 +712,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // Validate API key first
         try {
-          const testResponse = await chrome.runtime.sendMessage({
-            action: 'testApiKey',
-            provider,
-            apiKey,
-            baseUrl
-          });
+          const testResponse = [provider, apiKey, baseUrl].join('|') === lastValidated
+            ? { success: true }
+            : await chrome.runtime.sendMessage({ action: 'testApiKey', provider, apiKey, baseUrl });
           
           if (!testResponse || !testResponse.success) {
             // Use consistent field validation error UI
