@@ -223,6 +223,8 @@ class Analyzer {
         ...result,
         // Ensure fromCache flag is set for partial updates
         fromCache: result.partialUpdate || result.cachedContentScore || result.fromCache,
+        // Cache-fallback banner text: say what failed (e.g. rate limit wait time)
+        message: result.aiError?.message,
         // Only mark AI as disabled if there's no content score
         aiDisabled: result.contentScore === undefined || result.contentScore === null
       };
@@ -774,8 +776,9 @@ class Analyzer {
           if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
             return {
               success: false,
-              error: 'Network connection lost - analysis stopped',
-              errorType: 'NETWORK',
+              error: result.error,
+              errorType: result.errorType || 'NETWORK',
+              retryAfter: result.retryAfter,
               partialResults: sectionResults
             };
           }
@@ -830,7 +833,8 @@ class Analyzer {
             // Include all AI analysis fields
             positiveInsight: response.insight,
             actionItems: response.actionItems,
-            specificFeedback: response.specificFeedback
+            specificFeedback: response.specificFeedback,
+            errorType: response.errorType
           });
         } else {
           // Ensure error is always a string
@@ -843,7 +847,9 @@ class Analyzer {
           resolve({
             success: false,
             section: sectionType,
-            error: errorMessage
+            error: errorMessage,
+            errorType: response?.errorType,
+            retryAfter: response?.retryAfter
           });
         }
       });
