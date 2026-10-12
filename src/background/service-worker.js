@@ -94,7 +94,7 @@ function createSectionPrompt(sectionName, content, config, context = {}) {
   
   // Special handling for overall experience analysis
   if (sectionName === 'experience_overall' && typeof content === 'object') {
-    return createExperienceOverallPrompt(content, enhancedConfig, context);
+    return createExperienceOverallPrompt(content, enhancedConfig);
   }
   
   // Special handling for experience section (fallback)
@@ -227,7 +227,7 @@ Company: ${experience.company}${experience.companyDetails?.size ? ` (${experienc
 Industry: ${experience.companyDetails?.industry || 'Not specified'}
 Duration: ${experience.employment?.duration || 'Not specified'} ${experience.employment?.isCurrent ? '(CURRENT ROLE)' : ''}
 Dates: ${experience.employment?.startDate || 'Unknown'} - ${experience.employment?.endDate || 'Unknown'}
-Role Position: ${context.position ? `#${context.position + 1} of ${context.totalRoles} total roles` : 'Unknown'}
+Role Position: ${Number.isInteger(context.position) ? `#${context.position + 1} of ${context.totalRoles} total roles` : 'Unknown'}
 Visibility Level: ${context.position < 3 ? 'PREMIUM (top 3 - most visible)' : context.position < 10 ? 'Standard (requires scrolling)' : 'Hidden (requires expansion)'}
 </position_details>
 
@@ -317,7 +317,7 @@ NOTE: This is a fallback analysis. Individual role analysis would provide better
 }
 
 // Create specialized prompt for overall experience analysis
-function createExperienceOverallPrompt(experienceData, config, context = {}) {
+function createExperienceOverallPrompt(experienceData, config) {
   const totalMonths = experienceData.totalMonths || 0;
   const yearsOfExperience = Math.floor(totalMonths / 12);
   const totalRoles = experienceData.totalRoles || experienceData.count || 0;
@@ -328,7 +328,6 @@ function createExperienceOverallPrompt(experienceData, config, context = {}) {
 Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
 Target Role: ${config.targetRole}  
 Seniority Level: ${config.seniorityLevel}
-Profile Completeness: ${context.completenessScore}%
 Custom Instructions: ${config.customInstructions || 'None provided'}
 </context>
 
