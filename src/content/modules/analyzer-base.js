@@ -775,8 +775,7 @@ class Analyzer {
         action: 'analyzeSection',
         section: sectionType,
         data: data,
-        context: context,
-        settings: this.settings
+        context: context
       }, (response) => {
         if (response && response.success) {
           resolve({
