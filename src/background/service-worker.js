@@ -1133,7 +1133,6 @@ async function handleSectionAnalysis(request, sendResponse) {
       section: section,
       score: analysis.score,
       insight: analysis.positiveInsight,
-      positiveInsight: analysis.positiveInsight,
       gapAnalysis: analysis.gapAnalysis,
       actionItems: analysis.actionItems,
       specificFeedback: analysis.specificFeedback,
