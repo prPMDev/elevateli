@@ -696,6 +696,16 @@ const openaiBaseUrl = async (url) =>
 // Trim and strip the non-printable characters a pasted key can carry
 const cleanKey = apiKey => typeof apiKey === 'string' ? apiKey.trim().replace(/[^\x20-\x7E]/g, '') : '';
 
+const authHeaders = (provider, key) => ({
+  openai: { 'Authorization': `Bearer ${key}` },
+  anthropic: {
+    'x-api-key': key,
+    'anthropic-version': '2023-06-01',
+    'anthropic-dangerous-direct-browser-access': 'true'
+  },
+  gemini: { 'x-goog-api-key': key }
+})[provider];
+
 // Every section prompt asks for this shape; each provider enforces it as JSON-schema output.
 // The descriptions carry the per-field guidance, so prompts only name the fields and their section's values.
 // No minimum/maximum: Anthropic rejects them, and parseSectionAnalysis clamps the score.
@@ -747,10 +757,6 @@ async function callAIProvider(provider, apiKey, prompt, model) {
   const config = {
     openai: {
       url: `${baseUrl}/chat/completions`,
-      headers: {
-        'Authorization': `Bearer ${cleanApiKey}`,
-        'Content-Type': 'application/json'
-      },
       body: {
         model: model,
         messages: [{ role: 'user', content: prompt }],
@@ -762,12 +768,6 @@ async function callAIProvider(provider, apiKey, prompt, model) {
     },
     anthropic: {
       url: 'https://api.anthropic.com/v1/messages',
-      headers: {
-        'x-api-key': cleanApiKey,
-        'Content-Type': 'application/json',
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
-      },
       body: {
         model: model,
         messages: [{ role: 'user', content: prompt }],
@@ -777,10 +777,6 @@ async function callAIProvider(provider, apiKey, prompt, model) {
     },
     gemini: {
       url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      headers: {
-        'x-goog-api-key': cleanApiKey,
-        'Content-Type': 'application/json'
-      },
       body: {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
@@ -800,7 +796,7 @@ async function callAIProvider(provider, apiKey, prompt, model) {
   try {
     const response = await fetch(providerConfig.url, {
       method: 'POST',
-      headers: providerConfig.headers,
+      headers: { ...authHeaders(provider, cleanApiKey), 'Content-Type': 'application/json' },
       body: JSON.stringify(providerConfig.body),
       // Local models and reasoning models take minutes; stay under Chrome's 5-minute limit per event
       signal: AbortSignal.timeout(180000)
@@ -1047,19 +1043,15 @@ async function testApiKey(provider, apiKey, baseUrl) {
   if (!key) return { success: false, error: 'API key is required' };
   baseUrl = await openaiBaseUrl(baseUrl);
 
-  const [url, headers] = {
-    openai: [`${baseUrl}/models`, { 'Authorization': `Bearer ${key}` }],
-    anthropic: ['https://api.anthropic.com/v1/models?limit=1000', {
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    }],
-    gemini: ['https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', { 'x-goog-api-key': key }]
-  }[provider] || [];
+  const url = {
+    openai: `${baseUrl}/models`,
+    anthropic: 'https://api.anthropic.com/v1/models?limit=1000',
+    gemini: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000'
+  }[provider];
   if (!url) return { success: false, error: 'Unknown provider' };
 
   try {
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, { headers: authHeaders(provider, key) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       const error = [401, 403].includes(response.status) ? 'Invalid API key'
