@@ -693,6 +693,9 @@ const OPENAI_URL = 'https://api.openai.com/v1';
 const openaiBaseUrl = async (url) =>
   (url || (await chrome.storage.local.get('aiBaseUrl')).aiBaseUrl || OPENAI_URL).replace(/\/+$/, '');
 
+// Trim and strip the non-printable characters a pasted key can carry
+const cleanKey = apiKey => typeof apiKey === 'string' ? apiKey.trim().replace(/[^\x20-\x7E]/g, '') : '';
+
 // Every section prompt asks for this shape; each provider enforces it as JSON-schema output.
 // The descriptions carry the per-field guidance, so prompts only name the fields and their section's values.
 // No minimum/maximum: Anthropic rejects them, and parseSectionAnalysis clamps the score.
@@ -736,21 +739,8 @@ const SECTION_SCHEMA = {
 
 // Call AI provider
 async function callAIProvider(provider, apiKey, prompt, model) {
-  
-  // Clean and validate API key
-  if (!apiKey || typeof apiKey !== 'string') {
-    throw new Error('Invalid API key');
-  }
-  
-  // Remove any non-printable characters and trim whitespace
-  const cleanApiKey = apiKey.trim().replace(/[^\x20-\x7E]/g, '');
-  
-  // Check if key was significantly altered (might indicate encoding issues)
-  
-  if (!cleanApiKey) {
-    throw new Error('API key is empty after cleaning');
-  }
-  
+  const cleanApiKey = cleanKey(apiKey);
+  if (!cleanApiKey) throw new Error('API key is required');
   if (!model) throw new Error('No AI model selected');
   const baseUrl = await openaiBaseUrl();
 
@@ -1053,7 +1043,7 @@ const rateLimiter = new RateLimiter();
 
 // List the provider's models. Doubles as the key check: a GET, so no tokens are spent.
 async function testApiKey(provider, apiKey, baseUrl) {
-  const key = typeof apiKey === 'string' ? apiKey.trim().replace(/[^\x20-\x7E]/g, '') : '';
+  const key = cleanKey(apiKey);
   if (!key) return { success: false, error: 'API key is required' };
   baseUrl = await openaiBaseUrl(baseUrl);
 
