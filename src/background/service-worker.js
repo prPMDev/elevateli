@@ -40,6 +40,22 @@ async function getDecryptedApiKey() {
 // Use onInstalled only for one-time setup
 if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
   chrome.runtime.onInstalled.addListener(async (details) => {
+    // Open LinkedIn tabs have no content script after an install, and a dead one after an update or
+    // reload, so popup messages to them go nowhere. Inject the current one unless the tab already
+    // loaded it; OverlayManager.initialize() replaces the overlay a dead script left behind.
+    if (details.reason === 'install' || details.reason === 'update') {
+      const { js, css } = chrome.runtime.getManifest().content_scripts[0];
+      for (const { id } of await chrome.tabs.query({ url: 'https://www.linkedin.com/*' })) {
+        const target = { tabId: id };
+        chrome.scripting.executeScript({ target, func: () => typeof OverlayManager !== 'undefined' })
+          .then(([probe]) => probe?.result || Promise.all([
+            chrome.scripting.insertCSS({ target, files: css }),
+            chrome.scripting.executeScript({ target, files: js })
+          ]))
+          .catch(() => {}); // tab closed or not scriptable (error page)
+      }
+    }
+
     if (details.reason === 'install') {
       // Open updates page on fresh install
       chrome.tabs.create({ url: 'updates.html' });
