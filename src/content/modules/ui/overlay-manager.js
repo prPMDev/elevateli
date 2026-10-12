@@ -779,9 +779,7 @@ const OverlayManager = {
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
         }
-        
-        // Start elapsed time display
-        this.startElapsedTimeDisplay();
+        // Elapsed timer keeps running from SCANNING - one counter for the whole analysis
       },
       
       [this.states.COMPLETE]: () => {
@@ -1859,51 +1857,16 @@ const OverlayManager = {
       }
     }
     
-    // Update elapsed time every second
+    // Update elapsed time every second; the hint is appended so the counter stays visible
+    // and the per-section status text (set by the analyzer) is never overwritten
     const updateElapsed = () => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
-      
-      // Update status text based on elapsed time
-      const statusEl = this.overlayElement.querySelector('.status-text');
-      
-      if (minutes > 0) {
-        elapsedDisplay.textContent = `Elapsed: ${minutes}m ${seconds}s`;
-      } else {
-        elapsedDisplay.textContent = `Elapsed: ${seconds}s`;
-      }
-      
-      // Progressive time estimates and status updates
-      // Changed from 20s/45s to 30s/60s based on alpha tester feedback
-      if (elapsed >= 60 && elapsed < 65 && statusEl) {
-        statusEl.textContent = 'Still trying to reach AI service...';
-      } else if (elapsed >= 30 && elapsed < 35 && statusEl) {
-        statusEl.textContent = 'Taking longer than expected...';
-      }
-      
-      // Additional helper messages
-      if (elapsed > 120) {
-        (() => {
-          elapsedDisplay.textContent = '';
-          elapsedDisplay.insertAdjacentHTML('afterbegin', ' <span style="color: #059669;">(Almost done!)</span>');
-        })();
-      } else if (elapsed > 90) {
-        (() => {
-          elapsedDisplay.textContent = '';
-          elapsedDisplay.insertAdjacentHTML('afterbegin', ' <span style="color: #0a66c2;">(Finalizing...)</span>');
-        })();
-      } else if (elapsed > 60) {
-        (() => {
-          elapsedDisplay.textContent = '';
-          elapsedDisplay.insertAdjacentHTML('afterbegin', ' <span style="color: #f59e0b;">(Complex analysis in progress)</span>');
-        })();
-      } else if (elapsed > 30) {
-        (() => {
-          elapsedDisplay.textContent = '';
-          elapsedDisplay.insertAdjacentHTML('afterbegin', ' <span style="color: #6b7280;">(This may take a moment...)</span>');
-        })();
-      }
+      const hint = elapsed > 90 ? ' (Finalizing...)' :
+                   elapsed > 60 ? ' (Complex analysis in progress)' :
+                   elapsed > 30 ? ' (This may take a moment...)' : '';
+      elapsedDisplay.textContent = `Elapsed: ${minutes > 0 ? `${minutes}m ` : ''}${seconds}s${hint}`;
     };
     
     updateElapsed();
