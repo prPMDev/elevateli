@@ -1605,8 +1605,12 @@ async function handleSynthesisAnalysis(request, sendResponse) {
       totalWeight += weights.experience_role;
     }
     
-    // Calculate final score
-    const finalScore = totalWeight > 0 ? Math.round((totalScore / totalWeight) * 10) / 10 : 5;
+    // No section scored: fail instead of inventing a 5 that would be shown and cached as the content score
+    if (!totalWeight) {
+      sendResponse({ success: false, error: 'AI could not score any section' });
+      return;
+    }
+    const finalScore = Math.round((totalScore / totalWeight) * 10) / 10;
     
     
     // Use the existing synthesizeFinalAnalysis function for recommendations
