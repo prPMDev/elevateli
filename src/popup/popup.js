@@ -83,6 +83,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     'showAnalysis',
     'customInstructions',
     'targetRole',
+    'customRole',
     'seniorityLevel',
     'compliance',
     'userProfile',
@@ -96,7 +97,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
       const updates = {};
-      ['showAnalysis', 'enableAI', 'targetRole', 'seniorityLevel'].forEach(key => {
+      ['showAnalysis', 'enableAI', 'targetRole', 'customRole', 'seniorityLevel'].forEach(key => {
         if (changes[key]) updates[key] = changes[key].newValue;
       });
       if (Object.keys(updates).length) {
@@ -247,7 +248,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function updateActiveMainView() {
     // Update status displays in active main view
     if (analysisStatus) analysisStatus.textContent = settings.showAnalysis !== false ? 'On' : 'Off';
-    if (targetRoleStatus) targetRoleStatus.textContent = settings.targetRole || 'Not set';
+    if (targetRoleStatus) targetRoleStatus.textContent = (settings.targetRole === 'other' && settings.customRole) || settings.targetRole || 'Not set';
     if (aiAnalysisStatus) {
       const hasApiKey = !!settings.encryptedApiKey;
       const hasProvider = !!settings.aiProvider;
