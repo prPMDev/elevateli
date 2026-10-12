@@ -478,18 +478,8 @@ class Analyzer {
           photo: {
             exists: extractedData.photo?.exists || false,
             hasPhoto: extractedData.photo?.exists || false
-          },
-          banner: {
-            exists: extractedData.banner?.exists || false,
-            isCustomBanner: extractedData.banner?.isCustomBanner || false
-          },
-          metadata: {
-            openToWork: extractedData.openToWork?.enabled || false,
-            openToWorkDetails: extractedData.openToWork?.details || null,
-            creatorMode: extractedData.creatorMode?.enabled || false,
-            connectionCount: extractedData.connections?.count || 0,
-            verified: extractedData.verified || false
           }
+          // No banner/Open to Work/Creator Mode/connections: no extractor produces them
         }
       });
     }
