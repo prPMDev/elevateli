@@ -148,26 +148,14 @@ class Analyzer {
 
         if (aiResult.success) {
           result.contentScore = aiResult.score;
-          result.recommendations = aiResult.recommendations;
-          result.insights = aiResult.insights;
           result.sectionScores = aiResult.sectionScores;
-
-          // For distributed analysis, sectionScores might be nested differently
-          if (!result.sectionScores && aiResult.synthesis) {
-            result.sectionScores = aiResult.synthesis.sectionScores || aiResult.sectionScores;
-          }
         } else {
 
           // Check for cached AI data to merge with new completeness
           if (cachedData && cachedData.contentScore !== undefined) {
-            
+
             result.contentScore = cachedData.contentScore;
-            result.recommendations = cachedData.recommendations;
             result.sectionScores = cachedData.sectionScores;
-            result.insights = cachedData.insights; // Also copy insights
-            // Copy any other AI-related fields that might exist
-            if (cachedData.summary) result.summary = cachedData.summary;
-            if (cachedData.recommendationsArray) result.recommendationsArray = cachedData.recommendationsArray;
             result.partialUpdate = true;
             result.cachedContentScore = true;
             result.aiFailedWithCache = true;
@@ -834,18 +822,7 @@ class Analyzer {
       }, (response) => {
         
         if (response && response.success) {
-          const result = {
-            success: true,
-            score: response.finalScore,
-            synthesis: response.synthesis,
-            recommendations: response.overallRecommendations || response.recommendations || [],
-            insights: response.careerNarrative,
-            sectionScores: response.sectionScores
-          };
-          
-          
-          
-          resolve(result);
+          resolve({ success: true, score: response.finalScore, sectionScores: response.sectionScores });
         } else {
           // Treated like any AI failure: analyze() keeps the previous AI results
           resolve({ success: false, error: response?.error || 'Synthesis failed' });
