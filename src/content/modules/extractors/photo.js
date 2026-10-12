@@ -7,52 +7,17 @@
 const PhotoExtractor = {
   name: 'photo',
   
-  selectors: [
-    '.pv-top-card-profile-picture img',
-    '.profile-photo-edit__preview',
-    '.pv-top-card__photo img',
-    '.pv-top-card-profile-picture__image',
-    'img[class*="profile-photo"]',
-    'img[class*="pv-top-card"][class*="photo"]'
-  ],
-  
   /**
    * Quick scan for profile photo existence
    * @returns {Object} Scan results
    */
   async scan() {
-    let exists = false;
-    let photoUrl = null;
-    
-    // Try each selector
-    for (const selector of this.selectors) {
-      const photoElement = document.querySelector(selector);
-      if (photoElement) {
-        exists = true;
-        photoUrl = photoElement.src || photoElement.getAttribute('src');
-        break;
-      }
-    }
-    
-    // If not found with selectors, try finding by attributes
-    if (!exists) {
-      const allImages = document.querySelectorAll('img');
-      for (const img of allImages) {
-        const alt = img.alt || '';
-        const className = img.className || '';
-        if (alt.toLowerCase().includes('profile photo') || 
-            alt.includes('profile picture') ||
-            className.includes('profile-photo')) {
-          exists = true;
-          photoUrl = img.src;
-          break;
-        }
-      }
-    }
+    // Member photos are served from /dms/image/; the no-photo ghost avatar is a static asset
+    const photo = BaseExtractor.topCard()?.querySelector('[aria-label="Profile photo"] img[src*="/dms/image/"]');
     
     return {
-      exists,
-      photoUrl
+      exists: !!photo,
+      photoUrl: photo?.getAttribute('src') || null
     };
   },
   

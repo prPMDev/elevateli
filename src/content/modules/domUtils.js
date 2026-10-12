@@ -127,8 +127,7 @@ async function saveUserProfileId() {
   if (!profileId) return;
   
   // Get profile name from the page
-  const profileNameElement = document.querySelector('h1.text-heading-xlarge');
-  const profileName = profileNameElement ? profileNameElement.textContent.trim() : profileId;
+  const profileName = BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim() || profileId;
   
   const userProfile = {
     profileId,

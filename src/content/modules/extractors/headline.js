@@ -12,33 +12,13 @@ const HeadlineExtractor = {
    * @returns {Object} Scan results
    */
   async scan() {
-    const selectors = [
-      // New selector based on actual LinkedIn HTML
-      '.text-body-medium[data-generated-suggestion-target]',
-      // Keep old selector as fallback
-      '.pv-text-details__left-panel .text-body-medium',
-      // Additional fallback for profile header
-      'section[data-member-id] .text-body-medium'
-    ];
-    
-    let element = null;
-    let usedSelector = null;
-    
-    for (const selector of selectors) {
-      element = document.querySelector(selector);
-      if (element) {
-        usedSelector = selector;
-        break;
-      }
-    }
-    
-    const exists = !!element;
-    
-    // Timing logged;
+    // Top card <p>s after the name: optional pronouns ("He/Him"), then the headline
+    // ponytail: pronouns spotted by their "X/Y" shape; custom pronouns with spaces would be read as the headline
+    const element = Array.from(BaseExtractor.topCard()?.querySelectorAll('p') || [])
+      .find(p => !/^\w+\/\w+$/.test(p.textContent.trim()));
     
     return {
-      exists,
-      selector: usedSelector,
+      exists: !!element,
       element
     };
   },
@@ -58,8 +38,7 @@ const HeadlineExtractor = {
       };
     }
     
-    const element = scanResult.element || document.querySelector(scanResult.selector);
-    const text = BaseExtractor.extractTextContent(element);
+    const text = scanResult.element.textContent.trim();
     
     const result = {
       exists: true,

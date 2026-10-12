@@ -6,28 +6,21 @@
 
 const FeaturedExtractor = {
   name: 'featured',
-  
-  selectors: [
-    'section[data-section="featured"]',
-    'section:has(h2:contains("Featured"))',
-    'div[data-view-name="profile-card"]:has(h2:contains("Featured"))',
-    'section.pv-profile-section:has(.pv-featured-container)',
-    'section#featured-section'
-  ],
-  
+
   /**
    * Quick scan for featured section existence
    * @returns {Object} Scan results
    */
   async scan() {
-    const section = BaseExtractor.findSection(this.selectors, 'Featured');
+    const section = BaseExtractor.findSection('Featured');
     const exists = !!section;
-    
+
     let itemCount = 0;
     if (exists) {
-      // Count featured items (posts, articles, media)
-      const items = section.querySelectorAll('.pvs-list__paged-list-item, .artdeco-list__item, .pv-featured-container__item');
-      itemCount = items.length;
+      // Count featured items (posts, articles, media); each key repeats inside its card
+      const keys = Array.from(section.querySelectorAll('[componentkey^="FeFeaturedItemUrn"]'))
+        .map(el => el.getAttribute('componentkey'));
+      itemCount = new Set(keys).size;
     }
     
     return {

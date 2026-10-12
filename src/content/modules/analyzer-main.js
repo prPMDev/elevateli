@@ -517,10 +517,7 @@
         
         // Extract current profile information
         const profileId = getProfileIdFromUrl();
-        const profileNameElement = document.querySelector('.text-heading-xlarge') || 
-                                  document.querySelector('h1.text-heading-xlarge') ||
-                                  document.querySelector('[class*="profile-name"]');
-        const profileName = profileNameElement ? profileNameElement.textContent.trim() : profileId;
+        const profileName = BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim() || profileId;
         
         // Check ownership indicators
         const hasOwnershipIndicators = OwnershipDetector.hasOwnershipIndicators();
