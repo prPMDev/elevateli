@@ -294,17 +294,16 @@ class Analyzer {
           completeness: this.analysisResults.completeness,
           completenessData: this.analysisResults.completenessData,
           extractedData: this.analysisResults.extractedData,
-          contentScore: 0, // No AI score available
-          recommendations: null, // No AI recommendations
-          insights: {
-            summary: 'Analysis timed out. Showing completeness score only.',
-            aiError: {
-              type: 'timeout',
-              message: 'AI analysis took too long. Try again for full analysis.'
-            }
+          // The overlay's "AI failed" contract: contentScore 0 + aiError + settings.enableAI
+          // renders "No score" instead of a 0-star rating
+          contentScore: 0,
+          aiDisabled: true,
+          aiError: {
+            type: 'timeout',
+            message: 'AI analysis took too long. Try again for full analysis.'
           },
-          timestamp: Date.now(),
-          isPartial: true
+          settings: { enableAI: this.settings.enableAI },
+          timestamp: Date.now()
         };
         
         // Show partial results in the UI
