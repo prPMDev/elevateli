@@ -2721,9 +2721,10 @@ const OverlayManager = {
       // Add content quality if AI is enabled
       if (hasAIAnalysis) {
         try {
-          const totalStars = sections.reduce((sum, section) => sum + (section.rating || 0), 0);
-          const maxStars = sections.length * 5;
-          const starProgress = Math.round((totalStars / maxStars) * 100);
+          // Only AI-rated cards count; unrated (null) cards are not 0 stars. hasAIAnalysis guarantees one.
+          const rated = sections.filter(section => typeof section.rating === 'number');
+          const totalStars = rated.reduce((sum, section) => sum + section.rating, 0);
+          const starProgress = Math.round((totalStars / (rated.length * 5)) * 100);
           
           let qualityMessage = "";
           if (starProgress >= 80) {
