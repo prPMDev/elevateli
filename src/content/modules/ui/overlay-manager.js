@@ -1623,8 +1623,7 @@ const OverlayManager = {
       'recommendations': 'Recommendations',
       'certifications': 'Certifications',
       'projects': 'Projects',
-      'featured': 'Featured',
-      'experience_role': 'Experience'
+      'featured': 'Featured'
     };
     
     return nameMap[name] || name.charAt(0).toUpperCase() + name.slice(1);

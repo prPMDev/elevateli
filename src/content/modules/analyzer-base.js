@@ -500,7 +500,7 @@ class Analyzer {
       });
     }
     
-    // 2. Experience Roles
+    // 2. Experience (one overall section; roles feed its prompt)
     // Check if experience exists and has count > 0
     if (extractedData.experience?.exists && extractedData.experience?.count > 0) {
       // Need to run extractDeep to get individual experiences for AI analysis
@@ -516,7 +516,6 @@ class Analyzer {
             // Expose roles to skills/recommendations career context below
             extractedData.experience.experiences = deepExperienceData.experiences;
 
-            // First, add overall experience section for high-level analysis
             sections.push({
               type: 'experience_overall',
               name: 'Overall Experience',
@@ -532,27 +531,6 @@ class Analyzer {
                 hasTechStack: deepExperienceData.hasTechStack
               }
             });
-            
-            
-            // Then add each experience role as a separate section for detailed analysis
-            deepExperienceData.experiences.forEach((exp, index) => {
-              // Create a display name with company
-              const companyName = exp.company || 'Unknown Company';
-              const displayName = `${companyName} - ${exp.title || 'Role'}`;
-              
-              sections.push({
-                type: 'experience_role',
-                name: displayName,
-                data: exp,
-                context: {
-                  position: index,
-                  totalRoles: deepExperienceData.experiences.length,
-                  previousRole: deepExperienceData.experiences[index - 1],
-                  nextRole: deepExperienceData.experiences[index + 1]
-                }
-              });
-            });
-            
           }
         }
       } catch (error) {
@@ -701,16 +679,7 @@ class Analyzer {
       let result;
 
       try {
-        // Format display name based on section type
-        let displayName = section.name;
-        if (section.type === 'experience_role' && section.data) {
-          // Format as "Senior Product Manager role at Avalara"
-          const title = section.data.title || 'Role';
-          const company = section.data.company || 'Unknown Company';
-          displayName = `${title} role at ${company}`;
-        }
-
-        OverlayManager.updateAIProgress('analyzing', displayName);
+        OverlayManager.updateAIProgress('analyzing', section.name);
 
         // Above the SW's 180 s per AI call, so the SW's own error is the one reported
         result = await Promise.race([
@@ -726,21 +695,10 @@ class Analyzer {
 
       if (result.success) {
         consecutiveFailures = 0; // Reset on success
-        // Handle multiple experience roles
-        if (section.type === 'experience_role') {
-          if (!sectionResults.experience_roles) {
-            sectionResults.experience_roles = [];
-          }
-          sectionResults.experience_roles.push(result);
-        } else {
-          sectionResults[section.type] = result;
-        }
+        sectionResults[section.type] = result;
       } else {
-        // Record the failure so the overlay says this section failed instead of "Enable AI".
-        // Not for experience: a failed overall falls back to the role average (a role always follows it).
-        if (section.type !== 'experience_role' && section.type !== 'experience_overall') {
-          sectionResults[section.type] = { score: null, errorType: 'ANALYSIS_FAILED', error: result.error, actionItems: [] };
-        }
+        // Record the failure so the overlay says this section failed instead of "Enable AI"
+        sectionResults[section.type] = { score: null, errorType: 'ANALYSIS_FAILED', error: result.error, actionItems: [] };
 
         // Check for early exit condition. analyze() keeps the previous AI results on failure.
         if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {

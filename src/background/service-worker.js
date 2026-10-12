@@ -104,11 +104,6 @@ function createSectionPrompt(sectionName, content, config, context = {}) {
     currentDate: new Date().toISOString().split('T')[0] // Format: "2025-01-19"
   };
   
-  // Special handling for experience roles
-  if (sectionName === 'experience_role' && typeof content === 'object') {
-    return createExperienceRolePrompt(content, enhancedConfig, context);
-  }
-  
   // Special handling for overall experience analysis
   if (sectionName === 'experience_overall' && typeof content === 'object') {
     return createExperienceOverallPrompt(content, enhancedConfig);
@@ -141,80 +136,6 @@ function createSectionPrompt(sectionName, content, config, context = {}) {
   }
   
   throw new Error(`No prompt for section: ${sectionName}`);
-}
-
-// Create specialized prompt for experience roles using Anthropic best practices
-function createExperienceRolePrompt(experience, config, context = {}) {
-  const prompt = `You are an expert career coach analyzing individual LinkedIn experience entries for ${config.targetRole} positions at the ${config.seniorityLevel} level.
-
-<context>
-Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
-Target Role: ${config.targetRole}
-Seniority Level: ${config.seniorityLevel}
-Custom Instructions: ${config.customInstructions || 'None provided'}
-</context>
-
-<critical_rules>
-⚠️ YOU MUST FOLLOW THESE RULES:
-1. READ THE FULL DESCRIPTION FIRST - Identify what IS already present before suggesting additions
-2. NEVER suggest adding metrics/achievements that already exist in the description
-3. SCORING FEEDBACK APPROACH:
-   - Scores 0-6: START with the most critical gap, then acknowledge strengths
-   - Scores 7-10: START with specific strengths, END with 1-2 refinements to reach 10/10
-4. Quote EXACT phrases from their description when giving feedback
-5. If description mentions "$50M revenue" don't ask to "add revenue metrics" - suggest how to enhance it
-6. Give SPECIFIC improvements: "Move your $50M ARR metric to the first line" not "Add metrics"
-7. Consider role recency - weight recent roles (< 2 years) more heavily
-</critical_rules>
-
-<position_details>
-Title: ${experience.title}
-Company: ${experience.company}${experience.companyDetails?.size ? ` (${experience.companyDetails.size} employees)` : ''}
-Industry: ${experience.companyDetails?.industry || 'Not specified'}
-Duration: ${experience.employment?.duration || 'Not specified'} ${experience.employment?.isCurrent ? '(CURRENT ROLE)' : ''}
-Dates: ${experience.employment?.startDate || 'Unknown'} - ${experience.employment?.endDate || 'Unknown'}
-Role Position: ${Number.isInteger(context.position) ? `#${context.position + 1} of ${context.totalRoles} total roles` : 'Unknown'}
-Visibility Level: ${context.position < 3 ? 'PREMIUM (top 3 - most visible)' : context.position < 10 ? 'Standard (requires scrolling)' : 'Hidden (requires expansion)'}
-</position_details>
-
-<role_description_full>
-Character Count: ${experience.description?.length || 0}
-
-FULL DESCRIPTION:
-${experience.description || '[NO DESCRIPTION PROVIDED - CRITICAL GAP]'}
-</role_description_full>
-
-<analysis_task>
-Analyze this individual role description:
-
-1. FIRST, identify from the description above:
-   - What specific metrics/numbers ARE already mentioned
-   - What technologies/tools ARE already listed
-   - What leadership/impact evidence IS already present
-   - Overall narrative quality and structure
-
-2. Score (0-10) based on:
-   - Relevance to ${config.targetRole} at ${config.seniorityLevel}
-   - Quality of existing content (not what's missing)
-   - Impact and achievement focus
-   - Clarity and specificity
-   - Role recency (recent = more weight)
-
-3. Provide feedback:
-   - positiveInsight: Quote specific strong content from their description
-   - gapAnalysis: Identify weak areas using their actual words
-   - specificFeedback: Pick their weakest sentence and rewrite it
-   - actionItems: Based on score level (see rules above)
-
-4. For high scores (7+):
-   - Acknowledge what's working with specific quotes
-   - Provide 1-2 refinements to reach 10/10
-   - Focus on repositioning/enhancing existing content
-</analysis_task>
-
-Reply with JSON: fill in score, positiveInsight, gapAnalysis, specificFeedback (their weakest description sentence and its rewrite) and actionItems (category: 'Impact Metrics', 'Strategic Context', 'Leadership Evidence', 'Technical Depth' or '10/10 Optimization'; if metrics exist, suggest repositioning them).`;
-
-  return prompt;
 }
 
 // Create prompt for experience section (when not broken into individual roles)
@@ -1165,45 +1086,19 @@ function handleSynthesisAnalysis(request, sendResponse) {
   const weights = {
     first_impression: 0.20,   // 20% - First impression (headline + photo + banner)
     about: 0.25,              // 25% - Standalone about section
-    experience_role: 0.30,    // 30% - All experience roles combined
-    experience_overall: 0.30, // 30% - Overall experience (alternative to role-by-role)
+    experience_overall: 0.30, // 30% - Overall experience
     skills: 0.15,             // 15% - Skills
     recommendations: 0.10     // 10% - Recommendations
   };
-  
-  // Track experience scores separately to average them
-  const experienceScores = [];
-  
-  
+
   Object.entries(sectionScores || {}).forEach(([sectionType, result]) => {
-    
-    if (sectionType === 'experience_roles' && Array.isArray(result)) {
-      // Handle array of experience roles
-      result.forEach(role => {
-        if (role && role.score !== undefined && role.score !== null) {
-          experienceScores.push(role.score);
-        }
-      });
-    } else if (sectionType === 'experience_overall' && result && result.score !== undefined && result.score !== null) {
-      // Handle overall experience score
-      totalScore += result.score * weights.experience_overall;
-      totalWeight += weights.experience_overall;
-    } else if (result && result.score !== undefined && result.score !== null) {
-      // Process other sections normally
+    if (result && result.score !== undefined && result.score !== null) {
       const weight = weights[sectionType] || 0.1;
       totalScore += result.score * weight;
       totalWeight += weight;
     }
   });
-  
-  // Add averaged experience score ONLY if we didn't already use experience_overall
-  const hasExperienceOverall = typeof sectionScores?.experience_overall?.score === 'number';
-  if (experienceScores.length > 0 && !hasExperienceOverall) {
-    const avgExperienceScore = experienceScores.reduce((a, b) => a + b, 0) / experienceScores.length;
-    totalScore += avgExperienceScore * weights.experience_role;
-    totalWeight += weights.experience_role;
-  }
-  
+
   // No section scored: fail instead of inventing a 5 that would be shown and cached as the content score
   if (!totalWeight) {
     sendResponse({ success: false, error: 'AI could not score any section' });
