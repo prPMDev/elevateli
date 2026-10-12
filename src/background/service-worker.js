@@ -226,16 +226,13 @@ Title: ${experience.title}
 Company: ${experience.company}${experience.companyDetails?.size ? ` (${experience.companyDetails.size} employees)` : ''}
 Industry: ${experience.companyDetails?.industry || 'Not specified'}
 Duration: ${experience.employment?.duration || 'Not specified'} ${experience.employment?.isCurrent ? '(CURRENT ROLE)' : ''}
-Dates: ${experience.startDate || 'Unknown'} - ${experience.endDate || (experience.employment?.isCurrent ? 'Present' : 'Unknown')}
+Dates: ${experience.employment?.startDate || 'Unknown'} - ${experience.employment?.endDate || 'Unknown'}
 Role Position: ${context.position ? `#${context.position + 1} of ${context.totalRoles} total roles` : 'Unknown'}
 Visibility Level: ${context.position < 3 ? 'PREMIUM (top 3 - most visible)' : context.position < 10 ? 'Standard (requires scrolling)' : 'Hidden (requires expansion)'}
 </position_details>
 
 <role_description_full>
 Character Count: ${experience.description?.length || 0}
-Content Quality Indicators:
-- Has Quantified Achievements: ${experience.hasQuantifiedAchievements ? 'YES - READ DESCRIPTION' : 'NO'}
-- Mentions Tech Stack: ${experience.hasTechStack ? 'YES - READ DESCRIPTION' : 'NO'}
 
 FULL DESCRIPTION:
 ${experience.description || '[NO DESCRIPTION PROVIDED - CRITICAL GAP]'}
@@ -352,14 +349,14 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
 Total Experience: ${yearsOfExperience} years across ${totalRoles} roles
 Average Tenure: ${experienceData.averageTenure ? Math.round(experienceData.averageTenure) + ' months per role' : 'Unknown'}
 Current Status: ${experienceData.hasCurrentRole ? 'Currently employed' : 'Not currently employed'}
-Career Start: ${experienceData.experiences?.[experienceData.experiences.length - 1]?.startDate || 'Unknown'}
+Career Start: ${experienceData.experiences?.[experienceData.experiences.length - 1]?.employment?.startDate || 'Unknown'}
 Industry Changes: ${experienceData.industryChanges || 0}
 </profile_overview>
 
 <career_trajectory>
 ${experienceData.experiences && experienceData.experiences.length > 0 ? 
   experienceData.experiences.slice(0, 5).map((exp, idx) => 
-    `${idx + 1}. ${exp.title} at ${exp.company} (${exp.duration || 'Duration not specified'})${exp.startDate ? ' - Started ' + exp.startDate : ''}`
+    `${idx + 1}. ${exp.title} at ${exp.company} (${exp.duration || 'Duration not specified'})${exp.employment?.startDate ? ' - Started ' + exp.employment.startDate : ''}`
   ).join('\n') : 'No experience data available'}
 </career_trajectory>
 
@@ -371,12 +368,9 @@ ${experienceData.experiences && experienceData.experiences.length > 0 ?
 Title: ${exp.title}
 Company: ${exp.company}
 Duration: ${exp.duration || 'Not specified'}
-Dates: ${exp.startDate || 'Unknown'} - ${exp.endDate || 'Present'}
+Dates: ${exp.employment?.startDate || 'Unknown'} - ${exp.employment?.endDate || 'Unknown'}
 FULL DESCRIPTION (${exp.description?.length || 0} chars):
 ${exp.description || '[NO DESCRIPTION PROVIDED]'}
-
-Metrics Already Present: ${exp.hasQuantifiedAchievements ? 'YES - READ ABOVE' : 'NO'}
-Tech Stack Mentioned: ${exp.hasTechStack ? 'YES - READ ABOVE' : 'NO'}
 `
   ).join('\n') : 'No description data available'}
 </recent_roles_full_content>
