@@ -1195,7 +1195,12 @@ async function callAIProvider(provider, apiKey, prompt, model) {
     clearTimeout(timeoutId);
     
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      // Keep the provider's own message (e.g. "credit balance is too low"); HTTP/2 has no statusText
+      const body = await response.json().catch(() => ({}));
+      const s = response.status;
+      throw Object.assign(new Error(body.error?.message || `API error ${s}`), {
+        errorType: s === 401 || s === 403 ? 'AUTH' : s === 429 ? 'RATE_LIMIT' : s >= 500 ? 'SERVICE_UNAVAILABLE' : 'PROVIDER_ERROR'
+      });
     }
     
     const data = await response.json();
