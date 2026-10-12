@@ -182,6 +182,13 @@ class Analyzer {
         }
       }
       
+      // A factory reset during the run cleared storage: don't write this run back or show it
+      const { compliance } = await chrome.storage.local.get('compliance');
+      if (!compliance?.hasAcknowledged) {
+        clearTimeout(analysisTimeout);
+        return { success: false, cancelled: true };
+      }
+
       // Save to cache
       await this.cacheManager.save(this.profileId, result, extractedData);
       
