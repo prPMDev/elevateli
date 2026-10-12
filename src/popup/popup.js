@@ -444,12 +444,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           });
           
           // Move to main view (not AI setup)
-          profileSetupDiv.classList.add('hidden');
-          activeMainDiv.classList.remove('hidden');
-          
-          // Load the main view
+          settings.userProfile = response.userProfile;
           showView('activeMain');
-          updateActiveMainView();
         } else {
           alert('Failed to save profile. Please ensure you are on your LinkedIn profile.');
         }
