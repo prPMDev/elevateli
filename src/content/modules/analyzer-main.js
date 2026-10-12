@@ -108,6 +108,13 @@
   // The run in progress; a second Analyze click (e.g. from a rebuilt overlay) must not start a parallel one
   let activeAnalyzer = null;
 
+  // Navigation away, Reset analysis and Factory Reset stop the running analysis from reading the page,
+  // saving or painting (Analyzer checks this.cancelled) and free the slot for a new run
+  function cancelAnalysis() {
+    if (activeAnalyzer) activeAnalyzer.cancelled = true;
+    activeAnalyzer = null;
+  }
+
   // Start analysis when requested
   async function startAnalysis(forceRefresh = false) {
     if (activeAnalyzer) return; // that run's finally resets the buttons
@@ -220,7 +227,8 @@
       // Run analysis
       await analyzer.analyze(forceRefresh);
     } finally {
-      // Also covers the early returns above, which would otherwise leave the clicked button spinning
+      // Also covers the early returns above, which would otherwise leave the clicked button spinning.
+      // A cancelled run no longer owns the buttons.
       if (activeAnalyzer === analyzer) {
         activeAnalyzer = null;
         OverlayManager.resetButtons();
@@ -231,50 +239,25 @@
   // Navigation observer for SPA navigation
   function observeNavigation() {
     let lastPath = location.pathname;
-    
-    const observer = new MutationObserver(debounce(async () => {
-      if (location.pathname !== lastPath) {
-        lastPath = location.pathname;
-        
-        // Clear any displayed data immediately
-        if (OverlayManager.overlayElement) {
-          try {
-            OverlayManager.setState(OverlayManager.states.INITIALIZING);
-          } catch (e) {
-            // Ignore state change errors during navigation
-          }
-        }
-        
-        // Validate profile before reinitializing
-        const newProfileId = getProfileIdFromUrl();
-        // Check if this is the user's profile using ownership indicators
-        const isOwn = await isOwnProfile();
-        
-        if (!isOwn) {
-          // Not user's profile - remove overlay
-          const existingOverlay = document.querySelector('.elevateli-overlay-wrapper');
-          if (existingOverlay) {
-            existingOverlay.remove();
-          }
-          return; // Don't reinitialize on other profiles
-        }
-        
-        // User's profile - reinitialize if on profile page
-        if (isProfilePage() && newProfileId && isOwn) {
-          // Remove old overlay first
-          const existingOverlay = document.querySelector('.elevateli-overlay-wrapper');
-          if (existingOverlay) {
-            existingOverlay.remove();
-          }
-          
-          setTimeout(() => {
-            try {
-              init();
-            } catch (error) {
-            }
-          }, 500);
-        }
-      }
+    let lastProfileId = getProfileIdFromUrl();
+
+    const observer = new MutationObserver(debounce(() => {
+      if (location.pathname === lastPath) return;
+      lastPath = location.pathname;
+
+      // Modals (contact info, edit intro, endorsers...) push /in/<id>/overlay/... on the same page:
+      // keep the overlay and any running analysis
+      const profileId = getProfileIdFromUrl();
+      const sameProfilePage = profileId === lastProfileId && isProfilePage();
+      lastProfileId = profileId;
+      if (sameProfilePage && OverlayManager.overlayElement?.isConnected) return;
+
+      // A running analysis must not read the next page or save it under this profile
+      cancelAnalysis();
+      // close() also drops the stale overlayElement, so init() builds a fresh overlay
+      OverlayManager.close();
+      // init() checks profile page, profile id and ownership
+      setTimeout(init, 500);
     }, 500));
     
     observer.observe(document.body, {
@@ -300,7 +283,8 @@
       // Handle showOverlay message from popup after successful setup
       if (request.action === 'triggerAnalysis') {
         // Handle cache clear - update overlay to show reset state
-        
+        cancelAnalysis(); // a running analysis would save the cache right back
+
         // Show zero state UI with reset-appropriate text
         if (typeof OverlayManager !== 'undefined') {
           if (OverlayManager.showZeroState) {
@@ -322,7 +306,8 @@
       
       // Handle full extension reset
       if (request.action === 'resetToZeroState') {
-        
+        cancelAnalysis(); // a running analysis would write the profile back after storage is cleared
+
         // Reset overlay to complete zero state
         if (typeof OverlayManager !== 'undefined') {
           // Clear compliance flag since storage was cleared
