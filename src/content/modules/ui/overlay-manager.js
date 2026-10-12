@@ -1163,6 +1163,8 @@ const OverlayManager = {
       const qualityBlock = this.overlayElement.querySelector('.score-block.quality');
       if (qualityBlock) {
         let message = 'Configure AI in extension settings';
+        // AI is on but the run failed or timed out: say why instead of "Configure AI"
+        if (data.aiError && data.settings?.enableAI) message = data.aiError.message;
         if (data.apiKeyError) {
           message = data.apiKeyErrorMessage || 'Invalid Key - check settings';
         }
