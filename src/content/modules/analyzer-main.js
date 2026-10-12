@@ -588,13 +588,15 @@
           // Update the compliance state in OverlayManager
           OverlayManager.hasCompliance = request.hasCompliance;
           
-          // If the overlay exists and we have compliance, update the button states
+          // The overlay was built before setup, so the collapsed Analyze button is disabled and the
+          // zero state says "click the extension icon". Enable it and redraw (EMPTY_CACHE or cache).
           if (OverlayManager.overlayElement && request.hasCompliance) {
-            // Update button states to be clickable
-            
-            
-            
-            // The event listeners are already attached, just the compliance state needed updating
+            const btn = OverlayManager.overlayElement.querySelector('.analyze-btn-collapsed');
+            if (btn) {
+              btn.disabled = false;
+              btn.title = '';
+            }
+            OverlayManager.restoreAppropriateState();
           }
         }
         
