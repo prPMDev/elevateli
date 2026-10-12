@@ -1111,7 +1111,7 @@ const SECTION_SCHEMA = {
 };
 
 // Call AI provider
-async function callAIProvider(provider, apiKey, prompt, model = null) {
+async function callAIProvider(provider, apiKey, prompt, model) {
   
   // Clean and validate API key
   if (!apiKey || typeof apiKey !== 'string') {
@@ -1127,11 +1127,7 @@ async function callAIProvider(provider, apiKey, prompt, model = null) {
     throw new Error('API key is empty after cleaning');
   }
   
-  // Get model from storage if not provided
-  if (!model) {
-    ({ aiModel: model } = await chrome.storage.local.get('aiModel'));
-    if (!model) throw new Error('No AI model selected');
-  }
+  if (!model) throw new Error('No AI model selected');
   const baseUrl = await openaiBaseUrl();
 
   const config = {
@@ -1489,14 +1485,14 @@ async function testApiKey(provider, apiKey, baseUrl) {
 
 // Handle individual section analysis request
 async function handleSectionAnalysis(request, sendResponse) {
-  const { section, data, context, settings } = request;
+  const { section, data, context } = request;
   const sectionStartTime = Date.now();
 
   try {
-    
-    
-    // Get provider and API key
-    const { aiProvider } = await chrome.storage.local.get('aiProvider');
+    // Read settings at call time, not from the content script's snapshot: provider, key and model then always match
+    const { aiProvider, aiModel, targetRole, customRole, seniorityLevel, customInstructions } = await chrome.storage.local.get(
+      ['aiProvider', 'aiModel', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions']
+    );
     const apiKey = await getDecryptedApiKey();
     
     if (!aiProvider || !apiKey) {
@@ -1521,21 +1517,16 @@ async function handleSectionAnalysis(request, sendResponse) {
     
     // Create section-specific prompt
     const config = {
-      provider: aiProvider,
-      apiKey: apiKey,
-      targetRole: settings?.targetRole || 'general professional',
-      seniorityLevel: settings?.seniorityLevel || 'any level',
-      customInstructions: settings?.customInstructions || ''
+      targetRole: (targetRole === 'other' ? customRole : targetRole) || 'general professional',
+      seniorityLevel: seniorityLevel || 'any level',
+      customInstructions: customInstructions || ''
     };
-    
-    
+
+
     const prompt = createSectionPrompt(section, data, config, context);
-    
-    
-    const model = settings?.aiModel || null;
-    
+
     // Regular text-only analysis
-    const response = await callAIProvider(aiProvider, apiKey, prompt, model);
+    const response = await callAIProvider(aiProvider, apiKey, prompt, aiModel);
     
     
     
