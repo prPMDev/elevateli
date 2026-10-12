@@ -284,13 +284,7 @@
       if (!sender || sender.id !== chrome.runtime.id) {
         return false;
       }
-      
-      
-      if (request.action === 'ping') {
-        sendResponse({ success: true, alive: true });
-        return true;
-      }
-      
+
       // Handle showOverlay message from popup after successful setup
       if (request.action === 'triggerAnalysis') {
         // Handle cache clear - update overlay to show reset state
