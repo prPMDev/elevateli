@@ -721,6 +721,9 @@ const OverlayManager = {
       
       [this.states.SCANNING]: () => {
         this.clearEmptyStateMessage();
+        // COMPLETE (incl. every cache restore) hides the indicator; the status and elapsed counter live in it
+        const statusIndicator = this.overlayElement.querySelector('.status-indicator');
+        if (statusIndicator) statusIndicator.style.display = '';
         this.updateStatus('Scanning profile sections...', '⏳');
         this.showScanProgress();
         this.startElapsedTimeDisplay();
@@ -2461,6 +2464,7 @@ const OverlayManager = {
       rating: recommendationsRating,
       positive: recommendationsPositive,
       improvements: recommendationsImprovements,
+      errorType: sectionScores.recommendations?.errorType || null,
       // Removed isDefaultRating - use null rating instead
       priority: 'high'  // Always show recommendations section
     });
@@ -2913,7 +2917,12 @@ const OverlayManager = {
       })();
       qualityBadge.classList.remove('ai-disabled', 'error', 'ai-error', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
     }
-    if (lastAnalyzedSpan) lastAnalyzedSpan.textContent = 'Not analyzed';
+    if (lastAnalyzedSpan) {
+      // Drop the stale-analysis styling a previous result left behind
+      lastAnalyzedSpan.textContent = 'Not analyzed';
+      lastAnalyzedSpan.title = '';
+      lastAnalyzedSpan.style.color = '';
+    }
     if (analyzeBtn) {
       analyzeBtn.textContent = 'Analyze';
       // Re-sync with compliance: setup can finish (or a factory reset happen) after the overlay was built
