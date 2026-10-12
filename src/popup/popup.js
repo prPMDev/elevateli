@@ -681,19 +681,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       provider = settingsAiProviderSelect.value;
       model = settingsAiModelSelect.value;
       apiKey = settingsApiKeyInput.value.trim();
-      
-      // Clean the API key - remove zero-width spaces and other invisible characters
-      apiKey = apiKey.replace(/[\u200B-\u200D\uFEFF]/g, '');
       if (!apiKey && isLocalBaseUrl()) apiKey = 'local'; // local servers need no key
       
       // Check if it's a placeholder or real key
       isPlaceholder = apiKey === '••••••••••••';
-      
-      // Check for non-ASCII characters if not placeholder
-      if (!isPlaceholder && apiKey && !/^[\x20-\x7E]+$/.test(apiKey)) {
-        showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), 'API key contains invalid characters');
-        hasErrors = true;
-      }
       
       // Check for empty API key if not placeholder
       if (!isPlaceholder && !apiKey) {
