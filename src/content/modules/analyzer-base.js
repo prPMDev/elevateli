@@ -105,7 +105,9 @@ class Analyzer {
       
       // Run extractors
       const extractedData = await this.runExtractors();
-      
+      // analyzer-main cancelAnalysis(): navigation, Reset analysis or Factory Reset. Stop reading, saving and painting.
+      if (this.cancelled) return { success: false, cancelled: true };
+
       // Calculate completeness
       OverlayManager.setState(OverlayManager.states.CALCULATING);
 
@@ -133,6 +135,7 @@ class Analyzer {
         // Pre-flight API key validation. A failed check takes the same
         // keep-previous-AI-results path as a failed AI run below.
         const validationResult = await this.validateApiKey();
+        if (this.cancelled) return { success: false, cancelled: true };
 
         let aiResult;
         if (!validationResult.isValid) {
@@ -170,9 +173,9 @@ class Analyzer {
         }
       }
       
-      // A factory reset during the run cleared storage: don't write this run back or show it
+      // Cancelled, or a factory reset during the run cleared storage: don't write this run back or show it
       const { compliance } = await chrome.storage.local.get('compliance');
-      if (!compliance?.hasAcknowledged) {
+      if (this.cancelled || !compliance?.hasAcknowledged) {
         clearTimeout(analysisTimeout);
         return { success: false, cancelled: true };
       }
@@ -225,7 +228,8 @@ class Analyzer {
     } catch (error) {
       console.error('[Analyzer] Analysis failed:', error);
       clearTimeout(analysisTimeout);
-      
+      if (this.cancelled) return { success: false, cancelled: true };
+
       // If we have cached data, fall back to it
       if (cachedData && cachedData.completeness !== undefined) {
         
@@ -246,9 +250,6 @@ class Analyzer {
         });
         return { success: false, error: error.message };
       }
-    } finally {
-      // Always ensure buttons are re-enabled
-      OverlayManager.resetButtons();
     }
   }
   
@@ -279,6 +280,7 @@ class Analyzer {
    * Handle analysis timeout
    */
   async handleAnalysisTimeout() {
+    if (this.cancelled) return;
     try {
       // Check if we have partial results (completeness score)
       if (this.analysisResults && this.analysisResults.completeness !== undefined) {
@@ -511,7 +513,8 @@ class Analyzer {
         
         if (experienceExtractor && typeof experienceExtractor.extractDeep === 'function') {
           const deepExperienceData = await experienceExtractor.extractDeep();
-          
+          if (this.cancelled) return { success: false, cancelled: true };
+
           if (deepExperienceData.experiences && deepExperienceData.experiences.length > 0) {
             // Expose roles to skills/recommendations career context below
             extractedData.experience.experiences = deepExperienceData.experiences;
@@ -677,6 +680,8 @@ class Analyzer {
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
       let result;
+      // Also covers the recommendations extractDeep above
+      if (this.cancelled) return { success: false, cancelled: true };
 
       try {
         OverlayManager.updateAIProgress('analyzing', section.name);
@@ -714,6 +719,7 @@ class Analyzer {
     }
 
     // 5. Synthesize all results
+    if (this.cancelled) return { success: false, cancelled: true };
     OverlayManager.updateAIProgress('synthesizing', 'Synthesizing results...');
 
     const synthesis = await this.synthesizeResults(sectionResults);

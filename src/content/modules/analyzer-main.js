@@ -109,10 +109,12 @@
   let activeAnalyzer = null;
 
   // Navigation away, Reset analysis and Factory Reset stop the running analysis from reading the page,
-  // saving or painting (Analyzer checks this.cancelled) and free the slot for a new run
+  // saving or painting (Analyzer checks this.cancelled) and free the slot and its spinning buttons for a new run
   function cancelAnalysis() {
-    if (activeAnalyzer) activeAnalyzer.cancelled = true;
+    if (!activeAnalyzer) return;
+    activeAnalyzer.cancelled = true;
     activeAnalyzer = null;
+    OverlayManager.resetButtons();
   }
 
   // Start analysis when requested
