@@ -740,7 +740,6 @@ class Analyzer {
             success: true,
             section: sectionType,
             score: response.score,
-            recommendations: response.recommendations,
             // Include all AI analysis fields
             positiveInsight: response.insight,
             actionItems: response.actionItems,

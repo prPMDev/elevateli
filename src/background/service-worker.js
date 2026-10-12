@@ -603,8 +603,7 @@ function parseSectionAnalysis(response) {
         positiveInsight: parsed.positiveInsight || '',
         gapAnalysis: parsed.gapAnalysis || '',
         actionItems,
-        specificFeedback: parsed.specificFeedback || null,
-        recommendations: actionItems
+        specificFeedback: parsed.specificFeedback || null
       };
     }
   } catch {
@@ -1062,9 +1061,7 @@ async function handleSectionAnalysis(request, sendResponse) {
       insight: analysis.positiveInsight,
       gapAnalysis: analysis.gapAnalysis,
       actionItems: analysis.actionItems,
-      specificFeedback: analysis.specificFeedback,
-      // Flattened into synthesis-failure fallback recommendations (analyzer-base)
-      recommendations: analysis.recommendations
+      specificFeedback: analysis.specificFeedback
     });
     
   } catch (error) {
