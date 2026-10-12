@@ -509,9 +509,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
     if (await showConfirmDialog('Clear API key? You\'ll need to re-enter it.')) {
       await chrome.storage.local.remove(['encryptedApiKey', 'installationId']);
+      delete settings.encryptedApiKey; // or Settings shows the saved-key placeholder and 'Configured' again
       settingsApiKeyInput.value = '';
       // Update UI state
       await SettingsManager.updateAndSync({ enableAI: false });
+      await chrome.storage.local.set({ enableAI: false });
       if (settingsEnableAIToggle) {
         settingsEnableAIToggle.checked = false;
         settingsEnableAIToggle.dispatchEvent(new Event('change'));
