@@ -594,7 +594,10 @@ function parseSectionAnalysis(response) {
     const parsed = JSON.parse(response.slice(response.indexOf('{'), response.lastIndexOf('}') + 1));
     const score = parseFloat(parsed.score); // NaN for a missing score; keeps 0 and "7"
     if (Number.isFinite(score)) {
-      const actionItems = parsed.actionItems || [];
+      // Local models that ignore the schema can send a string or object; the overlay maps over this
+      const actionItems = (Array.isArray(parsed.actionItems) ? parsed.actionItems : [])
+        .map(item => typeof item === 'string' ? { action: item } : item)
+        .filter(item => item && typeof item === 'object');
       return {
         score: Math.min(10, Math.max(0, score)),
         positiveInsight: parsed.positiveInsight || '',
