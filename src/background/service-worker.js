@@ -853,219 +853,6 @@ function parseSectionAnalysis(response) {
   throw Object.assign(new Error('AI response could not be read'), { errorType: 'RESPONSE_PARSE_ERROR' });
 }
 
-// Synthesize final analysis from section analyses
-async function synthesizeFinalAnalysis(sectionAnalyses, config) {
-  
-  // Separate experience roles from other sections
-  const experienceRoles = [];
-  const otherSections = {};
-  
-  for (const [section, analysis] of Object.entries(sectionAnalyses)) {
-    if (section === 'experience_role') {
-      experienceRoles.push(analysis);
-    } else {
-      otherSections[section] = analysis;
-    }
-  }
-  
-  // Analyze career trajectory if we have experience data
-  let careerInsights = '';
-  if (experienceRoles.length > 0) {
-    careerInsights = analyzeCareerTrajectory(experienceRoles);
-  }
-  
-  // Collect all recommendations and improvements
-  const allRecommendations = [];
-  const insights = {
-    strengths: [],
-    improvements: [],
-    careerTrajectory: careerInsights
-  };
-  
-  // Process all sections
-  for (const [section, analysis] of Object.entries(sectionAnalyses)) {
-    // Handle experience_roles array
-    if (section === 'experience_roles' && Array.isArray(analysis)) {
-      analysis.forEach((roleAnalysis, index) => {
-        // Use actionItems if available
-        if (roleAnalysis.actionItems?.length > 0) {
-          roleAnalysis.actionItems.forEach(item => {
-            const priority = item.priority || (roleAnalysis.score < 5 ? 'critical' : roleAnalysis.score < 7 ? 'high' : 'medium');
-            
-            allRecommendations.push({
-              section: `experience_role_${index + 1}`,
-              priority: priority,
-              action: {
-                what: item.what || 'Improve experience description',
-                why: item.why || item.how || 'Review and update this role description',
-                how: item.how || 'Add specific achievements and impact'
-              }
-            });
-          });
-        }
-        // Fallback to recommendations
-        else if (roleAnalysis.recommendations?.length > 0) {
-          roleAnalysis.recommendations.forEach(rec => {
-            const basePriority = roleAnalysis.score < 5 ? 'critical' : roleAnalysis.score < 7 ? 'high' : 'medium';
-            
-            allRecommendations.push({
-              section: `experience_role_${index + 1}`,
-              priority: basePriority,
-              action: {
-                what: typeof rec === 'string' ? rec : (rec.text || rec.action?.what || 'Improve experience description'),
-                why: rec.why || rec.action?.why || rec.how || 'Add specific achievements and impact',
-                how: rec.how || rec.action?.how || rec.example || 'Add specific achievements and impact'
-              }
-            });
-          });
-        }
-      });
-      continue;
-    }
-    
-    if (!analysis.exists) {
-      allRecommendations.push({
-        section,
-        priority: 'critical',
-        action: {
-          what: `Add ${section} section to your profile`,
-          why: `Missing ${section} significantly impacts profile completeness`,
-          how: `Navigate to your LinkedIn profile and add content to the ${section} section`
-        }
-      });
-    } else {
-      // Add strengths
-      if (analysis.strengths?.length > 0) {
-        insights.strengths.push(...analysis.strengths.map(s => `${section}: ${s}`));
-      } else if (analysis.insights?.strengths?.length > 0) {
-        insights.strengths.push(...analysis.insights.strengths.map(s => `${section}: ${s}`));
-      }
-      
-      // Add improvements as recommendations
-      const improvements = analysis.improvements || analysis.insights?.improvements || [];
-      if (improvements.length > 0) {
-        improvements.forEach(improvement => {
-          // For experience roles, prioritize recent ones
-          const isRecentRole = section === 'experience_role' && analysis.recencyScore > 0.8;
-          const basePriority = analysis.score < 5 ? 'critical' : analysis.score < 7 ? 'high' : 'medium';
-          const priority = isRecentRole && basePriority === 'medium' ? 'high' : basePriority;
-          
-          allRecommendations.push({
-            section,
-            priority,
-            action: {
-              what: improvement,
-              why: `Important for ${section} section${isRecentRole ? ' (Current/Recent Role - Higher Impact)' : ''}`,
-              how: analysis.recommendations?.[0] || 'Review and update this section'
-            }
-          });
-        });
-      }
-      
-      // Add action items if they exist
-      if (analysis.actionItems?.length > 0) {
-        analysis.actionItems.forEach((item) => {
-          // Use priority from action item if available, otherwise calculate
-          const priority = item.priority || (analysis.score < 5 ? 'critical' : analysis.score < 7 ? 'high' : 'medium');
-          
-          allRecommendations.push({
-            section,
-            priority,
-            action: {
-              what: item.what || item.text || `Improve ${section}`,
-              why: item.why || item.how || 'Review and update this section',
-              how: item.how || item.example || 'Review and update this section'
-            }
-          });
-        });
-      }
-      
-      // Fallback to old recommendations format
-      else if (analysis.recommendations?.length > 0) {
-        analysis.recommendations.forEach((rec) => {
-          const isRecentRole = section === 'experience_role' && analysis.recencyScore > 0.8;
-          const basePriority = analysis.score < 5 ? 'critical' : analysis.score < 7 ? 'high' : 'medium';
-          const priority = isRecentRole && basePriority === 'medium' ? 'high' : basePriority;
-          
-          allRecommendations.push({
-            section,
-            priority,
-            action: {
-              what: typeof rec === 'string' ? rec : (rec.text || rec.action?.what || `${section} improvement`),
-              why: rec.why || rec.action?.why || `Improves ${section} quality score from ${analysis.score}/10`,
-              how: rec.how || rec.action?.how || rec.example || 'Review and update this section'
-            }
-          });
-        });
-      }
-    }
-  }
-  
-  // Sort and categorize recommendations
-  const categorized = {
-    critical: allRecommendations.filter(r => r.priority === 'critical').slice(0, 3),
-    important: allRecommendations.filter(r => r.priority === 'high').slice(0, 3),
-    niceToHave: allRecommendations.filter(r => r.priority === 'medium').slice(0, 3)
-  };
-  
-  const result = {
-    recommendations: categorized,
-    insights: {
-      strengths: insights.strengths.slice(0, 3).join('. '),
-      improvements: insights.improvements.slice(0, 3).join('. '),
-      careerTrajectory: insights.careerTrajectory
-    },
-    summary: `Analysis complete. Found ${allRecommendations.length} recommendations across ${Object.keys(sectionAnalyses).length} sections.`
-  };
-  
-  
-  return result;
-}
-
-// Analyze career trajectory from experience roles
-function analyzeCareerTrajectory(experienceRoles) {
-  if (experienceRoles.length === 0) return 'No experience data available for trajectory analysis.';
-  
-  // Sort by recency (assuming they come in order)
-  const sortedRoles = [...experienceRoles].sort((a, b) => (b.recencyScore || 0) - (a.recencyScore || 0));
-  
-  // Calculate average scores
-  const avgScore = sortedRoles.reduce((sum, role) => sum + (role.score || 0), 0) / sortedRoles.length;
-  const recentScore = sortedRoles[0]?.score || 0;
-  const scoreTrajectory = recentScore > avgScore ? 'improving' : recentScore < avgScore ? 'declining' : 'stable';
-  
-  // Analyze progression patterns
-  const hasUpwardProgression = sortedRoles.some((role, i) => {
-    if (i === sortedRoles.length - 1) return false;
-    const current = role.title?.toLowerCase() || '';
-    const previous = sortedRoles[i + 1]?.title?.toLowerCase() || '';
-    return current.includes('senior') && !previous.includes('senior') ||
-           current.includes('lead') && !previous.includes('lead') ||
-           current.includes('director') && !previous.includes('director');
-  });
-  
-  // Build insights
-  let insights = `Career Analysis: ${sortedRoles.length} roles analyzed. `;
-  
-  if (scoreTrajectory === 'improving') {
-    insights += 'Profile quality is improving over time - recent roles are better documented. ';
-  } else if (scoreTrajectory === 'declining') {
-    insights += 'Recent roles need more detail - earlier positions are better documented. ';
-  }
-  
-  if (hasUpwardProgression) {
-    insights += 'Clear career progression visible through role titles. ';
-  }
-  
-  if (sortedRoles[0]?.hasQuantifiedAchievements) {
-    insights += 'Current role includes quantified achievements (excellent). ';
-  } else {
-    insights += 'Current role lacks quantified achievements (high priority improvement). ';
-  }
-  
-  return insights;
-}
-
 // The openai provider talks to any OpenAI-compatible server; the user can point it at Ollama or LM Studio
 const OPENAI_URL = 'https://api.openai.com/v1';
 const openaiBaseUrl = async (url) =>
@@ -1554,93 +1341,61 @@ async function handleSectionAnalysis(request, sendResponse) {
   }
 }
 
-// Handle synthesis analysis request
-async function handleSynthesisAnalysis(request, sendResponse) {
-  const { sectionScores, targetRole, seniorityLevel, customInstructions } = request;
+// Handle synthesis analysis request: the content score is the weighted average of the section scores
+function handleSynthesisAnalysis(request, sendResponse) {
+  const { sectionScores } = request;
+  let totalScore = 0;
+  let totalWeight = 0;
+  const weights = {
+    first_impression: 0.20,   // 20% - First impression (headline + photo + banner)
+    about: 0.25,              // 25% - Standalone about section
+    experience_role: 0.30,    // 30% - All experience roles combined
+    experience_overall: 0.30, // 30% - Overall experience (alternative to role-by-role)
+    skills: 0.15,             // 15% - Skills
+    recommendations: 0.10     // 10% - Recommendations
+  };
   
-  try {
+  // Track experience scores separately to average them
+  const experienceScores = [];
+  
+  
+  Object.entries(sectionScores || {}).forEach(([sectionType, result]) => {
     
-    // Calculate weighted average score from section results
-    let totalScore = 0;
-    let totalWeight = 0;
-    const weights = {
-      first_impression: 0.20,   // 20% - First impression (headline + photo + banner)
-      about: 0.25,              // 25% - Standalone about section
-      experience_role: 0.30,    // 30% - All experience roles combined
-      experience_overall: 0.30, // 30% - Overall experience (alternative to role-by-role)
-      skills: 0.15,             // 15% - Skills
-      recommendations: 0.10     // 10% - Recommendations
-    };
-    
-    // Track experience scores separately to average them
-    const experienceScores = [];
-    
-    
-    Object.entries(sectionScores || {}).forEach(([sectionType, result]) => {
-      
-      if (sectionType === 'experience_roles' && Array.isArray(result)) {
-        // Handle array of experience roles
-        result.forEach(role => {
-          if (role && role.score !== undefined && role.score !== null) {
-            experienceScores.push(role.score);
-          }
-        });
-      } else if (sectionType === 'experience_overall' && result && result.score !== undefined && result.score !== null) {
-        // Handle overall experience score
-        totalScore += result.score * weights.experience_overall;
-        totalWeight += weights.experience_overall;
-      } else if (result && result.score !== undefined && result.score !== null) {
-        // Process other sections normally
-        const weight = weights[sectionType] || 0.1;
-        totalScore += result.score * weight;
-        totalWeight += weight;
-      }
-    });
-    
-    // Add averaged experience score ONLY if we didn't already use experience_overall
-    const hasExperienceOverall = typeof sectionScores?.experience_overall?.score === 'number';
-    if (experienceScores.length > 0 && !hasExperienceOverall) {
-      const avgExperienceScore = experienceScores.reduce((a, b) => a + b, 0) / experienceScores.length;
-      totalScore += avgExperienceScore * weights.experience_role;
-      totalWeight += weights.experience_role;
+    if (sectionType === 'experience_roles' && Array.isArray(result)) {
+      // Handle array of experience roles
+      result.forEach(role => {
+        if (role && role.score !== undefined && role.score !== null) {
+          experienceScores.push(role.score);
+        }
+      });
+    } else if (sectionType === 'experience_overall' && result && result.score !== undefined && result.score !== null) {
+      // Handle overall experience score
+      totalScore += result.score * weights.experience_overall;
+      totalWeight += weights.experience_overall;
+    } else if (result && result.score !== undefined && result.score !== null) {
+      // Process other sections normally
+      const weight = weights[sectionType] || 0.1;
+      totalScore += result.score * weight;
+      totalWeight += weight;
     }
-    
-    // No section scored: fail instead of inventing a 5 that would be shown and cached as the content score
-    if (!totalWeight) {
-      sendResponse({ success: false, error: 'AI could not score any section' });
-      return;
-    }
-    const finalScore = Math.round((totalScore / totalWeight) * 10) / 10;
-    
-    
-    // Use the existing synthesizeFinalAnalysis function for recommendations
-    const config = {
-      targetRole: targetRole || 'general professional',
-      seniorityLevel: seniorityLevel || 'any level',
-      customInstructions: customInstructions || ''
-    };
-    
-    const synthesis = await synthesizeFinalAnalysis(sectionScores || {}, config);
-    
-    
-    // Return the response with calculated score
-    const responseData = {
-      success: true,
-      finalScore: finalScore,
-      synthesis: synthesis.summary,
-      overallRecommendations: synthesis.recommendations,
-      careerNarrative: synthesis.insights,
-      sectionScores: sectionScores
-    };
-    
-    sendResponse(responseData);
-  } catch (error) {
-    console.error('AI.PROMPTS', 'Synthesis error', error);
-    sendResponse({
-      success: false,
-      error: error.message || 'Failed to synthesize analysis'
-    });
+  });
+  
+  // Add averaged experience score ONLY if we didn't already use experience_overall
+  const hasExperienceOverall = typeof sectionScores?.experience_overall?.score === 'number';
+  if (experienceScores.length > 0 && !hasExperienceOverall) {
+    const avgExperienceScore = experienceScores.reduce((a, b) => a + b, 0) / experienceScores.length;
+    totalScore += avgExperienceScore * weights.experience_role;
+    totalWeight += weights.experience_role;
   }
+  
+  // No section scored: fail instead of inventing a 5 that would be shown and cached as the content score
+  if (!totalWeight) {
+    sendResponse({ success: false, error: 'AI could not score any section' });
+    return;
+  }
+  const finalScore = Math.round((totalScore / totalWeight) * 10) / 10;
+  
+  sendResponse({ success: true, finalScore, sectionScores });
 }
 
 
