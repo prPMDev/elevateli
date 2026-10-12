@@ -43,9 +43,10 @@ if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
     // Open LinkedIn tabs have no content script after an install, and a dead one after an update or
     // reload, so popup messages to them go nowhere. Inject the current one unless the tab already
     // loaded it; OverlayManager.initialize() replaces the overlay a dead script left behind.
+    // Tabs still loading get the manifest scripts on their own; injecting there would run them twice.
     if (details.reason === 'install' || details.reason === 'update') {
       const { js, css } = chrome.runtime.getManifest().content_scripts[0];
-      for (const { id } of await chrome.tabs.query({ url: 'https://www.linkedin.com/*' })) {
+      for (const { id } of await chrome.tabs.query({ url: 'https://www.linkedin.com/*', status: 'complete' })) {
         const target = { tabId: id };
         chrome.scripting.executeScript({ target, func: () => typeof OverlayManager !== 'undefined' })
           .then(([probe]) => probe?.result || Promise.all([
@@ -211,7 +212,7 @@ Analyze this individual role description:
    - Focus on repositioning/enhancing existing content
 </analysis_task>
 
-Fill in score, positiveInsight, gapAnalysis, specificFeedback (their weakest description sentence and its rewrite) and actionItems (category: 'Impact Metrics', 'Strategic Context', 'Leadership Evidence', 'Technical Depth' or '10/10 Optimization'; if metrics exist, suggest repositioning them).`;
+Reply with JSON: fill in score, positiveInsight, gapAnalysis, specificFeedback (their weakest description sentence and its rewrite) and actionItems (category: 'Impact Metrics', 'Strategic Context', 'Leadership Evidence', 'Technical Depth' or '10/10 Optimization'; if metrics exist, suggest repositioning them).`;
 
   return prompt;
 }
@@ -234,7 +235,7 @@ Analyze the overall experience section and provide:
 2. Feedback on career progression and trajectory
 3. Recommendations for improving the experience section
 
-Fill in these fields: score, positiveInsight (what works, quoting their roles), gapAnalysis (what is weak),
+Reply with JSON, filling in these fields: score, positiveInsight (what works, quoting their roles), gapAnalysis (what is weak),
 specificFeedback (one weak line and its rewrite), actionItems (specific improvements).
 
 NOTE: This is a fallback analysis. Individual role analysis would provide better insights.`;
@@ -328,7 +329,7 @@ Analyze the OVERALL career trajectory and experience section:
    - If metrics missing, be specific: "Quantify the 'API-first products' user base or revenue impact"
 </analysis_task>
 
-Fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above), gapAnalysis, specificFeedback and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or '10/10 Optimization').`;
+Reply with JSON: fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above), gapAnalysis, specificFeedback and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or '10/10 Optimization').`;
 
   return prompt;
 }
@@ -414,7 +415,7 @@ Analyze the recommendations section:
    - If they have good recommendations, suggest how to leverage them better
 </analysis_task>
 
-Fill in score, positiveInsight (what they have, even if it's 0), gapAnalysis, specificFeedback (quote a recommendation or describe the gap) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or '10/10 Optimization'; name people and companies when possible).`;
+Reply with JSON: fill in score, positiveInsight (what they have, even if it's 0), gapAnalysis, specificFeedback (quote a recommendation or describe the gap) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or '10/10 Optimization'; name people and companies when possible).`;
 
   return prompt;
 }
@@ -473,7 +474,7 @@ Analyze the first impression elements:
    - For scores 0-6: Focus on critical gaps first
 </analysis_task>
 
-Fill in score, positiveInsight, gapAnalysis (quote their actual headline), specificFeedback and actionItems (category: 'Profile Photo', 'Headline Enhancement', 'Visual Branding' or '10/10 Optimization'; element: 'photo', 'headline' or 'banner').`;
+Reply with JSON: fill in score, positiveInsight, gapAnalysis (quote their actual headline), specificFeedback and actionItems (category: 'Profile Photo', 'Headline Enhancement', 'Visual Branding' or '10/10 Optimization'; element: 'photo', 'headline' or 'banner').`;
 
   return prompt;
 }
@@ -538,7 +539,7 @@ Analyze the About section for strategic positioning:
    - If flow is poor: Identify the disconnect and suggest restructuring
 </analysis_task>
 
-Fill in score, positiveInsight, gapAnalysis, specificFeedback (their weakest sentence) and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or '10/10 Refinement').`;
+Reply with JSON: fill in score, positiveInsight, gapAnalysis, specificFeedback (their weakest sentence) and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or '10/10 Refinement').`;
 
   return prompt;
 }
@@ -659,7 +660,7 @@ Analyze the skills section for quality and relevance:
    - Example bad feedback: "Move skill from position #1 to #1" (meaningless)
 </analysis_task>
 
-Fill in score, positiveInsight (their actual skills and endorsement counts), gapAnalysis, specificFeedback (their actual top 3 skills and how to position them) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or '10/10 Refinement'; name their actual skills).`;
+Reply with JSON: fill in score, positiveInsight (their actual skills and endorsement counts), gapAnalysis, specificFeedback (their actual top 3 skills and how to position them) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or '10/10 Refinement'; name their actual skills).`;
 
   return prompt;
 }
@@ -723,8 +724,8 @@ const SECTION_SCHEMA = {
       additionalProperties: false,
       required: ['originalLine', 'suggestion', 'why'],
       properties: {
-        originalLine: str('Their exact weak line, quoted (or the gap, when there is nothing to quote)'),
-        suggestion: str('That line rewritten with specific improvements'),
+        originalLine: str('The line or gap this addresses, quoted when it is a line'),
+        suggestion: str('The specific improvement'),
         why: str('50-100 chars on why the rewrite is stronger')
       }
     },
@@ -736,8 +737,8 @@ const SECTION_SCHEMA = {
         required: ['category', 'action', 'impact', 'priority', 'quotedContent', 'element'],
         properties: {
           category: str('Improvement area: one of the categories the prompt lists'),
-          action: str('Specific step based on their actual content, never generic; 100-150 chars'),
-          impact: str('How it helps for the target role and level, 50-80 chars'),
+          action: str('Specific step based on their actual content, never generic'),
+          impact: str('How it helps for the target role and level'),
           priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
           quotedContent: str('Exact quote from their profile this item addresses, or the specific gap'),
           element: str("'photo', 'headline' or 'banner' for first-impression items, else ''")
@@ -753,6 +754,8 @@ async function callAIProvider(provider, apiKey, prompt, model) {
   if (!cleanApiKey) throw new Error('API key is required');
   if (!model) throw new Error('No AI model selected');
   const baseUrl = await openaiBaseUrl();
+  // Local servers may never show response_format's schema to the model; Ollama's docs put it in the prompt too
+  if (provider === 'openai' && baseUrl !== OPENAI_URL) prompt += `\n\nReply with JSON matching: ${JSON.stringify(SECTION_SCHEMA)}`;
 
   const config = {
     openai: {
