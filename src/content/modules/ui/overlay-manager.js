@@ -375,6 +375,32 @@ const OverlayManager = {
     // Attach event listeners
     this.attachEventListeners();
     
+    this.keepAttached();
+  },
+  
+  /**
+   * LinkedIn re-renders the profile column after load and drops nodes it doesn't own.
+   * Put the same overlay nodes back after the top card while they are still the live overlay on this page.
+   */
+  keepAttached() {
+    const wrapper = this.overlayElement.closest('.elevateli-overlay-wrapper');
+    const nodes = [wrapper.previousElementSibling, wrapper]; // inline <style>, wrapper
+    const overlay = this.overlayElement;
+    const path = location.pathname;
+    
+    this.reattachObserver?.disconnect();
+    this.reattachObserver = new MutationObserver(() => {
+      if (wrapper.isConnected) return;
+      
+      // close(), profile navigation and an extension reload (orphaned script) remove the overlay on purpose
+      if (this.overlayElement !== overlay || location.pathname !== path || !chrome.runtime?.id) {
+        this.reattachObserver.disconnect();
+        return;
+      }
+      
+      BaseExtractor.topCard()?.after(...nodes);
+    });
+    this.reattachObserver.observe(document.body, { childList: true, subtree: true });
   },
   
   /**
