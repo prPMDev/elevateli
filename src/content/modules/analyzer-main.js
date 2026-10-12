@@ -187,7 +187,8 @@
       }
 
       const profileId = getProfileIdFromUrl();
-      if (!profileId) return;
+      // A /details/ subpage lacks most sections; analyzing it would overwrite this profile's cache
+      if (!profileId || !isProfilePage()) return;
 
       // CRITICAL: Always use current page's profile ID for cache operations
       const cacheProfileId = profileId; // Never use saved profile ID for cache
