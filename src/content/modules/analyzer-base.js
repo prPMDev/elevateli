@@ -501,36 +501,6 @@ class Analyzer {
    * Run distributed AI analysis (section by section)
    */
   async runDistributedAIAnalysis(extractedData) {
-    
-    // Pre-flight API key validation before showing any UI
-    const validationResult = await this.validateApiKey();
-    
-    if (!validationResult.isValid) {
-      // Check if it's a network error vs actual validation failure
-      const errorMessage = validationResult.error || 'Invalid Key';
-      const isNetworkError = errorMessage.toLowerCase().includes('network') || 
-                            errorMessage.toLowerCase().includes('fetch') ||
-                            errorMessage.toLowerCase().includes('connection');
-      
-      
-      if (isNetworkError) {
-        // Don't treat network errors as API key validation failures
-        return {
-          success: false,
-          error: errorMessage,
-          errorType: 'NETWORK',
-          requiresConfig: false
-        };
-      } else {
-        return {
-          success: false,
-          error: errorMessage,
-          errorType: 'validation_failed',
-          requiresConfig: true
-        };
-      }
-    }
-    
     const sectionResults = {};
     const sectionRecommendations = {};
     const sections = [];
