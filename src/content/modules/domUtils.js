@@ -45,9 +45,9 @@ async function isOwnProfile() {
   // Second, check ownership indicators (for zero state/first-time users)
   
   if (typeof OwnershipDetector !== 'undefined') {
-    // Wait for DOM to be ready before checking ownership indicators
-    // This prevents false positives on non-owned profiles during initial load
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // The 2026 top card renders client-side, after document_idle: wait for its name heading,
+    // which renders together with the Edit intro link. Returns at once after SPA navigation.
+    await BaseExtractor.waitForElement('main section h2', 10000);
     
     if (OwnershipDetector.hasOwnershipIndicators()) {
       // Save profile for future instant detection
