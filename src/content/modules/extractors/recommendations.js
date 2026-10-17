@@ -15,38 +15,23 @@ const RecommendationsExtractor = {
     return {
       exists: !!section,
       receivedCount: counts.received,
-      givenCount: counts.given,
-      hasRecommendations: counts.received > 0 || counts.given > 0
+      givenCount: counts.given
     };
   },
-  
+
   /**
    * Extract recommendations data for completeness scoring
    * @returns {Object} Basic recommendations data
    */
   async extract() {
     const scanResult = await this.scan();
-    
-    if (!scanResult.exists) {
-      return {
-        exists: false,
-        count: 0,
-        receivedCount: 0,
-        givenCount: 0
-      };
-    }
-    
-    const received = scanResult.receivedCount;
-    const given = scanResult.givenCount;
-    
+    if (!scanResult.exists) return scanResult;
+
     const result = {
       exists: true,
-      count: received, // Only received ones count; given ones are about other people
-      receivedCount: received,
-      givenCount: given,
-      hasRecommendations: received > 0,
-      isActive: given > 0, // Shows if user gives recommendations
-      ratio: received > 0 ? (given / received).toFixed(2) : 0
+      count: scanResult.receivedCount, // Only received ones count; given ones are about other people
+      receivedCount: scanResult.receivedCount,
+      givenCount: scanResult.givenCount
     };
 
     // The completeness rule needs recency before extractDeep runs
