@@ -617,6 +617,28 @@ const authHeaders = (provider, key) => ({
   gemini: { 'x-goog-api-key': key }
 })[provider];
 
+// Error text in a reply body: { error: { message } } from the cloud providers, { error: '...' } from LM Studio
+const bodyError = body => body?.error?.message || (typeof body?.error === 'string' ? body.error : '');
+
+// What a failed provider call tells the user, decided here where the provider, base URL and HTTP status are known.
+// status 0 = no answer. The provider's own text is kept: it often names the fix (low credit, a missing scope, an API to enable).
+function providerError(provider, baseUrl, status, body) {
+  const message = bodyError(body);
+  const custom = provider === 'openai' && baseUrl !== OPENAI_URL;
+  const local = custom && /^http:\/\/(localhost|127\.0\.0\.1)\b/.test(baseUrl);
+  const name = local ? 'Your local AI server' : custom ? baseUrl : { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini' }[provider];
+  // Gemini answers a bad key with 400 API_KEY_INVALID
+  const auth = status === 401 || status === 403 || !!body?.error?.details?.some(d => d.reason === 'API_KEY_INVALID');
+  return {
+    errorType: !status ? 'NETWORK' : auth ? 'AUTH' : status === 429 ? 'RATE_LIMIT' : status >= 500 ? 'SERVICE_UNAVAILABLE' : 'PROVIDER_ERROR',
+    error: !status ? (local ? `Can't reach your local AI server at ${baseUrl}. Is Ollama or LM Studio running?` : `Couldn't reach ${name}. Check your connection and try again.`)
+      : local && status === 403 ? 'Your local AI server refused ElevateLI. Set OLLAMA_ORIGINS=chrome-extension://* and restart Ollama.'
+      : auth ? `${name} rejected your API key${message ? `: ${message}` : '.'}`
+      : status === 429 ? `${name} is limiting requests on your key${message ? `: ${message}` : '. Wait a minute, then try again.'}`
+      : message || `${name} returned error ${status}.`
+  };
+}
+
 // Every section prompt asks for this shape; each provider enforces it as JSON-schema output.
 // The descriptions carry the per-field guidance, so prompts only name the fields and their section's values.
 // No minimum/maximum: Anthropic rejects them, and parseSectionAnalysis clamps the score.
@@ -708,35 +730,29 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
     throw new Error(`Unknown provider: ${provider}`);
   }
   
+  let response;
   try {
-    const response = await fetch(providerConfig.url, {
+    response = await fetch(providerConfig.url, {
       method: 'POST',
       headers: { ...authHeaders(provider, cleanApiKey), 'Content-Type': 'application/json' },
       body: JSON.stringify(providerConfig.body),
       // Local models and reasoning models take minutes; stay under Chrome's 5-minute limit per event
       signal: AbortSignal.timeout(180000)
     });
-
-    if (!response.ok) {
-      // Keep the provider's own message (e.g. "credit balance is too low"); HTTP/2 has no statusText
-      const body = await response.json().catch(() => ({}));
-      const s = response.status;
-      throw Object.assign(new Error(body.error?.message || `API error ${s}`), {
-        errorType: s === 401 || s === 403 ? 'AUTH' : s === 429 ? 'RATE_LIMIT' : s >= 500 ? 'SERVICE_UNAVAILABLE' : 'PROVIDER_ERROR'
-      });
-    }
-    
-    const data = await response.json();
-    return processProviderResponse(provider, data, model);
-    
   } catch (error) {
-    if (error.name === 'TimeoutError') {
-      throw new Error('Request timeout - API not responding');
-    }
-
-    throw error;
+    throw Object.assign(new Error(error.name === 'TimeoutError'
+      ? "The AI didn't answer within 3 minutes. Try again, or pick a faster model."
+      : providerError(provider, baseUrl, 0).error), { errorType: 'NETWORK' });
   }
-  
+
+  if (!response.ok) {
+    // HTTP/2 has no statusText, so the body carries the reason
+    const { error, errorType } = providerError(provider, baseUrl, response.status, await response.json().catch(() => ({})));
+    throw Object.assign(new Error(error), { errorType });
+  }
+
+  return processProviderResponse(provider, await response.json(), model);
+
   // Helper function to process provider response
   function processProviderResponse(provider, data, model) {
 
@@ -963,32 +979,37 @@ async function testApiKey(provider, apiKey, baseUrl) {
   }[provider];
   if (!url) return { success: false, error: 'Unknown provider' };
 
+  let response;
   try {
-    const response = await fetch(url, { headers: authHeaders(provider, key) });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const error = [401, 403].includes(response.status) ? 'Invalid API key'
-        : response.status === 429 ? 'Rate limit exceeded'
-        : data.error?.message || `API error ${response.status}`;
-      return { success: false, error };
-    }
-
-    const list = provider === 'gemini'
-      ? (data.models || [])
-          .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
-          .map(m => ({ id: m.name.replace(/^models\//, '') }))
-      : (data.data || [])
-          // Hide models on their way out (Anthropic: lifecycle, OpenAI: shutdown_date) or without JSON-schema output (Anthropic)
-          .filter(m => m.capabilities?.structured_outputs?.supported !== false && m.lifecycle !== 'deprecated' && !m.shutdown_date)
-          .sort((a, b) => (b.created || 0) - (a.created || 0)); // OpenAI newest first; Anthropic already is
-    // ponytail: OpenAI/Gemini lists don't say which models can chat, so drop the non-chat ones by name. A wrong pick only errors on analysis.
-    const models = list.map(m => m.id)
-      .filter(id => !/embed|tts|whisper|dall-e|davinci|babbage|moderation|audio|realtime|transcribe|image|search|sora/.test(id));
-    return { success: true, models };
+    // A list answers in well under a second; a wedged local server that accepts the connection would otherwise hang the analysis
+    response = await fetch(url, { headers: authHeaders(provider, key), signal: AbortSignal.timeout(20000) });
   } catch (error) {
     console.error('Test API key error', error);
-    return { success: false, error: error.message || 'Connection failed' };
+    return { success: false, errorType: 'NETWORK', error: error.name === 'TimeoutError'
+      ? 'No answer within 20 seconds. Check that the AI server is running, then try again.'
+      : providerError(provider, baseUrl, 0).error };
   }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return { success: false, ...providerError(provider, baseUrl, response.status, data) };
+
+  const list = provider === 'gemini'
+    ? (data.models || [])
+        .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+        .map(m => ({ id: m.name.replace(/^models\//, '') }))
+    : (data.data || [])
+        // Hide models on their way out (Anthropic: lifecycle, OpenAI: shutdown_date) or without JSON-schema output (Anthropic)
+        .filter(m => m.capabilities?.structured_outputs?.supported !== false && m.lifecycle !== 'deprecated' && !m.shutdown_date)
+        .sort((a, b) => (b.created || 0) - (a.created || 0)); // OpenAI newest first; Anthropic already is
+  // ponytail: OpenAI/Gemini lists don't say which models can chat, so drop the non-chat ones by name. A wrong pick only errors on analysis.
+  const models = list.map(m => m.id)
+    .filter(id => !/embed|tts|whisper|dall-e|davinci|babbage|moderation|audio|realtime|transcribe|image|search|sora/.test(id));
+  // A 200 can still be no list: LM Studio answers a wrong path with 200 + an error, Ollama with nothing pulled sends []
+  if (!models.length) {
+    return { success: false, errorType: 'PROVIDER_ERROR', error: bodyError(data) || (provider === 'openai' && baseUrl !== OPENAI_URL
+      ? `No models found at ${baseUrl}. Check the address (it usually ends in /v1) and that the server has a model.`
+      : 'No usable models found for this key.') };
+  }
+  return { success: true, models };
 }
 
 // Handle individual section analysis request
@@ -1022,7 +1043,8 @@ async function handleSectionAnalysis(request, sendResponse) {
     if (!rateCheck.allowed) {
       sendResponse({
         success: false,
-        error: `Rate limit exceeded. Please wait ${rateCheck.waitTime} seconds.`,
+        // ElevateLI's own limit, not the provider's
+        error: `Too many analyses in a few minutes. Wait ${rateCheck.waitTime} seconds, then click Analyze.`,
         errorType: 'RATE_LIMIT',
         retryAfter: rateCheck.waitTime
       });
