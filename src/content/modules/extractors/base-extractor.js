@@ -114,7 +114,7 @@ const BaseExtractor = {
       if (placeholder) {
         tried.add(placeholder);
         placeholder.scrollIntoView();
-        for (let i = 0; i < 10 && !placeholder.textContent.trim() && !document.hidden; i++) await this.wait(100);
+        for (let i = 0; i < 10 && !placeholder.textContent.trim() && !document.hidden && !shouldStop(); i++) await this.wait(100);
       } else {
         const height = scroller.scrollHeight;
         scroller.scrollTop = height;
