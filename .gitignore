@@ -2,3 +2,8 @@ node_modules/
 *.backup
 src_backup_*/
 .claude/
+
+# Saved LinkedIn profile pages: personal data, never commit
+my-linkedIn-html*.html
+# Internal agent notes; removed from the public repo in bee28ee
+CLAUDE.md
