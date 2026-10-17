@@ -35,14 +35,14 @@
 /* ============================================
  * COLLAPSED VIEW STYLES
  * ============================================ */
+/* A narrow column or 200% zoom wraps the bar (date and controls drop to a second, right-aligned line)
+ * instead of clipping or hiding anything */
 .overlay-collapsed-view {
   display: flex;
   align-items: center;
-  gap: 4px;  /* Reduced from 6px */
+  flex-wrap: wrap;
+  gap: 4px;
   padding: 8px 24px;
-  min-height: 44px;  /* Reduced from 50px */
-  overflow: hidden;
-  flex-wrap: nowrap;
 }
 
 .overlay-collapsed-view .brand-logo,
@@ -58,10 +58,6 @@
   font-size: 14px;
   color: var(--eli-link);
   margin-right: 16px;
-}
-
-.overlay-collapsed-view .spacer {
-  flex: 1;
 }
 
 .overlay-collapsed-view .score-badge {
@@ -110,6 +106,7 @@
   font-size: 12px;
   color: var(--eli-text-muted);
   white-space: nowrap;
+  margin-left: auto; /* pushes it and the controls right, on whichever line they land */
   margin-right: 8px;
   min-width: 0;
   overflow: hidden;
@@ -120,9 +117,7 @@
   color: var(--eli-warning);
 }
 
-/* Errors stay visible at every width, unlike the date (hidden on narrow bars below) */
 .overlay-collapsed-view .last-analyzed-collapsed.has-error {
-  display: block;
   color: var(--eli-error);
 }
 
@@ -203,29 +198,18 @@
   white-space: nowrap;
 }
 
+/* Analyze is an .eli-primary pill (LinkedIn's 32px, 14px/600); this keeps it from shrinking or shifting */
 .overlay-collapsed-view .analyze-btn-collapsed {
-  background: var(--eli-link);
-  border: 1px solid var(--eli-link);
-  color: var(--eli-surface);
-  padding: 5px 12px;  /* Increased vertical padding */
-  border-radius: 16px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  flex-shrink: 0;
+  min-width: 80px; /* "Analyze" and "Analyzing…" take the same slot */
+  margin-right: 4px;
   white-space: nowrap;
-  margin-right: 4px;  /* Reduced from 6px */
-  min-width: 80px; /* Fixed width to prevent layout shift */
-  text-align: center;
-}
-
-.overlay-collapsed-view .analyze-btn-collapsed:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--eli-link) 85%, #000);
 }
 
 /* Once results show, the score leads and Analyze steps back to an outlined button */
 .elevateli-overlay[data-state="complete"] .analyze-btn-collapsed:not(:disabled) {
   background: var(--eli-surface);
+  box-shadow: inset 0 0 0 1px var(--eli-link);
   color: var(--eli-link);
 }
 
@@ -236,97 +220,43 @@
 /* Disabled only while analyzing, and then it carries the progress ("Analyzing 2/5"), so keep it readable */
 .overlay-collapsed-view .analyze-btn-collapsed:disabled {
   background: var(--eli-surface-muted);
-  border-color: transparent;
   color: var(--eli-text-muted);
   cursor: progress;
 }
 
+/* A disclosure button styled as .eli-link; the vertical padding makes the target 24px+ tall */
 .overlay-collapsed-view .view-details-link {
-  color: var(--eli-link);
-  text-decoration: none;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  flex-shrink: 0;
+  padding: 4px 0;
   white-space: nowrap;
 }
 
-.overlay-collapsed-view .view-details-link:hover {
-  text-decoration: underline;
-}
-
-/* Responsive Label Display - Hide short versions by default */
-.label-short {
-  display: none;
-}
-
-.btn-text-short {
-  display: none;
-}
-
-.stars-numeric {
-  display: none;
-}
-
+/* Short forms by the column's width, not the viewport's. Nothing is hidden: the bar wraps instead. */
+.label-short,
+.stars-numeric,
 .details-text-medium {
   display: none;
 }
 
-.details-icon {
-  display: none;
-}
-
-/* Medium screens (tablets, iPad mini) */
-@media (max-width: 768px) {
-  /* Show "Details" instead of "View details" */
+@container (max-width: 768px) {
   .details-text-full {
     display: none;
   }
-  
+
   .details-text-medium {
     display: inline;
   }
 }
 
-/* Small screens (phones) */
-@media (max-width: 500px) {
-  /* Abbreviated labels */
-  .label-full {
-    display: none;
-  }
-  
-  .label-short {
-    display: inline;
-  }
-  
-  /* Abbreviated button text */
-  .btn-text-full {
-    display: none;
-  }
-  
-  .btn-text-short {
-    display: inline;
-  }
-  
-  /* Show numeric rating instead of visual stars for empty state */
+@container (max-width: 550px) {
+  .label-full,
   .stars-visual {
     display: none;
   }
-  
+
+  .label-short,
   .stars-numeric {
     display: inline;
-  }
-  
-  /* Show icon instead of "Details" text */
-  .details-text-medium {
-    display: none;
-  }
-  
-  .details-icon {
-    display: inline;
-    color: var(--eli-link);
-    font-size: 18px;
-    vertical-align: middle;
   }
 }
 
@@ -334,57 +264,6 @@
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
-}
-
-/* Container query support for modern browsers */
-@supports (container-type: inline-size) {
-  .elevateli-overlay-wrapper {
-    container-type: inline-size;
-  }
-  
-  @container (max-width: 700px) {
-    .overlay-collapsed-view .brand-name {
-      display: none;
-    }
-  }
-  
-  @container (max-width: 550px) {
-    .overlay-collapsed-view .last-analyzed-collapsed {
-      display: none;
-    }
-    
-    .overlay-collapsed-view .score-badge {
-      font-size: 11px;
-      padding: 2px 6px;
-    }
-  }
-}
-
-/* Fallback: Responsive design for smaller screens using viewport */
-@media (max-width: 900px) {
-  .overlay-collapsed-view .brand-name {
-    display: none;
-  }
-  
-  .overlay-collapsed-view .brand-logo {
-    margin-right: 8px;
-  }
-}
-
-/* Even smaller screens - hide timestamp text */
-@media (max-width: 700px) {
-  .overlay-collapsed-view .last-analyzed-collapsed {
-    display: none;
-  }
-  
-  .overlay-collapsed-view {
-    padding: 12px 16px;
-  }
-  
-  .overlay-collapsed-view .score-badge {
-    font-size: 11px;
-    padding: 2px 6px;
-  }
 }
 
 /* View state visibility rules */
@@ -548,6 +427,7 @@
   overflow: hidden;
   max-width: 100%;
   box-sizing: border-box;
+  container-type: inline-size; /* the bar's short labels follow the column's width */
   
   /* Force full width and prevent sidebar placement */
   width: 100% !important;
