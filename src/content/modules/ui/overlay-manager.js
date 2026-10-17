@@ -565,6 +565,13 @@ const OverlayManager = {
   },
 
   /**
+   * AI is set up now but this result has no AI scores (e.g. cached from an AI-off run): the next step is Analyze
+   */
+  aiReady(data) {
+    return !data.aiError && !!data.settings?.enableAI && !!data.settings?.aiProvider;
+  },
+
+  /**
    * Error line in the collapsed bar, the only part of the overlay visible in both views. Key and
    * provider-check failures get an "Open settings" link; the Analyze button is the retry.
    * @param {string} message - Short text; the full reason goes in the title and the expanded banner
@@ -651,7 +658,7 @@ const OverlayManager = {
       badge.title = data.aiError.message;
     } else {
       // Blank stars, never 0/5
-      this.setBadge('quality', this.renderStars(null, null)).classList.add('ai-disabled');
+      this.setBadge('quality', this.renderStars(null, this.aiReady(data) ? 'AI_READY' : null)).classList.add('ai-disabled');
     }
   },
 
@@ -916,48 +923,33 @@ const OverlayManager = {
   
   
   /**
-   * Show unified view with progressive improvement system
+   * Results: a banner with the outcome and the next step, a caption while nothing is AI-rated, one row per section
    */
   showUnifiedView(data) {
     const unifiedSection = this.overlayElement.querySelector('.unified-section');
+    // Every gap, not the top-5 'recommendations' slice - smaller gaps would get a false ✓
+    const sections = this.analyzeSections(data, data.completenessData?.allRecommendations || []);
+    const rated = sections.some(section => typeof section.rating === 'number');
+    // Neutral, amber for a failure: a green banner on a 51% score or a failed run read as success
+    const warn = data.isCacheFallback || (this.aiFailed(data) && !data.aiFailedWithCache);
 
-    // Transform recommendations into progressive improvement format
-    const progressiveData = this.transformToProgressiveFormat(data);
+    // Blank stars are explained once, here, instead of only in a tooltip on every row
+    let caption = '';
+    if (!rated && !this.aiFailed(data)) {
+      caption = this.aiReady(data)
+        ? '<p class="eli-caption">AI is set up. Click Analyze to rate your content.</p>'
+        : '<p class="eli-caption">Star ratings need AI. <button type="button" class="eli-link" data-action="open-settings">Turn on AI</button></p>';
+    }
 
-    // Build HTML with progressive improvements
-    (() => {
-        const parser = new DOMParser();
-        const htmlContent = `
-      <div style="margin: 8px 0;">
-        <!-- Unified Message (single positive message) -->
-        <div style="padding: 12px; background: #e8f5e9; border-radius: 8px; text-align: center; margin-bottom: 16px;">
-          <p style="margin: 0; font-size: 15px; color: #2e7d32; font-weight: 500;">
-            ${this.escapeHtml(progressiveData.unifiedMessage)}
-          </p>
-        </div>
+    this.fillFromTemplate(unifiedSection, `
+      <p class="eli-banner${warn ? ' is-warning' : ''}">${this.escapeHtml(this.generateUnifiedMessage(data, sections))}</p>
+      ${caption}
+      ${sections.map(section => this.renderSection(section)).join('')}
+    `);
 
-        <!-- Progressive Improvements by Section -->
-        <div style="margin-bottom: 16px;">
-          ${progressiveData.sections && progressiveData.sections.length > 0
-            ? progressiveData.sections.map(section => this.renderSection(section)).join('')
-            : `<div style="padding: 20px; text-align: center; color: #666;">
-                <p style="margin: 0 0 8px 0; font-size: 14px;">No specific improvements needed for profile completeness.</p>
-                <p style="margin: 0; font-size: 13px;">Enable AI analysis for personalized content quality insights.</p>
-              </div>`}
-        </div>
-      </div>
-    `;
-        const doc = parser.parseFromString(htmlContent, 'text/html');
-        const fragment = document.createDocumentFragment();
-        Array.from(doc.body.childNodes).forEach(node => {
-          fragment.appendChild(node.cloneNode(true));
-        });
-        unifiedSection.replaceChildren(fragment);
-      })();
-    
     // Replace star placeholders with actual DOM elements
     if (this.pendingStarElements && this.pendingStarElements.length > 0) {
-      
+
       this.pendingStarElements.forEach(({ id, element }) => {
         const placeholder = unifiedSection.querySelector(`[data-star-placeholder="${id}"]`);
         if (placeholder && element) {
@@ -969,31 +961,10 @@ const OverlayManager = {
       // Clear pending elements after insertion
       this.pendingStarElements = [];
     }
-    
+
     unifiedSection.classList.remove('hidden');
   },
-  
-  /**
-   * Transform data into progressive improvement format
-   */
-  transformToProgressiveFormat(data) {
-    const completeness = data.completeness || 0;
-    const contentScore = data.contentScore || 0;
-    // Every gap, not the top-5 'recommendations' slice - smaller gaps would get a false ✓
-    const missingItems = data.completenessData?.allRecommendations || [];
 
-    // Analyze sections and create improvements
-    const sections = this.analyzeSections(data, missingItems);
-
-    // Generate unified message
-    const unifiedMessage = this.generateUnifiedMessage(completeness, contentScore, sections, data);
-
-    return {
-      sections,
-      unifiedMessage
-    };
-  },
-  
   /**
    * Get improvement limit based on rating
    */
@@ -1003,10 +974,10 @@ const OverlayManager = {
       if (rating >= 5) return 1;  // Only critical improvements for perfect scores
       return 3; // Allow up to 3 for experience section for all other ratings
     }
-    
+
     // Default limits for other sections
     // 5 stars: Max 1 improvement (only if critical)
-    // 4 stars: 1-2 improvements  
+    // 4 stars: 1-2 improvements
     // 3 stars or below: 2 improvements
     if (rating >= 5) return 1;
     if (rating >= 4) return 2;
@@ -1021,7 +992,7 @@ const OverlayManager = {
     if (score === null || score === undefined) {
       return null;
     }
-    
+
     if (score >= 9) return 5;
     if (score >= 7) return 4;
     if (score >= 5) return 3;
@@ -1031,402 +1002,139 @@ const OverlayManager = {
   },
 
   /**
-   * Analyze sections and create improvements
+   * AI action items as advice rows: most important first, then capped by the section's rating
+   */
+  aiImprovements(items, rating, sectionName) {
+    const rank = { critical: 0, high: 1, medium: 2, low: 3 };
+    return [...(items || [])]
+      .sort((a, b) => (rank[a.priority] ?? 4) - (rank[b.priority] ?? 4))
+      .slice(0, this.getImprovementLimit(rating, sectionName))
+      .map(item => ({ text: item.action || 'Improvement needed', why: item.impact }));
+  },
+
+  /**
+   * One row per section in LinkedIn's page order. A section the AI rated shows the AI's advice; every
+   * row also leads with its completeness gap and the points fixing it adds.
    */
   analyzeSections(data, missingItems) {
-    const sections = [];
-    
-    // Check if we have sectionScores from AI analysis
     const sectionScores = data.sectionScores || {};
+    const gap = section => missingItems.find(item => item.section === section);
+    // A section whose AI call failed is stored as { score: null, errorType }: not a rating, so the row falls back
+    const scored = analysis => typeof analysis?.score === 'number';
+    const extracted = section => data.extractedData?.[section] || data.completenessData?.breakdown?.[section]?.data;
+    const photoMissing = !!gap('photo');
+    const sections = [];
 
-    // Profile photo section - show if missing (completeness)
-    const photoMissing = missingItems.some(item => item.section === 'photo');
-    const photoRec = missingItems.find(item => item.section === 'photo');
-    
-    // Only show photo as a separate section if it's missing (for completeness)
-    // When photo exists, it's included in the First Impression section
-    if (photoMissing) {
-      let photoSection = {
-        name: 'Profile Photo',
-        priority: 'normal',
-        rating: null, // Show blank stars for missing photo
-        positive: null,
-        improvements: [{
-          text: photoRec?.message || "Add a professional photo", 
-          why: "Profiles with photos get 21x more views"
-        }]
-      };
-      
-      sections.push(photoSection);
-    }
-    
-    // We don't show photo as a separate section when it exists
-    
-    
     // [CRITICAL_PATH:FIRST_IMPRESSION_UI] - P0: Display unified first impression
-    // Check for first impression analysis
-    const firstImpressionScore = sectionScores.first_impression;
-    
-    
-    // Headline section - now part of first impression
-    const headlineRec = missingItems.find(item => item.section === 'headline');
-    
-    // If we have first impression analysis, use that for headline display
-    const headlineAnalysis = firstImpressionScore;
-    if (headlineAnalysis && headlineAnalysis.actionItems) {
-      // Use AI insights for headline/first impression
-      const headlineItems = headlineAnalysis.actionItems.filter(item => {
-        // For first impression, filter by element type
-        if (firstImpressionScore && item.element === 'headline') return true;
-        if (item.section === 'headline') return true;
-        // Support both old (what/how) and new (category/action) formats
-        const text = (item.category || item.what || '')?.toLowerCase();
-        return text.includes('headline') && !text.includes('about') && !text.includes('connection');
-      });
-      
-      const headlineRating = this.scoreToRating(headlineAnalysis.score);
+    const firstImpression = sectionScores.first_impression;
+    if (scored(firstImpression)) {
+      const rating = this.scoreToRating(firstImpression.score);
+      // Keep headline, photo, untagged '10/10' and plain-string items (schema-ignoring local models). Drop banner
+      // items (no banner is extracted) and photo items when the Profile Photo row already says to add one.
+      const items = (firstImpression.actionItems || [])
+        .filter(item => item.element !== 'banner' && !(photoMissing && item.element === 'photo'));
       sections.push({
-        name: firstImpressionScore ? 'First Impression' : 'Headline',
-        rating: headlineRating,
-        errorType: headlineAnalysis.errorType || null,
-        positive: firstImpressionScore ? 
-          headlineAnalysis.unifiedImpression || headlineAnalysis.positiveInsight :
-          headlineAnalysis.headlinePositive || headlineAnalysis.positiveInsight || headlineAnalysis.strengths?.[0] || null,
-        improvements: headlineItems.map(item => ({
-          text: item.action || item.what || 'Improvement needed',
-          why: item.impact || item.how || 'Update your profile',
-          impact: item.impact,
-          priority: item.priority
-        })).slice(0, this.getImprovementLimit(headlineRating)),
-        priority: 'normal',
-        // Add visual assessment details if available
-        visualAssessment: firstImpressionScore ? headlineAnalysis.visualAssessment : null
+        name: 'First Impression',
+        key: 'headline',
+        rating,
+        positive: firstImpression.positiveInsight || null,
+        improvements: this.aiImprovements(items, rating)
       });
-      
-      // If first impression includes photo/banner info, add as sub-items
-      if (firstImpressionScore && sections.length > 0) {
-        const firstImpressionSection = sections[sections.length - 1];
-        
-        // Add missing elements as sub-items
-        const photoMissing = missingItems.some(item => item.section === 'photo');
-        const bannerDefault = data.extractedData?.banner && !data.extractedData.banner.isCustomBanner;
-        
-        if (photoMissing || bannerDefault) {
-          firstImpressionSection.subItems = [];
-          
-          if (photoMissing) {
-            firstImpressionSection.subItems.push({
-              type: 'missing',
-              text: 'Add professional photo',
-              impact: 'Profiles with photos get 21x more views'
-            });
-          }
-          
-          if (bannerDefault) {
-            firstImpressionSection.subItems.push({
-              type: 'suggestion',
-              text: 'Customize background banner',
-              impact: 'Creates cohesive visual identity'
-            });
-          }
-        }
-      }
     } else {
-      // Fallback to old logic - add positive message if headline passes completeness
-      const headlineData = data.extractedData?.headline || 
-                          data.completenessData?.breakdown?.headline?.data;
-      let headlinePositive = null;
-      
-      if (!headlineRec && headlineData && headlineData.charCount >= 50) {
-        headlinePositive = "✓ You have a professional headline";
-      }
-      
       sections.push({
         name: 'Headline',
+        key: 'headline',
         rating: null, // Always show blank stars without AI
-        positive: headlinePositive,
-        improvements: headlineRec ?
-          [{text: headlineRec.message, why: "Your headline is the first thing recruiters see in search results"}] :
-          [],
-        priority: 'normal'
+        errorType: firstImpression?.errorType || null,
+        positive: !gap('headline') && extracted('headline')?.charCount >= 50 ? '✓ You have a professional headline' : null,
+        improvements: []
       });
     }
-    
-    // About/Summary section - now standalone
-    const aboutRec = missingItems.find(item => item.section === 'about');
-    
-    // Check for standalone about section analysis
-    const aboutScore = sectionScores.about;
-    
-    if (aboutScore && aboutScore.actionItems) {
-      // Use standalone about section analysis
-      const aboutRating = this.scoreToRating(aboutScore.score);
-      sections.push({
-        name: 'About Section',
-        rating: aboutRating,
-        errorType: aboutScore.errorType || null,
-        positive: aboutScore.positiveInsight || aboutScore.strengths?.[0] || null,
-        improvements: aboutScore.actionItems.map(item => ({
-          text: item.action || item.what || 'Improvement needed',
-          why: item.impact || item.how || 'Update your profile',
-          impact: item.impact,
-          priority: item.priority
-        })).slice(0, this.getImprovementLimit(aboutRating)),
-        priority: 'normal'
-      });
+
+    // Profile photo: a row only when missing (First Impression covers a present one); never AI-rated
+    if (photoMissing) {
+      sections.push({ name: 'Profile Photo', key: 'photo', stars: false, rating: null, positive: null, improvements: [] });
+    }
+
+    const about = sectionScores.about;
+    if (scored(about)) {
+      const rating = this.scoreToRating(about.score);
+      sections.push({ name: 'About Section', key: 'about', rating, positive: about.positiveInsight || null,
+        improvements: this.aiImprovements(about.actionItems, rating) });
     } else {
-      // Fallback to old logic - add positive message if about passes completeness
-      const aboutData = data.extractedData?.about || 
-                       data.completenessData?.breakdown?.about?.data;
-      let aboutPositive = null;
-      
-      if (!aboutRec && aboutData && aboutData.charCount >= 800) {
-        aboutPositive = "✓ Comprehensive About section";
-      }
-      
-      sections.push({
-        name: 'About Section',
-        rating: null, // Always show blank stars without AI
-        positive: aboutPositive,
-        improvements: aboutRec ?
-          [{text: aboutRec.message, why: "A strong About section increases profile views by 40%"}] :
-          [],
-        priority: 'normal'
-      });
+      sections.push({ name: 'About Section', key: 'about', rating: null, errorType: about?.errorType || null,
+        positive: !gap('about') && extracted('about')?.charCount >= 800 ? '✓ Comprehensive About section' : null,
+        improvements: [] });
     }
-    
-    // Experience section - check for AI analysis scores
-    const experienceRec = missingItems.find(item => item.section === 'experience');
+
     // experience_overall, or the single 'experience' section the analyzer sends when deep extraction fails
-    const experienceScore = sectionScores.experience_overall || sectionScores.experience;
-
-    let experienceRating = null; // No rating without AI
-    let experiencePositive = null;
-    let experienceImprovements = [];
-
-    // AI scores take priority over completeness recommendations
-    if (experienceScore) {
-      experienceRating = this.scoreToRating(experienceScore.score);
-      experiencePositive = experienceScore.positiveInsight;
-
-      if (experienceScore.actionItems?.length > 0) {
-        experienceImprovements = experienceScore.actionItems
-          .slice(0, this.getImprovementLimit(experienceRating, 'Experience'))
-          .map(item => ({
-            text: item.action || item.what || 'Improvement needed',
-            why: item.impact || item.how || 'Update your experience',
-            priority: item.priority
-          }));
-      }
-
-      // If we still don't have improvements but have completeness recommendation, add it
-      if (experienceImprovements.length === 0 && experienceRec) {
-        experienceImprovements.push({text: experienceRec.message, why: "Work experience is essential for profile visibility"});
-      }
-    } else if (experienceRec) {
-      // No AI scores and we have completeness recommendation
-      experienceImprovements = [{text: experienceRec.message, why: "Work experience is essential for profile visibility"}];
+    const experience = sectionScores.experience_overall || sectionScores.experience;
+    if (scored(experience)) {
+      const rating = this.scoreToRating(experience.score);
+      sections.push({ name: 'Experience', key: 'experience', rating, positive: experience.positiveInsight || null,
+        improvements: this.aiImprovements(experience.actionItems, rating, 'Experience') });
     } else {
-      // No AI scores and no completeness gap - add positive message
-      const experienceData = data.extractedData?.experience ||
-                           data.completenessData?.breakdown?.experience?.data;
-      if (experienceData?.hasCurrentRole) {
-        experiencePositive = "✓ Your experience section is up to date";
-      } else if (experienceData?.count >= 2) {
-        experiencePositive = `✓ ${experienceData.count} professional experiences documented`;
+      const experienceData = extracted('experience');
+      let positive = null;
+      if (!gap('experience') && experienceData?.hasCurrentRole) {
+        positive = '✓ Your experience section is up to date';
+      } else if (!gap('experience') && experienceData?.count >= 2) {
+        positive = `✓ ${experienceData.count} professional experiences documented`;
       }
+      sections.push({ name: 'Experience', key: 'experience', rating: null, errorType: experience?.errorType || null,
+        positive, improvements: [] });
     }
 
-    const experienceSection = {
-      name: 'Experience',
-      rating: experienceRating,
-      errorType: experienceScore?.errorType || null,
-      positive: experiencePositive,
-      improvements: experienceImprovements,
-      priority: 'normal'
-    };
+    // [CRITICAL_PATH:RECOMMENDATIONS_AI_DISPLAY] - P0: Must show AI analysis for recommendations
+    // Shown whenever the AI rated them, also next to a completeness gap (e.g. none from the last 2 years)
+    const recommendations = sectionScores.recommendations;
+    if (scored(recommendations)) {
+      const rating = this.scoreToRating(recommendations.score);
+      sections.push({ name: 'Recommendations', key: 'recommendations', rating, positive: recommendations.positiveInsight || null,
+        improvements: this.aiImprovements(recommendations.actionItems, rating) });
+    } else {
+      const count = extracted('recommendations')?.count;
+      sections.push({ name: 'Recommendations', key: 'recommendations', rating: null, errorType: recommendations?.errorType || null,
+        positive: !gap('recommendations') && count > 0 ? `✓ You have ${count} recommendation${count > 1 ? 's' : ''}` : null,
+        improvements: [] });
+    }
 
-    sections.push(experienceSection);
-    
-    // Skills section
-    const skillsRec = missingItems.find(item => item.section === 'skills');
-    
-    // Check for AI insights for skills
-    const skillsScore = sectionScores.skills;
-    if (skillsScore && skillsScore.actionItems) {
-      const skillsRating = this.scoreToRating(skillsScore.score);
-      sections.push({
-        name: 'Skills & Expertise',
-        rating: skillsRating,
-        errorType: skillsScore.errorType || null,
-        positive: skillsScore.positiveInsight || skillsScore.strengths?.[0] || null,
-        gapAnalysis: skillsScore.gapAnalysis,
-        improvements: skillsScore.actionItems.slice(0, this.getImprovementLimit(skillsRating)).map(item => ({
-          text: item.action || item.what || 'Improvement needed',
-          why: item.impact || item.how || 'Update your skills',
-          impact: item.impact,
-          priority: item.priority
-        })),
-        priority: 'normal'
-      });
+    const skills = sectionScores.skills;
+    if (scored(skills)) {
+      const rating = this.scoreToRating(skills.score);
+      sections.push({ name: 'Skills & Expertise', key: 'skills', rating, positive: skills.positiveInsight || null,
+        improvements: this.aiImprovements(skills.actionItems, rating) });
     } else {
-      // Add positive message if skills pass completeness
-      const skillsData = data.extractedData?.skills || 
-                        data.completenessData?.breakdown?.skills?.data;
-      let skillsPositive = null;
-      
-      if (!skillsRec && skillsData && skillsData.count >= 10) {
-        skillsPositive = `✓ Strong skills section with ${skillsData.count} skills`;
-      }
-      
-      sections.push({
-        name: 'Skills & Expertise',
-        rating: null, // Always show blank stars without AI
-        positive: skillsPositive,
-        improvements: skillsRec ?
-          [{text: skillsRec.message, why: "Profiles with skills appear in 13x more searches"}] :
-          [],
-        priority: 'normal'
-      });
+      const count = extracted('skills')?.count;
+      sections.push({ name: 'Skills & Expertise', key: 'skills', rating: null, errorType: skills?.errorType || null,
+        positive: !gap('skills') && count >= 10 ? `✓ Strong skills section with ${count} skills` : null,
+        improvements: [] });
     }
-    
-    // Recommendations section - analyze HOW they're perceived
-    const recommendationsRec = missingItems.find(item => item.section === 'recommendations');
-    
-    // Get recommendations data from various possible locations
-    const recommendationsData = data.extractedData?.recommendations || 
-                               data.completenessData?.breakdown?.recommendations?.data ||
-                               data.recommendations;
-    
-    // Check if we actually have recommendations
-    const hasRecommendations = recommendationsData && 
-                              (recommendationsData.count > 0 || 
-                               recommendationsData.receivedCount > 0 ||
-                               recommendationsData.exists === true);
-    
-    // Analyze perception of existing recommendations
-    let recommendationsPositive = null;
-    let recommendationsRating = 0;
-    let recommendationsImprovements = [];
-    
-    if (recommendationsRec) {
-      recommendationsRating = null; // Show blank stars
-      recommendationsImprovements = [{
-        text: recommendationsRec.message,
-        why: "Profiles with recommendations get 5x more inquiries"
-      }];
-    } else if (!hasRecommendations) {
-      // Old logic for when we detect no recommendations through data
-      recommendationsRating = null;
-      recommendationsImprovements = [{
-        text: "Request at least one recommendation",
-        why: "Start with recent colleagues who can speak to your specific achievements"
-      }];
-    } else {
-      // [CRITICAL_PATH:RECOMMENDATIONS_AI_DISPLAY] - P0: Must show AI analysis for recommendations
-      // We have recommendations - check for AI insights
-      const recommendationsScore = sectionScores.recommendations;
-      
-      if (recommendationsScore && typeof recommendationsScore.score === 'number') {
-        // Use AI insights for recommendations
-        recommendationsRating = this.scoreToRating(recommendationsScore.score);
-        recommendationsPositive = recommendationsScore.positiveInsight || recommendationsScore.strengths?.[0] || null;
-        
-        // Extract improvements from AI analysis
-        if (recommendationsScore.actionItems && recommendationsScore.actionItems.length > 0) {
-          recommendationsImprovements = recommendationsScore.actionItems
-            .slice(0, this.getImprovementLimit(recommendationsRating))
-            .map(item => ({
-              text: item.action || item.what || 'Improvement needed',
-              why: item.impact || item.how || 'Update your recommendations',
-              impact: item.impact,
-              priority: item.priority
-            }));
-        }
-      } else {
-        // No AI insights - show completeness only
-        recommendationsRating = null; // No rating without AI
-        recommendationsPositive = null;
-        recommendationsImprovements = [];
-        
-        // Add positive message if has recommendations
-        if (hasRecommendations && recommendationsData.count > 0) {
-          recommendationsPositive = `✓ You have ${recommendationsData.count} recommendation${recommendationsData.count > 1 ? 's' : ''}`;
-        }
-      }
-    }
-    
-    sections.push({
-      name: 'Recommendations',
-      rating: recommendationsRating,
-      positive: recommendationsPositive,
-      improvements: recommendationsImprovements,
-      errorType: sectionScores.recommendations?.errorType || null,
-      // Removed isDefaultRating - use null rating instead
-      priority: 'high'  // Always show recommendations section
+
+    // Each row leads with its completeness gap and what fixing it adds: the scorer's weight, in % points
+    sections.forEach(section => {
+      const rec = gap(section.key);
+      if (rec) section.improvements.unshift({ text: rec.message, why: `+${Math.round(rec.impact)}% completeness` });
     });
 
-    // Completeness gaps no card above covers (education, certifications, projects)
-    const cardSections = ['photo', 'headline', 'about', 'experience', 'skills', 'recommendations'];
-    const otherGaps = missingItems.filter(item => !cardSections.includes(item.section));
-    if (otherGaps.length > 0) {
+    // Sections without a row: their gaps, and which already earn full credit, so the score adds up
+    const rowKeys = sections.map(section => section.key);
+    const breakdown = data.completenessData?.breakdown || {};
+    const otherGaps = missingItems.filter(item => !rowKeys.includes(item.section));
+    const fullCredit = Object.keys(breakdown).filter(key => !rowKeys.includes(key) && breakdown[key].scoreMultiplier === 1);
+    if (otherGaps.length || fullCredit.length) {
       sections.push({
         name: 'Other Sections',
+        stars: false,
         rating: null,
-        positive: null,
-        improvements: otherGaps.map(item => ({ text: item.message, why: `+${Math.round(item.impact)}% completeness` })),
-        priority: 'normal'
+        positive: fullCredit.length ? `✓ Full credit: ${fullCredit.map(key => key[0].toUpperCase() + key.slice(1)).join(', ')}` : null,
+        improvements: otherGaps.map(item => ({ text: item.message, why: `+${Math.round(item.impact)}% completeness` }))
       });
     }
 
-    // Sort sections to match LinkedIn's visual hierarchy
-    const sectionOrder = [
-      'First Impression', // Includes photo + headline when photo exists
-      'Profile Photo',    // Only shown when missing
-      'Profile Banner',    // Only with vision AI
-      'Headline',         // Only shown if no First Impression
-      'About Section',
-      'Experience',
-      'Recommendations',
-      'Skills & Expertise'
-    ];
-    
-    sections.sort((a, b) => {
-      const indexA = sectionOrder.indexOf(a.name);
-      const indexB = sectionOrder.indexOf(b.name);
-      // If section not in order list, put it at the end
-      return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
-    });
-    
-    // Priority-based filtering:
-    // 1. Always include high-priority sections
-    // 2. Include all sections that need improvement (rating < 5)
-    // 3. If space remains, include other sections up to a limit
-    
-    const highPrioritySections = sections.filter(section => section.priority === 'high');
-    const needsImprovement = sections.filter(section => section.rating < 5 && section.priority !== 'high');
-    const perfectSections = sections.filter(section => section.rating >= 5 && section.priority !== 'high');
-    
-    // Combine sections with priority order
-    let finalSections = [...highPrioritySections, ...needsImprovement];
-    
-    // Add perfect sections if we have room (max 6-8 total sections)
-    const maxSections = 8;
-    const remainingSlots = maxSections - finalSections.length;
-    if (remainingSlots > 0) {
-      finalSections = [...finalSections, ...perfectSections.slice(0, remainingSlots)];
-    }
-    
-    // Re-sort final sections to maintain LinkedIn order
-    finalSections.sort((a, b) => {
-      const indexA = sectionOrder.indexOf(a.name);
-      const indexB = sectionOrder.indexOf(b.name);
-      return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
-    });
-    
-    return finalSections;
+    return sections;
   },
-  
+
   /**
    * Escape text for the HTML templates below - AI output and profile text must render as text
    */
@@ -1438,38 +1146,35 @@ const OverlayManager = {
    * Render a section with star rating
    */
   renderSection(section) {
-    // Generate a unique placeholder ID for this section's stars
-    const starPlaceholderId = `star-placeholder-${Math.random().toString(36).substr(2, 9)}`;
-    
-    // Store the star element to insert later
-    if (!this.pendingStarElements) {
-      this.pendingStarElements = [];
+    // Profile Photo and Other Sections are never AI-rated, so they get no star row
+    let stars = '';
+    if (section.stars !== false) {
+      // Generate a unique placeholder ID for this section's stars, filled in by showUnifiedView
+      const starPlaceholderId = `star-placeholder-${Math.random().toString(36).substr(2, 9)}`;
+      if (!this.pendingStarElements) {
+        this.pendingStarElements = [];
+      }
+      this.pendingStarElements.push({
+        id: starPlaceholderId,
+        element: this.renderStars(section.rating, section.errorType)
+      });
+      stars = `<div class="star-rating" data-star-placeholder="${starPlaceholderId}"></div>`;
     }
-    this.pendingStarElements.push({
-      id: starPlaceholderId,
-      element: this.renderStars(section.rating, section.errorType)
-    });
-    
+
     return `
-      <div style="margin-bottom: 12px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-          <h5 style="margin: 0; font-size: 14px; font-weight: 600; color: #333;">
-            ${this.escapeHtml(section.name)}
-          </h5>
-          <div class="star-rating" style="font-size: 16px;" data-star-placeholder="${starPlaceholderId}"></div>
+      <div class="eli-row">
+        <div class="eli-row-head">
+          <h5 class="eli-row-title">${this.escapeHtml(section.name)}</h5>
+          ${stars}
         </div>
-        ${section.positive ? `
-          <p style="margin: 0 0 8px 0; font-size: 12px; color: #057642;">
-            ${this.escapeHtml(section.positive)}
-          </p>
-        ` : ''}
+        ${section.errorType ? '<p class="eli-row-note">Couldn\'t rate this section with AI. Click Analyze to retry.</p>' : ''}
+        ${section.positive ? `<p class="eli-row-positive">${this.escapeHtml(section.positive)}</p>` : ''}
         ${section.improvements.length > 0 ? `
-          <ul style="margin: 8px 0 0 0; padding-left: 20px; list-style: none;">
+          <ul class="eli-advice">
             ${section.improvements.map(imp => `
-              <li style="margin-bottom: 6px; position: relative; padding-left: 8px; font-size: 12px; color: #666;">
-                <span style="position: absolute; left: -8px;">→</span>
-                ${this.escapeHtml(typeof imp === 'string' ? imp : imp.text)}
-                ${imp.why ? `<div style="font-size: 11px; color: #999; margin-top: 2px; margin-left: 8px;">${this.escapeHtml(imp.why)}</div>` : ''}
+              <li>
+                ${this.escapeHtml(imp.text)}
+                ${imp.why ? `<div class="eli-why">${this.escapeHtml(imp.why)}</div>` : ''}
               </li>
             `).join('')}
           </ul>
@@ -1477,38 +1182,40 @@ const OverlayManager = {
       </div>
     `;
   },
-  
+
   /**
    * Render star rating
    */
   renderStars(rating, errorType = null) {
     const filled = '★';
     const empty = '☆';
-    
-    // Create wrapper span
+
+    // Create wrapper span. role="img" reads the label instead of five "white star" glyphs
     const wrapper = document.createElement('span');
-    
+    wrapper.setAttribute('role', 'img');
+
     // If no rating (no AI analysis), show responsive display
     if (rating === null || rating === undefined) {
       const tooltip = this.getFailureTooltip(errorType);
       wrapper.title = tooltip;
+      wrapper.setAttribute('aria-label', `Not rated. ${tooltip}`);
       wrapper.style.cssText = 'cursor: help; opacity: 0.5;';
-      
+
       // Visual stars span
       const visualSpan = document.createElement('span');
       visualSpan.className = 'stars-visual';
       visualSpan.textContent = empty.repeat(5);
-      
+
       // Numeric span (narrow screens) - 'not rated', never a fake zero score
       const numericSpan = document.createElement('span');
       numericSpan.className = 'stars-numeric';
       numericSpan.textContent = '–/5★';
-      
+
       wrapper.appendChild(visualSpan);
       wrapper.appendChild(numericSpan);
       return wrapper;
     }
-    
+
     // Calculate numerical rating for tooltip
     const numericalRating = rating.toFixed(1);
     let qualityText = '';
@@ -1517,10 +1224,11 @@ const OverlayManager = {
     else if (rating >= 3) qualityText = 'Average';
     else if (rating >= 2) qualityText = 'Below Average';
     else qualityText = 'Needs Improvement';
-    
+
     const tooltip = `${numericalRating}/5.0 - ${qualityText}`;
     wrapper.title = tooltip;
-    
+    wrapper.setAttribute('aria-label', `${rating} out of 5 stars, ${qualityText}`);
+
     // Create individual star spans with animation
     for (let i = 1; i <= 5; i++) {
       const starSpan = document.createElement('span');
@@ -1534,11 +1242,11 @@ const OverlayManager = {
       }
       wrapper.appendChild(starSpan);
     }
-    
+
     wrapper.style.cursor = 'help';
     return wrapper;
   },
-  
+
   /**
    * Get tooltip for failure scenarios
    */
@@ -1547,114 +1255,40 @@ const OverlayManager = {
       'ANALYSIS_FAILED': 'AI was unable to analyze this section',
       'RESPONSE_PARSE_ERROR': 'AI response could not be read',
       'DATA_READ_ERROR': 'AI was unable to read data for this section',
-      'API_KEY_ERROR': 'Invalid API key - check settings',
-      'DEFAULT': 'Enable AI analysis for quality insights'
+      'AI_READY': 'Click Analyze for AI content analysis',
+      'DEFAULT': 'No AI rating yet. Turn on AI in settings, then click Analyze.'
     };
-    
+
     return tooltipMap[errorType] || tooltipMap['DEFAULT'];
   },
-  
-  /**
-   * Generate unified positive message
-   */
-  generateUnifiedMessage(completeness, contentScore, sections, data) {
-    try {
-      // Force safe type conversion
-      const safeCompleteness = Number(completeness) || 0;
-      const safeContentScore = Number(contentScore) || 0;
-      
-      // Initialize message parts array for safer concatenation
-      const messageParts = [];
-      
-      // A run that just fell back to cached results: the analyzer's message says what failed
-      if (data.isCacheFallback && data.message) return data.message;
 
-      // AI failed with no earlier AI results to show: say why (a restore of earlier ones has the asterisk)
-      if (this.aiFailed(data) && !data.aiFailedWithCache) {
-        const reason = String(data.aiError.message || 'unknown error').replace(/\.$/, '');
-        return `AI analysis failed (${reason}). Profile ${safeCompleteness}% complete. Click Analyze to retry.`;
-      }
-      
-      // Check if AI analysis has been run
-      const hasAIAnalysis = sections && sections.some(section => section.rating !== null && section.rating !== undefined);
-      
-      // MODIFIED: Check for high completeness without AI first
-      if (safeCompleteness >= 75 && !hasAIAnalysis) {
-        // High completeness but no AI - prompt to enable AI
-        if (safeCompleteness >= 100) {
-          return "🎉 Your profile structure is perfect! Configure and Enable AI for comprehensive content quality analysis.";
-        } else if (safeCompleteness >= 90) {
-          return `🎯 Excellent profile structure! ${safeCompleteness}% complete. Configure and Enable AI for comprehensive content quality analysis.`;
-        } else {
-          return `📈 Strong profile foundation! ${safeCompleteness}% complete. Configure and Enable AI for comprehensive content quality analysis.`;
-        }
-      }
-      
-      // Build completeness message for < 75% or with AI
-      let completenessMessage = "";
-      
-      // Completeness part with safe string concatenation
-      if (safeCompleteness >= 100) {
-        completenessMessage = "🎉 Your profile is 100% complete!";
-      } else if (safeCompleteness >= 90) {
-        completenessMessage = `🎯 Almost there! ${safeCompleteness}% complete.`;
-      } else if (safeCompleteness >= 70) {
-        completenessMessage = `📈 Great progress! ${safeCompleteness}% complete.`;
-      } else if (safeCompleteness >= 50) {
-        completenessMessage = `🚀 Good start! ${safeCompleteness}% complete.`;
-      } else {
-        completenessMessage = `💪 Let's build your profile! ${safeCompleteness}% complete.`;
-      }
-      
-      messageParts.push(completenessMessage);
-      
-      // Add content quality if AI is enabled
-      if (hasAIAnalysis) {
-        try {
-          // Only AI-rated cards count; unrated (null) cards are not 0 stars. hasAIAnalysis guarantees one.
-          const rated = sections.filter(section => typeof section.rating === 'number');
-          const totalStars = rated.reduce((sum, section) => sum + section.rating, 0);
-          const starProgress = Math.round((totalStars / (rated.length * 5)) * 100);
-          
-          let qualityMessage = "";
-          if (starProgress >= 80) {
-            qualityMessage = " Content quality: Excellent.";
-          } else if (starProgress >= 60) {
-            qualityMessage = " Content quality: Good.";
-          } else if (starProgress >= 40) {
-            qualityMessage = " Content quality: Fair.";
-          } else {
-            qualityMessage = " Content quality: Needs improvement.";
-          }
-          messageParts.push(qualityMessage);
-        } catch (e) {
-          messageParts.push(" AI analysis complete.");
-        }
-      } else {
-        // Only show AI nudge if completeness is < 75% - otherwise it's handled above
-        // When < 75%, focus on structure first
-        if (safeCompleteness < 75) {
-          // Don't distract with AI - focus on completeness
-          const structureMessage = " Focus on completing missing sections first.";
-          messageParts.push(structureMessage);
-        }
-      }
-      
-      // Join all parts safely
-      const finalMessage = messageParts.filter(Boolean).join('');
-      
-      
-      // Ensure we never return empty string
-      return finalMessage || "Profile analysis complete.";
-      
-    } catch (error) {
-      
-      // Fallback message that always works
-      const fallbackCompleteness = Number(completeness) || 0;
-      return `Profile ${fallbackCompleteness}% complete. Analysis results available above.`;
+  /**
+   * Banner text: what failed, or the completeness, the AI verdict and the next step
+   */
+  generateUnifiedMessage(data, sections) {
+    const percent = Math.round(Number(data.completeness) || 0);
+
+    // A run that just fell back to cached results: the analyzer's message says what failed
+    if (data.isCacheFallback && data.message) return data.message;
+
+    // AI failed with no earlier AI results to show: say why (a restore of earlier ones has the asterisk)
+    if (this.aiFailed(data) && !data.aiFailedWithCache) {
+      const reason = String(data.aiError.message || 'unknown error').replace(/\.$/, '');
+      return `AI analysis failed (${reason}). Profile ${percent}% complete. Click Analyze to retry.`;
     }
+
+    const parts = [percent >= 100 ? 'Your profile is complete.' : `${percent}% complete.`];
+    // Same scale as the quality badge's colour, so text, stars and colour agree
+    if (typeof data.contentScore === 'number' && sections.some(section => typeof section.rating === 'number')) {
+      const verdict = { 'score-excellent': 'Excellent', 'score-good': 'Good', 'score-moderate': 'Fair', 'score-poor': 'Needs improvement' };
+      parts.push(`Content quality: ${verdict[this.getScoreClass(data.contentScore, true)]}.`);
+    }
+    // The biggest gap first: the scorer sorts its recommendations by impact
+    const next = data.completenessData?.allRecommendations?.[0];
+    if (next) parts.push(`Next: ${next.message}`);
+    return parts.join(' ');
   },
-  
+
   /**
    * Fill a container from a template string with DOMParser (no innerHTML). Dynamic text must go through escapeHtml.
    */
