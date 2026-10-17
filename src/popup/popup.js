@@ -78,9 +78,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // activeTab exposes the URL of whatever tab the popup was opened on
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-  // Check configuration states
-  const hasCompliance = settings.compliance?.hasAcknowledged;
-
   // View management functions
   function showView(viewName) {
     profileSetupDiv.classList.toggle('hidden', viewName !== 'profileSetup');
@@ -151,8 +148,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     acknowledgeComplianceBtn.textContent = 'Open my LinkedIn profile';
   }
 
-  // Determine which UI to show
-  showView(hasCompliance ? 'activeMain' : 'profileSetup');
+  showView(settings.compliance?.hasAcknowledged ? 'activeMain' : 'profileSetup');
 
   // Handle compliance checkbox (CSS hides the hint once the button is enabled)
   complianceCheck.addEventListener('change', () => {
@@ -264,26 +260,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.location.reload();
   });
 
-  // Validation helper functions
-  function showFieldError(inputElement, errorElement, message) {
-    if (inputElement) {
-      inputElement.classList.add('input-error');
-      inputElement.setAttribute('aria-invalid', 'true');
-    }
-    if (errorElement) {
-      errorElement.textContent = message || errorElement.textContent;
-      errorElement.classList.add('show');
-    }
+  // input is null for the setup error, which belongs to no field
+  function showFieldError(input, error, message) {
+    input?.classList.add('input-error');
+    input?.setAttribute('aria-invalid', 'true');
+    error.textContent = message;
+    error.classList.add('show');
   }
 
-  function clearFieldError(inputElement, errorElement) {
-    if (inputElement) {
-      inputElement.classList.remove('input-error');
-      inputElement.removeAttribute('aria-invalid');
-    }
-    if (errorElement) {
-      errorElement.classList.remove('show');
-    }
+  function clearFieldError(input, error) {
+    input?.classList.remove('input-error');
+    input?.removeAttribute('aria-invalid');
+    error.classList.remove('show');
   }
 
   // Clear validation on input
