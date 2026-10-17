@@ -821,21 +821,6 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
     return true;
   }
   
-  // [CRITICAL_PATH:API_KEY_CLEAR_HANDLER] - P0: Securely removes all API key data
-  // Handle API key clearing
-  if (action === 'clearApiKey') {
-    cryptoUtils.clearApiKey().then(() => {
-      sendResponse({ success: true });
-    }).catch(error => {
-      console.error('AI.PROMPTS', 'Failed to clear API key', error);
-      sendResponse({ 
-        success: false, 
-        error: error.message || 'Failed to clear API key'
-      });
-    });
-    return true;
-  }
-  
   // Handle individual section analysis
   if (action === 'analyzeSection') {
     keepAliveWhile(handleSectionAnalysis(request, sendResponse));

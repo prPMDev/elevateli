@@ -52,13 +52,6 @@ const CryptoManager = {
     const bytes = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
     const key = await this.generateKey(await this.getOrCreatePassphrase(), bytes.slice(0, 16));
     return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(16, 28) }, key, bytes.slice(28)));
-  },
-
-  /**
-   * Clear API key
-   */
-  async clearApiKey() {
-    await chrome.storage.local.remove('encryptedApiKey');
   }
 };
 
