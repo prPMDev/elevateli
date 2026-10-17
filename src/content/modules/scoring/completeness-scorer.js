@@ -91,15 +91,25 @@ class ProfileCompletenessCalculator {
             (data.hasCurrentRole ? 0.2 : 0);
         },
         getMessage: (data) => {
-          if (!data?.exists) return "Add your work experience";
-          if (data.count === 1) return "Add more work experiences (at least 2)";
-          if (!data.hasCurrentRole) return "Update with your current position";
+          if (!data?.exists) return 'Add your work history, starting with your current or most recent role';
+          if (data.count === 1) return 'Add more of your work history, such as an earlier job, internship or volunteer role';
+          // A Career break entry is not read as a role (experience.js rows()), so the tip doesn't offer it
+          if (!data.hasCurrentRole) {
+            return 'Add what you\'re doing now to Experience with an end date of Present (tick "I am currently working in this role"). Freelance work counts';
+          }
+          const avg = fmt(data.averageDescriptionLength);
           const empty = data.emptyRoles || [];
           if (empty.length) {
-            return `Add a description to your ${empty.slice(0, 2).join(' and ')} role${empty.length > 1 ? 's' : ''}` +
-              (empty.length > 2 ? ` (+${empty.length - 2} more empty)` : '');
+            // By company; "Title at Company" when that company has several empty roles
+            const names = [...new Set(empty.map(({ title, company }) =>
+              !company ? title : empty.filter(other => other.company === company).length > 1 ? `${title} at ${company}` : company))];
+            const parts = names.length > 3 ? [...names.slice(0, 2), `${names.length - 2} more`] : names;
+            const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
+            const one = names.length === 1;
+            return `Add ${one ? 'a description' : 'descriptions'} to your ${list} role${one ? '' : 's'}: what you owned and one measurable result. ` +
+              `Full credit needs an average of 800+ characters per role (yours: ${avg})`;
           }
-          return `Role descriptions average ${data.averageDescriptionLength} characters. 800+ per role gets full credit. Add one measurable result to each.`;
+          return `Expand your role descriptions from an average of ${avg} to 800+ characters: add one measurable result to each`;
         }
       },
       
