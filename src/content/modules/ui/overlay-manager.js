@@ -216,7 +216,8 @@ const OverlayManager = {
     if (!chrome.runtime?.id) return;
     try {
       await saveUserProfileId();
-      await chrome.storage.local.set({ compliance: { hasAcknowledged: true, acknowledgedAt: Date.now() } });
+      // termsVersion: keep in sync with privacy-terms.html "Last updated" and popup.js setup
+      await chrome.storage.local.set({ compliance: { hasAcknowledged: true, acknowledgedAt: Date.now(), termsVersion: '2026-10' } });
     } catch (error) {
       console.error('[ElevateLI] Saving setup failed:', error);
       this.showError('Setup failed. Refresh the page and try again.');
@@ -1114,13 +1115,14 @@ const OverlayManager = {
     this.hideStatusIndicator();
 
     const scrollNote = 'The page scrolls briefly while ElevateLI reads your profile. Under 30 seconds, or a few minutes with AI.';
+    const termsUrl = chrome.runtime.getURL('privacy-terms.html'); // web-accessible (dynamic URL) so the link opens from LinkedIn
     const unifiedSection = this.overlayElement.querySelector('.unified-section');
     this.fillFromTemplate(unifiedSection, this.hasCompliance
       ? `<p class="eli-welcome-text">Click Analyze to score your profile. ${scrollNote}</p>`
       : `<div class="eli-welcome">
           <h3 class="eli-welcome-title">Welcome to ElevateLI</h3>
           <p class="eli-welcome-text">See how complete your profile is and what to add next. ${scrollNote}</p>
-          <p class="eli-welcome-consent">By continuing, you agree to use ElevateLI only on your own LinkedIn profile. Results stay in this browser.</p>
+          <p class="eli-welcome-consent">By continuing, you confirm this is your own LinkedIn profile and agree to the <a href="${termsUrl}#terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="${termsUrl}#privacy" target="_blank" rel="noopener">Privacy Policy</a>. Results stay in this browser.</p>
           <button type="button" class="eli-primary" data-action="consent">Confirm and analyze</button>
         </div>`);
 

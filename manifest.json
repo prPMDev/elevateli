@@ -60,7 +60,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "src/images/icon48.png"
+        "src/images/icon48.png",
+        "privacy-terms.html"
       ],
       "matches": [
         "https://www.linkedin.com/*"

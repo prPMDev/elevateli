@@ -187,7 +187,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       );
       if (!confirmed) return;
 
-      await chrome.storage.local.set({ compliance: { hasAcknowledged: true, acknowledgedAt: Date.now() }, userProfile });
+      // termsVersion: keep in sync with privacy-terms.html "Last updated" and overlay-manager acceptConsent
+      await chrome.storage.local.set({ compliance: { hasAcknowledged: true, acknowledgedAt: Date.now(), termsVersion: '2026-10' }, userProfile });
       // Open tabs update from storage.onChanged; this builds the overlay if this tab has none yet
       chrome.tabs.sendMessage(activeTab.id, { action: 'showOverlay' }).catch(() => {});
 
