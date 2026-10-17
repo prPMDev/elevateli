@@ -265,12 +265,13 @@ const OverlayManager = {
             <span class="score-badge quality"><span class="label-full">Content Quality</span><span class="label-short">Quality</span>: --</span>
             <div class="spacer"></div>
             <span class="last-analyzed-collapsed"></span>
-            <button class="analyze-btn-collapsed">Analyze</button>
-            <a href="#" class="view-details-link">
+            <button class="analyze-btn-collapsed" data-action="analyze">Analyze</button>
+            <a href="#" class="view-details-link" data-action="details">
               <span class="details-text-full">View details</span>
               <span class="details-text-medium">Details</span>
               <span class="details-icon">▼</span>
             </a>
+            <span class="elevateli-sr-only" role="status"></span>
           </div>
           
           <!-- Expanded view -->
@@ -333,24 +334,36 @@ const OverlayManager = {
    * Attach event listeners to overlay elements
    */
   attachEventListeners() {
-    // Analyze button (collapsed view) - always attach listener
-    const analyzeBtnCollapsed = this.overlayElement.querySelector('.analyze-btn-collapsed');
-    if (analyzeBtnCollapsed) {
-      // Always add the event listener
-      analyzeBtnCollapsed.addEventListener('click', () => this.handleAnalyze());
-      
-      // Set initial disabled state based on compliance
-      analyzeBtnCollapsed.disabled = !this.hasCompliance;
-      if (!this.hasCompliance) {
-        analyzeBtnCollapsed.title = 'Please complete setup in extension popup first';
-      }
-    }
-    
-    // View details link (collapsed view)
-    const viewDetailsLink = this.overlayElement.querySelector('.view-details-link');
-    viewDetailsLink?.addEventListener('click', (e) => {
+    // One delegated listener, because the results markup is rebuilt from strings. Script-dispatched
+    // clicks (isTrusted false) are ignored: page scripts must not start analyses billed to the user's key.
+    this.overlayElement.addEventListener('click', e => {
+      const target = e.target.closest('[data-action]');
+      if (!target) return;
       e.preventDefault();
-      this.toggleView();
+      if (!e.isTrusted) return;
+      const actions = {
+        analyze: () => this.handleAnalyze(),
+        details: () => this.toggleView(),
+        'open-settings': () => this.openSettings(target)
+      };
+      actions[target.dataset.action]?.();
+    });
+
+    // Set initial disabled state based on compliance
+    const analyzeBtnCollapsed = this.overlayElement.querySelector('.analyze-btn-collapsed');
+    analyzeBtnCollapsed.disabled = !this.hasCompliance;
+    if (!this.hasCompliance) {
+      analyzeBtnCollapsed.title = 'Please complete setup in extension popup first';
+    }
+  },
+
+  /**
+   * Open the extension popup (settings). Chrome refuses when the window isn't focused; then point at the icon.
+   * @param {Element} link - The clicked control, replaced by the hint on failure
+   */
+  openSettings(link) {
+    safeSendMessage({ action: 'openPopup' }, response => {
+      if (!response?.success) link.replaceWith("Open ElevateLI from Chrome's puzzle-piece menu.");
     });
   },
   
@@ -507,18 +520,17 @@ const OverlayManager = {
             analyzeBtnCollapsed.title = '';
           }
         }
-        
-        // A fresh AI failure with cached AI results lands in ANALYSIS_FAILED_CACHE_FALLBACK (banner);
-        // here partialUpdate only arrives via cache restore, where the asterisk + message suffice
-        if (data.apiKeyError) {
-          this.showToast('Invalid API key. Please check your settings for AI analysis.', 'error');
+
+        // A run that just failed AI says so next to its date; a restore shows the amber "No score" badge
+        if (!data.fromCache && !data.cacheRestored && this.aiFailed(data)) {
+          this.showError('AI analysis failed', data.aiError);
         }
       },
-      
+
       [this.states.ERROR]: () => {
         // Stop elapsed time display if running
         this.stopElapsedTimeDisplay();
-        
+
         // The provider's own message (e.g. rate limit wait) is the useful part
         const errorMessage = data.aiError?.message || data.message || 'Analysis failed';
 
@@ -529,62 +541,26 @@ const OverlayManager = {
           this.updateCompleteness(data.completeness);
         }
 
-        // Show toast notification
-        this.showToast(errorMessage, 'error');
+        this.showError(errorMessage, data.aiError);
       },
-      
+
       [this.states.ANALYSIS_FAILED_CACHE_FALLBACK]: () => {
         // Stop elapsed time display if running
         this.stopElapsedTimeDisplay();
-        
+        this.hideStatusIndicator();
+
         // Show cached data
         this.populateScores(data);
 
-        // Store the data with a flag indicating it's a fallback
+        // The flag makes the results banner carry data.message (what failed) in amber
         this.currentData = { ...data, isCacheFallback: true };
-
-        // Show unified view with cache fallback indicator
-        this.showUnifiedView(data);
+        this.showUnifiedView(this.currentData);
 
         // Show timestamp
         if (data.timestamp) {
           this.showTimestamp(data.timestamp);
         }
-        
-        // Show warning banner about failed analysis
-        const warningBanner = document.createElement('div');
-        warningBanner.className = 'analysis-warning-banner';
-        warningBanner.style.cssText = `
-          background: #fef3c7;
-          border: 1px solid #f59e0b;
-          border-radius: 6px;
-          padding: 12px;
-          margin: 12px 0;
-          font-size: 14px;
-          color: #92400e;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        `;
-        // Create warning content safely
-        const warningIcon = document.createElement('span');
-        warningIcon.style.cssText = 'font-size: 16px;';
-        warningIcon.textContent = '⚠️';
-        
-        const warningText = document.createElement('span');
-        warningText.textContent = data.message || 'Analysis couldn\'t complete. Showing cached results. Please try again in a few minutes.';
-        
-        warningBanner.appendChild(warningIcon);
-        warningBanner.appendChild(warningText);
-        
-        // Insert warning banner at the top of the unified section
-        const unifiedSection = this.overlayElement.querySelector('.unified-section');
-        if (unifiedSection && unifiedSection.firstChild) {
-          unifiedSection.insertBefore(warningBanner, unifiedSection.firstChild);
-        }
-        
-        // Update status
-        this.updateStatus('Showing cached results', 'ℹ️');
+        this.showError('Showing previous results', data.aiError || { message: data.message });
       }
     };
     
@@ -625,199 +601,105 @@ const OverlayManager = {
       statusIndicator.style.display = 'none';
     }
   },
+
+  /**
+   * AI was on for this result but its run failed (cached results keep aiError until a run succeeds).
+   * A fresh result has no settings, and only AI-enabled runs set aiError, so missing settings counts as on.
+   */
+  aiFailed(data) {
+    return !!data.aiError && data.settings?.enableAI !== false;
+  },
+
+  /**
+   * Error line in the collapsed bar, the only part of the overlay visible in both views. Key and
+   * provider-check failures get an "Open settings" link; the Analyze button is the retry.
+   * @param {string} message - Short text; the full reason goes in the title and the expanded banner
+   * @param {Object} [aiError] - aiError of the result, if the failure was AI's
+   */
+  showError(message, aiError) {
+    const slot = this.overlayElement.querySelector('.last-analyzed-collapsed');
+    slot.textContent = message;
+    slot.title = aiError?.message || message;
+    slot.className = 'last-analyzed-collapsed has-error';
+    if (['AUTH', 'validation_failed'].includes(aiError?.type)) {
+      const link = document.createElement('button');
+      link.type = 'button';
+      link.className = 'eli-link';
+      link.dataset.action = 'open-settings';
+      link.textContent = 'Open settings';
+      slot.append(' ', link);
+    }
+    this.announce(aiError?.message ? `${message}: ${aiError.message}` : message);
+  },
+
+  /**
+   * Say it to screen readers through the bar's role="status" region
+   */
+  announce(text) {
+    const region = this.overlayElement?.querySelector('.elevateli-sr-only');
+    if (region) region.textContent = text;
+  },
   
+  /**
+   * Fill a collapsed-bar badge: responsive label, ': ', then the value (text or nodes).
+   * Resets the class, so a previous state's colour can't outlive its result.
+   * @returns {Element} The badge, for the caller's state class
+   */
+  setBadge(type, ...value) {
+    const badge = this.overlayElement.querySelector(`.score-badge.${type}`);
+    const [full, short] = type === 'completeness' ? ['Completeness', 'Complete'] : ['Content quality', 'Quality'];
+    const fullSpan = document.createElement('span');
+    fullSpan.className = 'label-full';
+    fullSpan.textContent = full;
+    const shortSpan = document.createElement('span');
+    shortSpan.className = 'label-short';
+    shortSpan.textContent = short;
+    badge.replaceChildren(fullSpan, shortSpan, ': ', ...value);
+    badge.className = `score-badge ${type}`;
+    badge.title = '';
+    return badge;
+  },
+
   /**
    * Update completeness score
    * @param {number} score - Completeness percentage
    */
   updateCompleteness(score) {
-    const collapsedBadge = this.overlayElement.querySelector('.score-badge.completeness');
-
-    // Update collapsed view badge
-    if (collapsedBadge) {
-      (() => {
-        const fragment = document.createDocumentFragment();
-        
-        const fullSpan = document.createElement('span');
-        fullSpan.className = 'label-full';
-        fullSpan.textContent = 'Completeness';
-        
-        const shortSpan = document.createElement('span');
-        shortSpan.className = 'label-short';
-        shortSpan.textContent = 'Complete';
-        
-        const separator = document.createTextNode(': ');
-        const remaining = document.createTextNode(`${Math.round(score)}%`);
-        
-        fragment.appendChild(fullSpan);
-        fragment.appendChild(shortSpan);
-        fragment.appendChild(separator);
-        fragment.appendChild(remaining);
-        
-        collapsedBadge.replaceChildren(fragment);
-      })();
-      // Remove old color classes
-      collapsedBadge.classList.remove('high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
-      
-      // Apply new color system
-      const colorClass = this.getScoreClass(score, false);
-      collapsedBadge.classList.add(colorClass);
-    }
+    this.setBadge('completeness', `${Math.round(score)}%`).classList.add(this.getScoreClass(score, false));
   },
-  
+
   /**
    * Populate all scores
    * @param {Object} data - Score data
    */
   populateScores(data) {
-    
-    // Update completeness
     if (data.completeness !== undefined) {
       this.updateCompleteness(data.completeness);
     }
-    
-    // Check if AI is disabled or API key error
-    const qualityBadge = this.overlayElement.querySelector('.score-badge.quality');
-    // Drop the previous result's state classes so e.g. a red 'error' badge can't outlive its run
-    qualityBadge?.classList.remove('ai-disabled', 'error', 'ai-error', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
 
-    if (data.aiDisabled || ((data.contentScore === undefined || data.contentScore === null) && data.fromCache !== true)) {
-      // Update collapsed view badge
-      if (qualityBadge) {
-        if (data.contentScore === 0 && data.aiError && data.settings?.enableAI) {
-          // AI is enabled but failed
-          (() => {
-        const fragment = document.createDocumentFragment();
-        
-        const fullSpan = document.createElement('span');
-        fullSpan.className = 'label-full';
-        fullSpan.textContent = 'Content Quality';
-        
-        const shortSpan = document.createElement('span');
-        shortSpan.className = 'label-short';
-        shortSpan.textContent = 'Quality';
-        
-        const separator = document.createTextNode(': ');
-        const remaining = document.createTextNode('No score');
-        
-        fragment.appendChild(fullSpan);
-        fragment.appendChild(shortSpan);
-        fragment.appendChild(separator);
-        fragment.appendChild(remaining);
-        
-        qualityBadge.replaceChildren(fragment);
-      })();
-          qualityBadge.classList.add('ai-error');
-        } else if (data.apiKeyError) {
-          qualityBadge.textContent = '';
-          const labelHtml = '<span class="label-full">Content Quality</span><span class="label-short">Quality</span>: ';
-          (() => {
-              qualityBadge.textContent = '';
-              qualityBadge.insertAdjacentHTML('afterbegin', labelHtml);
-            })();
-          const textNode = document.createTextNode('');
-          qualityBadge.appendChild(textNode);
-          
-          // Show empty stars with error tooltip
-          const starsElement = this.renderStars(null, 'API_KEY_ERROR');
-          qualityBadge.appendChild(starsElement);
-          qualityBadge.classList.add('ai-disabled', 'error');
-        } else {
-          qualityBadge.textContent = '';
-          const labelHtml = '<span class="label-full">Content Quality</span><span class="label-short">Quality</span>: ';
-          (() => {
-              qualityBadge.textContent = '';
-              qualityBadge.insertAdjacentHTML('afterbegin', labelHtml);
-            })();
-          const textNode = document.createTextNode('');
-          qualityBadge.appendChild(textNode);
-          
-          // Show empty stars with "Enable AI" tooltip
-          const starsElement = this.renderStars(null, null);
-          qualityBadge.appendChild(starsElement);
-          qualityBadge.classList.add('ai-disabled');
-        }
+    // aiDisabled also marks the timeout path's placeholder contentScore 0
+    if (typeof data.contentScore === 'number' && !data.aiDisabled) {
+      // 10-point AI score as 5 stars
+      const badge = this.setBadge('quality', this.renderStars(Math.round(data.contentScore / 2), data.errorType));
+      // These AI results are from an earlier run: this one's AI step failed
+      if (data.aiFailedWithCache) {
+        const asterisk = document.createElement('span');
+        asterisk.className = 'eli-asterisk';
+        asterisk.textContent = '*';
+        asterisk.title = 'AI analysis failed, so these are your previous AI results. Click Analyze to retry.';
+        badge.appendChild(asterisk);
       }
-    } else if (data.contentScore !== undefined && data.contentScore !== null) {
-      // Update collapsed view badge
-      if (qualityBadge) {
-        // Convert 10-point scale to 5-star scale
-        const starRating = Math.round(data.contentScore / 2);
-        const numericRating = (data.contentScore / 2).toFixed(1);
-        
-        // Clear the badge first
-        qualityBadge.textContent = '';
-
-        // Add the main text with responsive labels
-        const labelSpan = document.createElement('span');
-        (() => {
-        const fragment = document.createDocumentFragment();
-        
-        const fullSpan = document.createElement('span');
-        fullSpan.className = 'label-full';
-        fullSpan.textContent = 'Content Quality';
-        
-        const shortSpan = document.createElement('span');
-        shortSpan.className = 'label-short';
-        shortSpan.textContent = 'Quality';
-        
-        const separator = document.createTextNode(': ');
-        const remaining = document.createTextNode(' ');
-        
-        fragment.appendChild(fullSpan);
-        fragment.appendChild(shortSpan);
-        fragment.appendChild(separator);
-        fragment.appendChild(remaining);
-        
-        labelSpan.replaceChildren(fragment);
-      })();
-        qualityBadge.appendChild(labelSpan);
-        
-        // Add visual stars using renderStars
-        const starsElement = this.renderStars(starRating, data.errorType);
-        
-        // Add data attribute for responsive CSS to show numeric fallback
-        starsElement.setAttribute('data-numeric', `${numericRating}/5★`);
-        qualityBadge.appendChild(starsElement);
-        
-        // Add colored asterisk only if this is cached data after an AI failure
-        if (data.cachedContentScore || data.partialUpdate || data.aiFailedWithCache) {
-          const asteriskSpan = document.createElement('span');
-          asteriskSpan.textContent = '*';
-          asteriskSpan.style.fontWeight = 'bold';
-          asteriskSpan.style.marginLeft = '2px';
-          asteriskSpan.style.cursor = 'help';
-          
-          // If score is poor (red), make asterisk yellow; otherwise make it red
-          if (data.contentScore < 5) {
-            asteriskSpan.style.color = '#f59e0b'; // Yellow/warning color
-          } else {
-            asteriskSpan.style.color = '#ef4444'; // Red color for attention
-          }
-          
-          // Add tooltip explaining the asterisk
-          if (data.aiFailedWithCache || data.partialUpdate) {
-            asteriskSpan.title = '* AI analysis failed. Showing previous AI results. Click "Analyze" to retry.';
-          } else if (data.cachedContentScore) {
-            asteriskSpan.title = '* Showing cached AI score with updated completeness. Click "Analyze" for fresh AI analysis.';
-          } else if (data.timestamp) {
-            const date = new Date(data.timestamp);
-            const daysSince = Math.floor((Date.now() - date) / (1000 * 60 * 60 * 24));
-            asteriskSpan.title = `* This is from a cached analysis (${daysSince} days ago). Click "Analyze" to refresh.`;
-          } else {
-            asteriskSpan.title = '* This is from a previous analysis. Click "Analyze" to refresh.';
-          }
-          
-          qualityBadge.appendChild(asteriskSpan);
-        }
-        
-        // Apply new color system
-        const colorClass = this.getScoreClass(data.contentScore, true);
-        qualityBadge.classList.add(colorClass);
-      }
+      badge.classList.add(this.getScoreClass(data.contentScore, true));
+    } else if (this.aiFailed(data)) {
+      // Same "No score" for a fresh failure, a failed key check, a timeout and a restored failure
+      const badge = this.setBadge('quality', 'No score');
+      badge.classList.add('ai-error');
+      badge.title = data.aiError.message;
+    } else {
+      // Blank stars, never 0/5
+      this.setBadge('quality', this.renderStars(null, null)).classList.add('ai-disabled');
     }
   },
-  
   /**
    * Update AI analysis progress
    * @param {string} phase - Current AI phase
@@ -1745,23 +1627,13 @@ const OverlayManager = {
       // Initialize message parts array for safer concatenation
       const messageParts = [];
       
-      // Check for AI failures first
-      if (safeContentScore === 0 && data?.aiError && data?.settings?.enableAI) {
-        // AI is enabled but analysis failed
-        if (safeCompleteness >= 100) {
-          return "✅ Your profile is 100% complete! ⚠️ AI analysis failed. Please try again.";
-        } else {
-          return `⚠️ AI analysis failed. Profile ${safeCompleteness}% complete. Please try again.`;
-        }
-      }
-      
-      // Check if this is from cache after AI failure
-      if (data?.aiFailedWithCache && data?.cachedContentScore) {
-        if (safeCompleteness >= 100) {
-          return "✅ Your profile is 100% complete! AI analysis failed - showing previous results. Click 'Analyze' to retry.";
-        } else {
-          return `Profile ${safeCompleteness}% complete. AI analysis failed - showing previous results. Click 'Analyze' to retry.`;
-        }
+      // A run that just fell back to cached results: the analyzer's message says what failed
+      if (data.isCacheFallback && data.message) return data.message;
+
+      // AI failed with no earlier AI results to show: say why (a restore of earlier ones has the asterisk)
+      if (this.aiFailed(data) && !data.aiFailedWithCache) {
+        const reason = String(data.aiError.message || 'unknown error').replace(/\.$/, '');
+        return `AI analysis failed (${reason}). Profile ${safeCompleteness}% complete. Click Analyze to retry.`;
       }
       
       // Check if AI analysis has been run

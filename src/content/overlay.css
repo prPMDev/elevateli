@@ -92,9 +92,16 @@
   font-size: 12px;
 }
 
-.overlay-collapsed-view .score-badge.quality.ai-disabled.error {
-  background: #fee2e2;
-  color: #dc2626;
+/* AI was on but failed: "No score", reason in the title */
+.overlay-collapsed-view .score-badge.quality.ai-error {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.eli-asterisk {
+  font-weight: bold;
+  margin-left: 2px;
+  cursor: help;
 }
 
 .overlay-collapsed-view .last-analyzed-collapsed {
@@ -102,6 +109,40 @@
   color: #666;
   white-space: nowrap;
   margin-right: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Errors stay visible at every width, unlike the date (hidden on narrow bars below) */
+.overlay-collapsed-view .last-analyzed-collapsed.has-error {
+  display: block;
+  color: #b91c1c;
+}
+
+/* Text-style button, e.g. "Open settings" */
+.elevateli-overlay .eli-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: #0a66c2;
+  cursor: pointer;
+}
+
+.elevateli-overlay .eli-link:hover {
+  text-decoration: underline;
+}
+
+/* Screen-reader-only live region */
+.elevateli-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .overlay-collapsed-view .analyze-btn-collapsed {
