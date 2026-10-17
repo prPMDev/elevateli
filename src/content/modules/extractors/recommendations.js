@@ -67,26 +67,7 @@ const RecommendationsExtractor = {
       received = this.matchRecommendationsToExperience(received, experienceData);
     }
     
-    const result = {
-      ...basicData,
-      received: received,
-      
-      // Analysis features
-      recommenderRoles: this.extractRecommenderRoles(received),
-      recommendationKeywords: this.extractKeywords(received),
-      sentimentAnalysis: this.analyzeSentiments(received),
-      relationshipTypes: this.categorizeRelationships(received),
-      skillsMentioned: this.extractMentionedSkills(received),
-      averageLength: this.calculateAverageLength(received),
-      
-      // Time analysis
-      mostRecentDate: this.getMostRecentDate(received),
-
-      // For AI processing
-      recommendationChunks: this.prepareForAI(received)
-    };
-    
-    return result;
+    return { ...basicData, recommendationChunks: this.prepareForAI(received) };
   },
   
   /**
@@ -153,25 +134,6 @@ const RecommendationsExtractor = {
   },
   
   /**
-   * Extract recommender roles/titles
-   * @param {Array<Object>} recommendations - Recommendations
-   * @returns {Array<string>} Unique roles
-   */
-  extractRecommenderRoles(recommendations) {
-    const roles = new Set();
-    
-    recommendations.forEach(rec => {
-      if (rec.recommenderTitle) {
-        // Extract role from title (e.g., "Senior Developer at Company" -> "Senior Developer")
-        const role = rec.recommenderTitle.split(' at ')[0].trim();
-        roles.add(role);
-      }
-    });
-    
-    return Array.from(roles);
-  },
-  
-  /**
    * Extract keywords from recommendations
    * @param {Array<Object>} recommendations - Recommendations
    * @returns {Array<string>} Keywords
@@ -196,122 +158,6 @@ const RecommendationsExtractor = {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 20)
       .map(([word]) => word);
-  },
-  
-  /**
-   * Analyze sentiments of recommendations
-   * @param {Array<Object>} recommendations - Recommendations
-   * @returns {Object} Sentiment analysis
-   */
-  analyzeSentiments(recommendations) {
-    const sentiments = {
-      positive: 0,
-      neutral: 0,
-      negative: 0
-    };
-    
-    const positiveWords = ['excellent', 'outstanding', 'exceptional', 'great', 'amazing', 'brilliant', 'talented', 'skilled', 'professional', 'dedicated'];
-    const negativeWords = ['difficult', 'challenging', 'issue', 'problem', 'concern'];
-    
-    recommendations.forEach(rec => {
-      const text = rec.text.toLowerCase();
-      let score = 0;
-      
-      positiveWords.forEach(word => {
-        if (text.includes(word)) score++;
-      });
-      
-      negativeWords.forEach(word => {
-        if (text.includes(word)) score--;
-      });
-      
-      if (score > 0) sentiments.positive++;
-      else if (score < 0) sentiments.negative++;
-      else sentiments.neutral++;
-    });
-    
-    return sentiments;
-  },
-  
-  /**
-   * Categorize relationships
-   * @param {Array<Object>} recommendations - Recommendations
-   * @returns {Object} Relationship categories
-   */
-  categorizeRelationships(recommendations) {
-    const categories = {
-      manager: 0,
-      colleague: 0,
-      report: 0,
-      client: 0,
-      other: 0
-    };
-    
-    recommendations.forEach(rec => {
-      const rel = (rec.relationship || '').toLowerCase();
-      
-      if (rel.includes('managed') || rel.includes('reported')) {
-        categories.manager++;
-      } else if (rel.includes('worked with') || rel.includes('colleague')) {
-        categories.colleague++;
-      } else if (rel.includes('managed directly')) {
-        categories.report++;
-      } else if (rel.includes('client') || rel.includes('customer')) {
-        categories.client++;
-      } else {
-        categories.other++;
-      }
-    });
-    
-    return categories;
-  },
-  
-  /**
-   * Extract mentioned skills
-   * @param {Array<Object>} recommendations - Recommendations
-   * @returns {Array<string>} Skills mentioned
-   */
-  extractMentionedSkills(recommendations) {
-    const skills = new Set();
-    
-    const skillPatterns = [
-      /\b(leadership|communication|teamwork|problem solving|analytical|technical|creative|strategic)\b/gi,
-      /\b(programming|software|development|engineering|design|analysis|management)\b/gi,
-      /\b(java|python|javascript|react|node|sql|aws|cloud|data)\b/gi
-    ];
-    
-    recommendations.forEach(rec => {
-      skillPatterns.forEach(pattern => {
-        const matches = rec.text.match(pattern);
-        if (matches) {
-          matches.forEach(skill => skills.add(skill.toLowerCase()));
-        }
-      });
-    });
-    
-    return Array.from(skills);
-  },
-  
-  /**
-   * Calculate average recommendation length
-   * @param {Array<Object>} recommendations - Recommendations
-   * @returns {number} Average length
-   */
-  calculateAverageLength(recommendations) {
-    if (recommendations.length === 0) return 0;
-    
-    const totalLength = recommendations.reduce((sum, rec) => sum + rec.text.length, 0);
-    return Math.round(totalLength / recommendations.length);
-  },
-  
-  /**
-   * Get most recent recommendation date
-   * @param {Array<Object>} recommendations - Recommendations
-   * @returns {string} Most recent date
-   */
-  getMostRecentDate(recommendations) {
-    // This is simplified - would need proper date parsing
-    return recommendations[0]?.date || 'Unknown';
   },
   
   /**
