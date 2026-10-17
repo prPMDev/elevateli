@@ -136,7 +136,7 @@ const OverlayManager = {
     // Create wrapper for proper integration
     const wrapperHtml = `
       <div class="elevateli-overlay-wrapper" role="region" aria-label="ElevateLI profile score" ${hidden ? 'style="display: none;"' : ''}>
-        <div id="elevateli-overlay" class="elevateli-overlay unified-ui" data-state="${this.currentState}" data-view-state="${this.viewState}">
+        <div id="elevateli-overlay" class="elevateli-overlay" data-state="${this.currentState}" data-view-state="${this.viewState}">
           <!-- Collapsed view (new default) -->
           <div class="overlay-collapsed-view">
             <img src="${chrome?.runtime?.id ? chrome.runtime.getURL('src/images/icon.png') : ''}" class="brand-logo" alt="" />
@@ -156,7 +156,7 @@ const OverlayManager = {
               <span class="status-icon" aria-hidden="true"></span>
               <span class="status-text">Initializing...</span>
             </div>
-            <div class="unified-section hidden"></div>
+            <div class="unified-section"></div>
           </div><!-- Close expanded view -->
       </div>
       </div><!-- Close wrapper -->
@@ -834,8 +834,6 @@ const OverlayManager = {
       // Clear pending elements after insertion
       this.pendingStarElements = [];
     }
-
-    unifiedSection.classList.remove('hidden');
   },
 
   /**
@@ -1188,7 +1186,6 @@ const OverlayManager = {
           <p class="eli-welcome-consent">ElevateLI analyzes only your own profile and keeps the results in this browser.</p>
           <button type="button" class="eli-primary" data-action="consent">Confirm and analyze</button>
         </div>`);
-    unifiedSection.classList.remove('hidden');
 
     this.setBadge('completeness', '—');
     this.setBadge('quality', '—');
