@@ -199,23 +199,17 @@ class Analyzer {
       
       // Log total analysis time
       
-      // Update overlay with final results
-      // If AI failed but we have completeness, show complete state with error
-      let finalState;
+      // Update overlay with final results. An AI failure keeps the completeness results and advice
+      // (COMPLETE, as a reload shows them); earlier AI results come back with the cache-fallback banner.
+      let finalState = OverlayManager.states.COMPLETE;
       if (result.aiError && this.settings.enableAI) {
-        // Cached AI results first, so the banner (with the key error, if any) explains them
-        if (result.partialUpdate || result.aiFailedWithCache) {
+        if (result.partialUpdate) {
           finalState = OverlayManager.states.ANALYSIS_FAILED_CACHE_FALLBACK;
         } else if (result.aiError.type === 'validation_failed') {
-          finalState = OverlayManager.states.COMPLETE;
           // Add a specific message for API key errors
           result.apiKeyError = true;
           result.apiKeyErrorMessage = result.aiError.message;
-        } else {
-          finalState = OverlayManager.states.ERROR;
         }
-      } else {
-        finalState = OverlayManager.states.COMPLETE;
       }
       
       
@@ -227,7 +221,9 @@ class Analyzer {
         // Cache-fallback banner text: say what failed (e.g. rate limit wait time)
         message: result.aiError && `AI analysis failed (${result.aiError.message}). Showing your previous AI results.`,
         // Only mark AI as disabled if there's no content score
-        aiDisabled: result.contentScore === undefined || result.contentScore === null
+        aiDisabled: result.contentScore === undefined || result.contentScore === null,
+        // The overlay's 'AI failed' contract (aiError + settings.enableAI), as the cache restore passes it
+        settings: { enableAI: this.settings.enableAI }
       };
       
       
