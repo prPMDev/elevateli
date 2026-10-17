@@ -42,7 +42,8 @@ const ExperienceExtractor = {
       averageDescriptionLength: Math.round(
         experiences.reduce((sum, exp) => sum + exp.description.length, 0) / (experiences.length || 1)
       ),
-      emptyRoles: experiences.filter(exp => !exp.description).map(exp => exp.company || exp.title), // Visible roles without a description
+      // Employers (or titles) with a visible role lacking a description; grouped roles share a company, so name it once
+      emptyRoles: [...new Set(experiences.filter(exp => !exp.description).map(exp => exp.company || exp.title))],
       totalMonths: this.coveredMonths(experiences),
       hasCurrentRole: experiences.some(exp => /present/i.test(exp.duration)),
       visibleCount: scanResult.visibleCount,

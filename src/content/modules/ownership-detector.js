@@ -11,8 +11,9 @@ const OwnershipDetector = {
    * @returns {boolean} true if ownership indicators are found
    */
   hasOwnershipIndicators() {
-    // A pathname segment can't hold `"` or `\` (the URL parser encodes them), so it is safe in a quoted selector
-    const id = extractProfileIdFromUrl();
-    return !!(id && document.querySelector(`main a[href*="/in/${id}/edit/intro/" i]`));
+    // Compare pathnames, not the raw href: a.pathname is percent-encoded like location.pathname, so non-ASCII slugs match
+    const id = extractProfileIdFromUrl()?.toLowerCase();
+    return !!id && Array.from(document.querySelectorAll('main a[href*="/edit/intro/"]'))
+      .some(a => a.pathname.toLowerCase().startsWith(`/in/${id}/edit/intro`));
   }
 };
