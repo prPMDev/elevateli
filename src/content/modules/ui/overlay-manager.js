@@ -837,14 +837,9 @@ const OverlayManager = {
   updateStatus(text, icon = '') {
     const statusText = this.overlayElement.querySelector('.status-text');
     const statusIcon = this.overlayElement.querySelector('.status-icon');
-    
-    if (statusText) {
-      statusText.style.opacity = '0';
-      setTimeout(() => {
-        statusText.textContent = text;
-        statusText.style.opacity = '1';
-      }, 150);
-    }
+
+    // Synchronous, so a later per-section write (updateAIProgress) always wins
+    if (statusText) statusText.textContent = text;
     
     if (statusIcon && icon) {
       statusIcon.textContent = icon;
