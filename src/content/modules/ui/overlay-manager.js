@@ -135,12 +135,12 @@ const OverlayManager = {
   createAndInject(hidden = false) {
     // Create wrapper for proper integration
     const wrapperHtml = `
-      <div class="elevateli-overlay-wrapper" ${hidden ? 'style="display: none;"' : ''}>
+      <div class="elevateli-overlay-wrapper" role="region" aria-label="ElevateLI profile score" ${hidden ? 'style="display: none;"' : ''}>
         <div id="elevateli-overlay" class="elevateli-overlay unified-ui" data-state="${this.currentState}" data-view-state="${this.viewState}">
           <!-- Collapsed view (new default) -->
           <div class="overlay-collapsed-view">
-            <img src="${chrome?.runtime?.id ? chrome.runtime.getURL('src/images/icon.png') : ''}" class="brand-logo" alt="ElevateLI" />
-            <span class="brand-name">ElevateLI</span>
+            <img src="${chrome?.runtime?.id ? chrome.runtime.getURL('src/images/icon.png') : ''}" class="brand-logo" alt="" />
+            <span class="brand-name" role="heading" aria-level="2">ElevateLI</span>
             <span class="score-badge completeness"><span class="label-full">Completeness</span><span class="label-short">Complete</span>: —</span>
             <span class="score-badge quality"><span class="label-full">Content quality</span><span class="label-short">Quality</span>: —</span>
             <span class="last-analyzed-collapsed"></span>
@@ -1035,7 +1035,7 @@ const OverlayManager = {
     return `
       <div class="eli-row">
         <div class="eli-row-head">
-          <h5 class="eli-row-title">${this.escapeHtml(section.name)}</h5>
+          <h3 class="eli-row-title">${this.escapeHtml(section.name)}</h3>
           ${stars}
         </div>
         ${section.errorType ? '<p class="eli-row-note">Couldn\'t rate this section with AI. Click Analyze to retry.</p>' : ''}
