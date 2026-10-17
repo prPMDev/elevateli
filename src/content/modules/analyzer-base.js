@@ -114,7 +114,7 @@ class Analyzer {
         if (!validationResult.isValid) {
           // Only a key problem (the SW's AUTH) is a key error. Offline, 429/5xx or a stopped local server keep
           // the SW's own message and type.
-          aiResult = { success: false, error: validationResult.error || 'Invalid Key',
+          aiResult = { success: false, error: validationResult.error,
             errorType: validationResult.errorType === 'AUTH' ? 'validation_failed' : validationResult.errorType };
         } else {
           // API key is valid, proceed with AI analysis
@@ -123,8 +123,11 @@ class Analyzer {
 
           // Pass completeness score to AI analysis for conditional advice
           extractedData.completenessScore = completenessData?.score || 100;
-          aiResult = await this.runDistributedAIAnalysis(extractedData, cachedData?.sectionScores)
-            .catch(error => ({ success: false, error: error.message }));
+          // aiError.message is a reason phrase the overlay puts in a sentence; raw JS errors go to the console only
+          aiResult = await this.runDistributedAIAnalysis(extractedData, cachedData?.sectionScores).catch(error => {
+            console.error('[Analyzer] AI analysis failed:', error);
+            return { success: false, error: 'something went wrong' };
+          });
         }
 
         if (aiResult.success) {
@@ -143,7 +146,7 @@ class Analyzer {
           // Don't fail the whole analysis, just note AI failed
           result.aiError = {
             message: aiResult.error,
-            type: aiResult.errorType || (aiResult.error?.toLowerCase().includes('network') ? 'NETWORK' : 'UNKNOWN'),
+            type: aiResult.errorType || 'UNKNOWN',
             retryAfter: aiResult.retryAfter
           };
         }
@@ -174,7 +177,8 @@ class Analyzer {
         // Previous AI results kept after an AI failure
         fromCache: result.aiFailedWithCache,
         // Cache-fallback banner text: say what failed (e.g. rate limit wait time)
-        message: result.aiError && `AI analysis failed (${result.aiError.message}). Showing your previous AI results.`,
+        message: result.aiFailedWithCache && `AI analysis failed (${String(result.aiError.message).replace(/\.$/, '')}). ` +
+          `Showing your AI ratings from ${formatDate(cachedData.timestamp)}. Completeness is up to date.`,
         // Only mark AI as disabled if there's no content score
         aiDisabled: result.contentScore === undefined || result.contentScore === null,
         // The overlay's 'AI failed' contract (aiError + settings.enableAI), as the cache restore passes it
@@ -201,12 +205,16 @@ class Analyzer {
           ...cachedData,
           fromCache: true,
           analysisError: error.message,
-          message: 'Analysis couldn\'t finish. Showing your last results. Try again in a few minutes.',
+          // A half-loaded page is the usual cause, so reloading is the fix
+          message: `Something went wrong while reading your profile. Showing your results from ${formatDate(cachedData.timestamp)}. ` +
+            'Reload the page, then click Analyze.',
           // Only mark AI as disabled if there's no content score
           aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null
         });
       } else {
-        OverlayManager.setState(OverlayManager.states.ERROR, { message: error.message });
+        // The raw error is in the console above
+        OverlayManager.setState(OverlayManager.states.ERROR, { message: 'Something went wrong while reading your profile. ' +
+          'Reload the page, then click Analyze. If it keeps happening, use Send feedback in ElevateLI settings.' });
       }
     } finally {
       clearTimeout(analysisTimeout);
@@ -245,7 +253,7 @@ class Analyzer {
           aiDisabled: true,
           aiError: {
             type: 'timeout',
-            message: 'AI analysis took too long. Try again for full analysis.'
+            message: `${aiProviderName(this.settings)} took too long to respond`
           },
           settings: this.uiSettings,
           roleLabel: this.analysisResults.roleLabel,
@@ -264,19 +272,20 @@ class Analyzer {
       const recovered = await OverlayManager.restoreAppropriateState(this.profileId, {
         isErrorFallback: true,
         error: 'Analysis timeout',
-        message: 'Analysis is taking too long. Showing your last results. Try again later.'
+        message: `This analysis took too long and was stopped. Showing your results from ${formatDate(this.previousTimestamp)}. ` +
+          'Reload the page, then click Analyze.'
       });
-      
+
       if (!recovered) {
         // Fallback if no cache available
         OverlayManager.setState(OverlayManager.states.ERROR, {
-          message: 'Analysis timeout. Please try again.'
+          message: 'This analysis took too long and was stopped. Reload the page, then click Analyze.'
         });
       }
     } catch (error) {
       console.error('[Analyzer] Error handling timeout:', error);
       OverlayManager.setState(OverlayManager.states.ERROR, {
-        message: 'Analysis timeout. Please try again.'
+        message: 'This analysis took too long and was stopped. Reload the page, then click Analyze.'
       });
     }
   }
@@ -287,7 +296,7 @@ class Analyzer {
   async validateApiKey() {
     const response = await safeSendMessage({ action: 'validateApiKey' });
     return response?.success ? { isValid: true } : { isValid: false, errorType: response?.errorType,
-      error: response?.error || 'ElevateLI could not reach its service worker. Reload the page and try again.' };
+      error: response?.error || 'ElevateLI lost its connection to Chrome; reload the page' };
   }
   
   /**
@@ -457,12 +466,12 @@ class Analyzer {
           result = await Promise.race([
             this.analyzeSection(section.type, section.data, section.context),
             new Promise((resolve) =>
-              setTimeout(() => resolve({ success: false, error: 'Section analysis timeout (190s)' }), 190000)
+              setTimeout(() => resolve({ success: false, error: `${aiProviderName(this.settings)} took too long to respond` }), 190000)
             )
           ]);
         } catch (error) {
           console.error(`[AI Analysis] Error analyzing ${section.name}:`, error);
-          result = { success: false, error: error.message };
+          result = { success: false, error: 'something went wrong' };
         }
       }
 
@@ -500,7 +509,9 @@ class Analyzer {
     const r = await safeSendMessage({ action: 'analyzeSection', section, data, context });
     return r?.success
       ? { success: true, section, score: r.score, positiveInsight: r.insight, actionItems: r.actionItems }
-      : { success: false, section, error: r?.error || 'Section analysis failed', errorType: r?.errorType, retryAfter: r?.retryAfter };
+      // No reply: the service worker is gone (extension reloaded) or didn't answer
+      : { success: false, section, error: r?.error || 'ElevateLI lost its connection to Chrome; reload the page',
+        errorType: r?.errorType, retryAfter: r?.retryAfter };
   }
   
   /**
@@ -517,6 +528,6 @@ class Analyzer {
     }
     // No section scored: fail instead of inventing a score; analyze() keeps the previous AI results
     return weight ? { success: true, score: Math.round(total / weight * 10) / 10, sectionScores }
-      : { success: false, error: 'AI could not score any section' };
+      : { success: false, error: `${aiProviderName(this.settings)} couldn't rate your profile` };
   }
 }

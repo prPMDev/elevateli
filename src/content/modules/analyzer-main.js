@@ -47,7 +47,7 @@
       // Check if extension context is still valid (setState paints nothing without an overlay)
       if (!chrome.runtime?.id) {
         OverlayManager.setState(OverlayManager.states.ERROR, {
-          message: 'Extension was updated. Please refresh the page to continue.'
+          message: 'ElevateLI was updated. Reload this page to keep using it.'
         });
         return;
       }
