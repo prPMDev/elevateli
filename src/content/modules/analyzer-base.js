@@ -55,7 +55,8 @@ class Analyzer {
       OverlayManager.setState(OverlayManager.states.SCANNING);
       
       // Use the cache unless forced refresh; a forced refresh keeps it for the fallbacks below
-      cachedData = await OverlayManager.getCachedData(this.profileId);
+      const cacheKey = `cache_${this.profileId}`;
+      cachedData = (await chrome.storage.local.get(cacheKey))[cacheKey];
       if (!forceRefresh && cachedData?.completeness !== undefined) {
         OverlayManager.setState(OverlayManager.states.COMPLETE, {
           ...cachedData,
