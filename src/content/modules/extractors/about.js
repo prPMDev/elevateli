@@ -4,50 +4,20 @@
  */
 
 const AboutExtractor = {
-  /**
-   * Quick scan for about section existence
-   * @returns {Object} Scan results
-   */
   async scan() {
-    const section = BaseExtractor.findSection('About');
-
-    return {
-      exists: !!section,
-      hasShowMore: !!section?.querySelector('[data-testid="expandable-text-box"] button')
-    };
+    return { exists: !!BaseExtractor.findSection('About') };
   },
 
   /**
    * Extract about text for completeness scoring
-   * @returns {Object} Basic about data with character count
+   * @returns {Object} { exists, charCount, text }
    */
   async extract() {
-    const scanResult = await this.scan();
-
-    if (!scanResult.exists) {
-      return {
-        exists: false,
-        charCount: 0,
-        text: '',
-        hasShowMore: false
-      };
-    }
-
     const section = BaseExtractor.findSection('About');
+    if (!section) return { exists: false };
+
+    // Full text: the AI reads it as the whole About. 5 characters or fewer counts as empty.
     const text = BaseExtractor.longText(section);
-
-    // Check if the text is essentially empty
-    const isEffectivelyEmpty = text.length <= 5;
-
-    const result = {
-      exists: true,
-      charCount: isEffectivelyEmpty ? 0 : text.length,
-      text: isEffectivelyEmpty ? '' : text, // Full text: the AI reads it as the whole About
-      hasShowMore: scanResult.hasShowMore,
-      wordCount: isEffectivelyEmpty ? 0 : text.split(/\s+/).filter(w => w.length > 0).length,
-      paragraphs: isEffectivelyEmpty ? 0 : text.split(/\n\n+/).filter(p => p.trim()).length
-    };
-
-    return result;
+    return text.length > 5 ? { exists: true, charCount: text.length, text } : { exists: true, charCount: 0, text: '' };
   }
 };
