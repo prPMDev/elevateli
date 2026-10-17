@@ -243,20 +243,25 @@
   // Navigation observer for SPA navigation
   function observeNavigation() {
     let lastPath = location.pathname;
-    let lastProfileId = getProfileIdFromUrl();
+    // The profile page the overlay belongs to (null elsewhere, e.g. the feed or a /details/ subpage)
+    let lastProfileId = isProfilePage() ? getProfileIdFromUrl() : null;
+    const leftProfile = () => !!lastProfileId && (getProfileIdFromUrl() !== lastProfileId || !isProfilePage());
+    // Checked on every mutation, not only once the DOM settles, so a quick A -> B -> Back to A still counts
+    let left = false;
 
-    const observer = new MutationObserver(debounce(() => {
+    const handle = debounce(() => {
       // Orphaned after an extension reload/update: stop, or close() would remove the new script's overlay
       if (!chrome.runtime?.id) { observer.disconnect(); return; }
-      if (location.pathname === lastPath) return;
+      const wasLeft = left || leftProfile();
+      left = false;
+      // Same page and the overlay (if any) still attached: nothing to do
+      if (location.pathname === lastPath && !wasLeft && OverlayManager.overlayElement?.isConnected !== false) return;
       lastPath = location.pathname;
+      lastProfileId = isProfilePage() ? getProfileIdFromUrl() : null;
 
       // Modals (contact info, edit intro, endorsers...) push /in/<id>/overlay/... on the same page:
       // keep the overlay and any running analysis
-      const profileId = getProfileIdFromUrl();
-      const sameProfilePage = profileId === lastProfileId && isProfilePage();
-      lastProfileId = profileId;
-      if (sameProfilePage && OverlayManager.overlayElement?.isConnected) return;
+      if (!wasLeft && OverlayManager.overlayElement?.isConnected) return;
 
       // A running analysis must not read the next page or save it under this profile
       cancelAnalysis();
@@ -264,8 +269,13 @@
       OverlayManager.close();
       // init() checks profile page, profile id and ownership
       setTimeout(init, 500);
-    }, 500));
+    }, 500);
     
+    const observer = new MutationObserver(() => {
+      if (leftProfile()) left = true;
+      handle();
+    });
+
     observer.observe(document.body, {
       childList: true,
       subtree: true
