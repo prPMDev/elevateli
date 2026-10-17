@@ -586,15 +586,18 @@ function providerError(provider, baseUrl, status, body, { timeout, offline, noAc
   const quoted = message ? `: ${quote(message)}` : '';
   const [reason, error] =
     timeout ? [`${name} took too long to respond`, `${Name} took too long to respond. ${local ? "Check that it's running, then try again." : 'Try again in a few minutes.'}`]
-    : noAccess ? ['ElevateLI needs access to localhost to use your local model', 'ElevateLI needs access to localhost to use a local model. Enter the server URL again and choose Allow when Chrome asks.']
+    : noAccess ? ['ElevateLI needs access to localhost to use your local model', 'ElevateLI needs access to localhost to use a local model. Clear the server URL, click outside the field, then enter it again and choose Allow when Chrome asks.']
     : !status ? (local
       ? [`ElevateLI couldn't reach ${baseUrl}; check that Ollama or LM Studio is running`, `Can't reach ${baseUrl}. Check that Ollama or LM Studio is running and the URL is right.`]
       : [`ElevateLI couldn't reach ${name}; check your internet connection`, offline ? "You're offline. Reconnect, then try again." : `Can't reach ${name}. Check your internet connection, then try again.`])
     : local && status === 403 ? ['your local model blocked the request (Ollama needs OLLAMA_ORIGINS=chrome-extension://*)',
       'The local server blocked the request. For Ollama, set OLLAMA_ORIGINS=chrome-extension://* and restart it.']
-    : auth ? [`${name} rejected your API key`, `${Name} rejected this key. Check that you copied all of it.`]
+    // A 403 can come with a valid key (API not enabled, restricted key, region): keep the provider's text, it names the fix
+    : auth ? (status === 403 && quoted ? [`${name} rejected your API key${quoted}`, `${Name} rejected this key (403)${quoted}`]
+      : [`${name} rejected your API key`, `${Name} rejected this key. Check that you copied all of it.`])
     : rateLimit ? [`${name}'s rate limit was reached; wait ${retryAfter ? seconds(retryAfter) : 'a minute'}`, `${Name}'s rate limit was reached. Wait a minute, then try again.`]
-    : status >= 500 ? [`${name} is unavailable right now`, `${Name} is unavailable right now. Try again in a few minutes.`]
+    // A local server's 500 often names the cause (out of memory), which a retry won't fix
+    : status >= 500 ? [`${name} is unavailable right now${local ? quoted : ''}`, `${Name} is unavailable right now${local && quoted ? quoted : '. Try again in a few minutes.'}`]
     : [`${name} returned an error${quoted}`, `${Name} returned an error (${status})${quoted || '.'}`];
   return {
     errorType: !status ? 'NETWORK' : auth ? 'AUTH' : rateLimit ? 'RATE_LIMIT' : status >= 500 ? 'SERVICE_UNAVAILABLE' : 'PROVIDER_ERROR',
@@ -827,17 +830,21 @@ async function handleSectionAnalysis({ section, data, context }) {
 
   const rateCheck = checkRateLimit();
   if (!rateCheck.allowed) {
+    const name = providerName(aiProvider, aiBaseUrl);
     return {
       success: false,
-      // ElevateLI's own limit, not the provider's
-      error: `ElevateLI paused to stay under ${providerName(aiProvider, aiBaseUrl)}'s rate limit; wait ${seconds(rateCheck.waitTime)}`,
+      // ElevateLI's own limit, not the provider's; a local model has none
+      error: name === 'your local model'
+        ? `ElevateLI paused after many requests in a few minutes; wait ${seconds(rateCheck.waitTime)}`
+        : `ElevateLI paused to stay under ${name}'s rate limit; wait ${seconds(rateCheck.waitTime)}`,
       errorType: 'RATE_LIMIT',
       retryAfter: rateCheck.waitTime
     };
   }
 
   const config = {
-    targetRole: (targetRole === 'other' ? customRole : targetRole) || 'general professional',
+    // The prompt reads a role in words: product-manager -> product manager
+    targetRole: (targetRole === 'other' ? customRole : targetRole !== 'general' && targetRole?.replace(/-/g, ' ')) || 'general professional',
     seniorityLevel: seniorityLevel || 'any level',
     customInstructions: customInstructions || ''
   };
