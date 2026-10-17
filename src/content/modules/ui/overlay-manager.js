@@ -103,8 +103,8 @@ const OverlayManager = {
     // CRITICAL: Restore cached data automatically after overlay is created
     // This ensures returning users see their previous analysis immediately
     // We need to handle two cases:
-    // 1. No compliance - show zero state with disabled analyze button
-    // 2. Has compliance but no cache - show zero state with enabled analyze button
+    // 1. No compliance - zero state with the consent card (Analyze leads to it)
+    // 2. Has compliance but no cache - zero state pointing at Analyze
     // 3. Has compliance and cache - restore cached data
     if (this.overlayElement) {
       if (this.hasCompliance) {
@@ -119,8 +119,8 @@ const OverlayManager = {
           await this.restoreAppropriateState();
         }, 100);
       } else {
-        // The INITIALIZING state handler will show zero state for no compliance
-        // No need to call restoreAppropriateState
+        // INITIALIZING ran before injection; every caller (init, show, Show analysis) needs the consent card
+        this.showZeroState();
       }
     }
     
@@ -261,8 +261,8 @@ const OverlayManager = {
           <div class="overlay-collapsed-view">
             <img src="${chrome?.runtime?.id ? chrome.runtime.getURL('src/images/icon.png') : ''}" class="brand-logo" alt="ElevateLI" />
             <span class="brand-name">ElevateLI</span>
-            <span class="score-badge completeness"><span class="label-full">Completeness</span><span class="label-short">Complete</span>: --</span>
-            <span class="score-badge quality"><span class="label-full">Content Quality</span><span class="label-short">Quality</span>: --</span>
+            <span class="score-badge completeness"><span class="label-full">Completeness</span><span class="label-short">Complete</span>: —</span>
+            <span class="score-badge quality"><span class="label-full">Content quality</span><span class="label-short">Quality</span>: —</span>
             <div class="spacer"></div>
             <span class="last-analyzed-collapsed"></span>
             <button class="analyze-btn-collapsed" data-action="analyze">Analyze</button>
@@ -271,6 +271,7 @@ const OverlayManager = {
               <span class="details-text-medium">Details</span>
               <span class="details-icon">▼</span>
             </a>
+            <button type="button" class="eli-hide" data-action="hide" aria-label="Hide ElevateLI on my profile" title="Hide ElevateLI on my profile">×</button>
             <span class="elevateli-sr-only" role="status"></span>
           </div>
           
@@ -344,17 +345,40 @@ const OverlayManager = {
       const actions = {
         analyze: () => this.handleAnalyze(),
         details: () => this.toggleView(),
+        consent: () => this.acceptConsent(),
+        hide: () => this.hideOnProfile(),
         'open-settings': () => this.openSettings(target)
       };
       actions[target.dataset.action]?.();
     });
+  },
 
-    // Set initial disabled state based on compliance
-    const analyzeBtnCollapsed = this.overlayElement.querySelector('.analyze-btn-collapsed');
-    analyzeBtnCollapsed.disabled = !this.hasCompliance;
-    if (!this.hasCompliance) {
-      analyzeBtnCollapsed.title = 'Please complete setup in extension popup first';
+  /**
+   * First-run consent from the welcome card. Writes what the popup's setup writes (the overlay only
+   * exists on the user's verified own profile), then runs the analysis the user asked for.
+   */
+  async acceptConsent() {
+    if (!chrome.runtime?.id) return;
+    try {
+      await saveUserProfileId();
+      await chrome.storage.local.set({ compliance: { hasAcknowledged: true, acknowledgedAt: Date.now(), version: '1.0' } });
+    } catch (error) {
+      console.error('[ElevateLI] Saving setup failed:', error);
+      this.showError('Setup failed. Refresh the page and try again.');
+      return;
     }
+    this.hasCompliance = true;
+    this.handleAnalyze();
+  },
+
+  /**
+   * The bar's ×: hide the overlay on the profile until Show analysis is turned back on in the popup
+   */
+  hideOnProfile() {
+    if (!chrome.runtime?.id) return;
+    chrome.storage.local.set({ showAnalysis: false });
+    this.hide();
+    this.showToast('ElevateLI is hidden. Turn it back on from the ElevateLI icon.', 'info');
   },
 
   /**
@@ -397,76 +421,8 @@ const OverlayManager = {
       // Set before injection (a no-op then) and after a factory reset: the zero state handles both setup cases
       [this.states.INITIALIZING]: () => this.showZeroState(),
 
-      [this.states.EMPTY_CACHE]: () => {
-        this.updateStatus('No previous analysis found', 'ℹ️');
-
-        // Clear collapsed view badges
-        const completenessBadge = this.overlayElement.querySelector('.score-badge.completeness');
-        const qualityBadge = this.overlayElement.querySelector('.score-badge.quality');
-        const timestampBadge = this.overlayElement.querySelector('.last-analyzed-collapsed');
-        
-        if (completenessBadge) {
-          (() => {
-        const fragment = document.createDocumentFragment();
-        
-        const fullSpan = document.createElement('span');
-        fullSpan.className = 'label-full';
-        fullSpan.textContent = 'Completeness';
-        
-        const shortSpan = document.createElement('span');
-        shortSpan.className = 'label-short';
-        shortSpan.textContent = 'Complete';
-        
-        const separator = document.createTextNode(': ');
-        const remaining = document.createTextNode('--');
-        
-        fragment.appendChild(fullSpan);
-        fragment.appendChild(shortSpan);
-        fragment.appendChild(separator);
-        fragment.appendChild(remaining);
-        
-        completenessBadge.replaceChildren(fragment);
-      })();
-          completenessBadge.classList.remove('high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
-        }
-        if (qualityBadge) {
-          (() => {
-        const fragment = document.createDocumentFragment();
-        
-        const fullSpan = document.createElement('span');
-        fullSpan.className = 'label-full';
-        fullSpan.textContent = 'Content Quality';
-        
-        const shortSpan = document.createElement('span');
-        shortSpan.className = 'label-short';
-        shortSpan.textContent = 'Quality';
-        
-        const separator = document.createTextNode(': ');
-        const remaining = document.createTextNode('--');
-        
-        fragment.appendChild(fullSpan);
-        fragment.appendChild(shortSpan);
-        fragment.appendChild(separator);
-        fragment.appendChild(remaining);
-        
-        qualityBadge.replaceChildren(fragment);
-      })();
-          qualityBadge.classList.remove('ai-disabled', 'error', 'ai-error', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
-        }
-        if (timestampBadge) {
-          timestampBadge.textContent = '';
-          timestampBadge.style.color = '';
-        }
-        
-        // Reset collapsed analyze button text
-        const collapsedAnalyzeBtn = this.overlayElement.querySelector('.analyze-btn-collapsed');
-        if (collapsedAnalyzeBtn) {
-          collapsedAnalyzeBtn.textContent = 'Analyze';
-        }
-        
-        // Show welcome message in unified section
-        this.showZeroState();
-      },
+      // Set up, nothing cached for this profile (also after Reset Profile Analysis)
+      [this.states.EMPTY_CACHE]: () => this.showZeroState(),
 
       [this.states.SCANNING]: () => {
         // COMPLETE (incl. every cache restore) hides the indicator; the status and elapsed counter live in it
@@ -512,15 +468,6 @@ const OverlayManager = {
           this.showTimestamp(data.timestamp);
         }
         
-        // Ensure analyze button is enabled if compliance is set (for cached data)
-        if (data.fromCache || data.cacheRestored) {
-          const analyzeBtnCollapsed = this.overlayElement.querySelector('.analyze-btn-collapsed');
-          if (analyzeBtnCollapsed && this.hasCompliance) {
-            analyzeBtnCollapsed.disabled = false;
-            analyzeBtnCollapsed.title = '';
-          }
-        }
-
         // A run that just failed AI says so next to its date; a restore shows the amber "No score" badge
         if (!data.fromCache && !data.cacheRestored && this.aiFailed(data)) {
           this.showError('AI analysis failed', data.aiError);
@@ -785,16 +732,15 @@ const OverlayManager = {
    * Handle analyze button click
    */
   handleAnalyze() {
-    // Check compliance at click time
+    // The consent card, progress and results all live in the expanded view
+    if (this.viewState === 'collapsed') this.toggleView();
+
+    // First run: the welcome card's consent button is the setup step
     if (!this.hasCompliance) {
-      // Show message to complete setup
-      const collapsedBtn = this.overlayElement.querySelector('.analyze-btn-collapsed');
-      if (collapsedBtn) {
-        collapsedBtn.title = 'Please complete setup in extension popup first';
-      }
+      this.overlayElement.querySelector('[data-action="consent"]')?.focus();
       return;
     }
-    
+
     const collapsedBtn = this.overlayElement.querySelector('.analyze-btn-collapsed');
 
     if (collapsedBtn) {
@@ -1717,147 +1663,46 @@ const OverlayManager = {
   },
   
   /**
-   * Show zero state for new users
-   * @param {boolean} isAfterReset - True if showing after reset, false for initial setup
+   * Fill a container from a template string with DOMParser (no innerHTML). Dynamic text must go through escapeHtml.
    */
-  showZeroState(isAfterReset = false) {
-    // Keep current view state - don't force expansion
-    // Users can expand if they want to see the welcome message
+  fillFromTemplate(container, html) {
+    container.replaceChildren(...new DOMParser().parseFromString(html, 'text/html').body.childNodes);
+  },
 
-    // Determine text based on context AND compliance
-    let actionText = "Click the extension icon to get started";
-    let timeText = "⏱️ Setup takes 30 seconds";
-    let afterText = "After setup, you'll get:";
-    
-    // Check if setup is complete (has compliance)
-    if (isAfterReset || this.hasCompliance) {
-      actionText = "Click Analyze to analyze your profile";
-      timeText = "⏱️ Analysis takes 30-60 seconds";
-      afterText = "After analysis, you'll get:";
-    }
-    
+  /**
+   * Zero state: no result to show. Before setup the welcome card asks for consent right here (Analyze
+   * leads to it); once set up, or after Reset Profile Analysis, one line points at Analyze.
+   */
+  showZeroState() {
+    // Reset Profile Analysis also reaches tabs without an overlay (another member's profile, Show analysis off)
+    if (!this.overlayElement) return;
+    // A reset can land mid-run: no status line or ticking counter over the zero state
+    this.stopElapsedTimeDisplay();
+    this.hideStatusIndicator();
+
+    const scrollNote = 'The page scrolls briefly while ElevateLI reads your profile. Under 30 seconds, or a few minutes with AI.';
     const unifiedSection = this.overlayElement.querySelector('.unified-section');
-
-    (() => {
-        const parser = new DOMParser();
-        const htmlContent = `
-      <div style="margin: 8px 0;">
-        <div style="background: #f0f8ff; border: 1px solid #e7f3ff; padding: 20px; border-radius: 8px; text-align: center;">
-          <h3 style="margin: 0 0 12px 0; font-size: 22px; color: #0a66c2;">
-            Welcome to ElevateLI! 🚀
-          </h3>
-          <p style="font-size: 15px; line-height: 1.5; color: #333; margin-bottom: 16px;">
-            Get data-driven insights for your LinkedIn profile
-          </p>
-          <div style="text-align: center; margin: 16px 0;">
-            <p style="font-size: 14px; color: #666; margin: 8px 0;">${actionText}</p>
-            <p style="font-size: 12px; color: #888; margin: 4px 0;">${timeText}</p>
-          </div>
-          
-          <div style="background: #fff; padding: 16px 0; margin: 16px 0; border-top: 1px solid #e1e9ee;">
-            <p style="margin: 0 0 12px 0; font-size: 14px; color: #666; text-align: center;">${afterText}</p>
-            <div class="feature-tiles" style="display: flex; justify-content: center; gap: 16px;">
-              <div style="display: flex; align-items: center; padding: 10px 14px; background: #f0f8ff; border-radius: 6px;">
-                <span style="color: #0a66c2; font-size: 18px; margin-right: 6px;">📊</span>
-                <span style="font-size: 12px; color: #333;">Instant completeness analysis</span>
-              </div>
-              <div style="display: flex; align-items: center; padding: 10px 14px; background: #f0f8ff; border-radius: 6px;">
-                <span style="color: #0a66c2; font-size: 18px; margin-right: 6px;">✨</span>
-                <span style="font-size: 12px; color: #333;">Enhanced AI insights*</span>
-              </div>
-              <div style="display: flex; align-items: center; padding: 10px 14px; background: #f0f8ff; border-radius: 6px;">
-                <span style="color: #0a66c2; font-size: 18px; margin-right: 6px;">🎯</span>
-                <span style="font-size: 12px; color: #333;">Personalized recommendations*</span>
-              </div>
-            </div>
-            <p style="margin: 8px 0 0 0; font-size: 10px; color: #888; text-align: center;">* AI setup unlocks enhanced features</p>
-          </div>
-          
-        </div>
-      </div>
-    `;
-        const doc = parser.parseFromString(htmlContent, 'text/html');
-        const fragment = document.createDocumentFragment();
-        Array.from(doc.body.childNodes).forEach(node => {
-          fragment.appendChild(node.cloneNode(true));
-        });
-        unifiedSection.replaceChildren(fragment);
-      })();
-    
+    this.fillFromTemplate(unifiedSection, this.hasCompliance
+      ? `<p class="eli-welcome-text">Click Analyze to score your profile. ${scrollNote}</p>`
+      : `<div class="eli-welcome">
+          <h3 class="eli-welcome-title">Welcome to ElevateLI</h3>
+          <p class="eli-welcome-text">See how complete your profile is and what to add next. ${scrollNote}</p>
+          <p class="eli-welcome-consent">ElevateLI analyzes only your own profile and keeps the results in this browser.</p>
+          <button type="button" class="eli-primary" data-action="consent">Confirm and analyze</button>
+        </div>`);
     unifiedSection.classList.remove('hidden');
-    
-    // Also update collapsed view to show zero state values
-    const completenessBadge = this.overlayElement.querySelector('.score-badge.completeness');
-    const qualityBadge = this.overlayElement.querySelector('.score-badge.quality');
-    const lastAnalyzedSpan = this.overlayElement.querySelector('.last-analyzed-collapsed');
+
+    this.setBadge('completeness', '—');
+    this.setBadge('quality', '—');
+    const slot = this.overlayElement.querySelector('.last-analyzed-collapsed');
+    slot.textContent = this.hasCompliance ? 'Not analyzed' : 'Setup needed';
+    slot.title = '';
+    slot.className = 'last-analyzed-collapsed';
+
+    // Enabled before setup too: Analyze opens the consent card
     const analyzeBtn = this.overlayElement.querySelector('.analyze-btn-collapsed');
-    
-    if (completenessBadge) {
-      (() => {
-        const fragment = document.createDocumentFragment();
-        
-        const fullSpan = document.createElement('span');
-        fullSpan.className = 'label-full';
-        fullSpan.textContent = 'Completeness';
-        
-        const shortSpan = document.createElement('span');
-        shortSpan.className = 'label-short';
-        shortSpan.textContent = 'Complete';
-        
-        const separator = document.createTextNode(': ');
-        const remaining = document.createTextNode('—');
-        
-        fragment.appendChild(fullSpan);
-        fragment.appendChild(shortSpan);
-        fragment.appendChild(separator);
-        fragment.appendChild(remaining);
-        
-        completenessBadge.replaceChildren(fragment);
-      })();
-      completenessBadge.classList.remove('high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
-    }
-    if (qualityBadge) {
-      (() => {
-        const fragment = document.createDocumentFragment();
-        
-        const fullSpan = document.createElement('span');
-        fullSpan.className = 'label-full';
-        fullSpan.textContent = 'Content Quality';
-        
-        const shortSpan = document.createElement('span');
-        shortSpan.className = 'label-short';
-        shortSpan.textContent = 'Quality';
-        
-        const separator = document.createTextNode(': ');
-        const remaining = document.createTextNode('—');
-        
-        fragment.appendChild(fullSpan);
-        fragment.appendChild(shortSpan);
-        fragment.appendChild(separator);
-        fragment.appendChild(remaining);
-        
-        qualityBadge.replaceChildren(fragment);
-      })();
-      qualityBadge.classList.remove('ai-disabled', 'error', 'ai-error', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
-    }
-    if (lastAnalyzedSpan) {
-      // Drop the stale-analysis styling a previous result left behind
-      lastAnalyzedSpan.textContent = 'Not analyzed';
-      lastAnalyzedSpan.title = '';
-      lastAnalyzedSpan.style.color = '';
-    }
-    if (analyzeBtn) {
-      analyzeBtn.textContent = 'Analyze';
-      // Re-sync with compliance: setup can finish (or a factory reset happen) after the overlay was built
-      analyzeBtn.disabled = !this.hasCompliance;
-      analyzeBtn.title = this.hasCompliance ? '' : 'Please complete setup in extension popup first';
-    }
-    
-    // Update the status indicator with more informative text
-    const statusText = this.overlayElement.querySelector('.status-text');
-    if (statusText) {
-      statusText.textContent = 'Ready to analyze • Click extension icon to set up';
-    }
+    analyzeBtn.textContent = 'Analyze';
+    analyzeBtn.disabled = false;
   },
 
   /**

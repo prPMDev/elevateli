@@ -135,6 +135,58 @@
   text-decoration: underline;
 }
 
+/* The bar's ×: hide on my profile */
+.overlay-collapsed-view .eli-hide {
+  background: none;
+  border: 0;
+  padding: 0 4px;
+  margin-left: 8px;
+  font-size: 18px;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+.overlay-collapsed-view .eli-hide:hover {
+  color: rgba(0, 0, 0, 0.9);
+}
+
+/* Zero state: welcome + consent before setup, one line after */
+.eli-welcome-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.eli-welcome-text,
+.eli-welcome-consent {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.eli-welcome-consent {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.elevateli-overlay .eli-primary {
+  min-height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: #0a66c2;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.elevateli-overlay .eli-primary:hover {
+  background: #004182;
+}
+
 /* Screen-reader-only live region */
 .elevateli-sr-only {
   position: absolute;
