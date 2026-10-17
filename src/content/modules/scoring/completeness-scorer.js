@@ -177,22 +177,14 @@ class ProfileCompletenessCalculator {
       recommendations: {
         check: (data) => {
           if (!data || !data.exists || data.count === 0) return false;
-          // Check if has recent recommendations (within 2 years)
-          // Fallback to basic count check if recency data not available
-          if (data.isCurrentlyEndorsed !== undefined || data.hasRecentRecommendations !== undefined) {
-            return data.isCurrentlyEndorsed === true || data.hasRecentRecommendations === true;
-          }
-          // If no recency data, just check if has any recommendations
+          // A recent one (within 2 years) when dates were read, else any
+          if (data.isCurrentlyEndorsed !== undefined) return data.isCurrentlyEndorsed;
           return data.count >= 1;
         },
         points: 10,
         getMessage: function(data) {
           if (!data || !data.exists || data.count === 0) return "Request at least one recommendation";
-          // Only show recency message if we actually have the data to check
-          if ((data.isCurrentlyEndorsed === false || data.hasRecentRecommendations === false) &&
-              (data.isCurrentlyEndorsed !== undefined || data.hasRecentRecommendations !== undefined)) {
-            return "Request a recent recommendation (within 2 years)";
-          }
+          if (data.isCurrentlyEndorsed === false) return "Request a recent recommendation (within 2 years)";
           if (data.count < 3) return "Request more recommendations (aim for 3+)";
           return "Keep recommendations current";
         }

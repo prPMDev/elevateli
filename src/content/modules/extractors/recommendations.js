@@ -51,7 +51,14 @@ const RecommendationsExtractor = {
       isActive: given > 0, // Shows if user gives recommendations
       ratio: received > 0 ? (given / received).toFixed(2) : 0
     };
-    
+
+    // The completeness rule needs recency before extractDeep runs
+    // ponytail: only the cards shown on the profile (newest first); no dates = undefined, so the scorer uses the count
+    const dated = this.visibleCards(BaseExtractor.findSection('Recommendations'))
+      .map(card => this.extractRecommendationItem(card))
+      .filter(rec => rec.date);
+    if (dated.length) result.isCurrentlyEndorsed = this.hasRecentRecommendations(dated);
+
     return result;
   },
   
@@ -92,8 +99,7 @@ const RecommendationsExtractor = {
       
       // Time analysis
       mostRecentDate: this.getMostRecentDate(received),
-      isCurrentlyEndorsed: this.hasRecentRecommendations(received),
-      
+
       // For AI processing
       recommendationChunks: this.prepareForAI(received)
     };
