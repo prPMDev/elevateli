@@ -37,7 +37,8 @@ class ProfileCompletenessCalculator {
     
     // Section-specific rules. Character thresholds are shares of LinkedIn's limits:
     // headline 220 (75/50/30%), About 2600 (60/40/20/10%), role description 2000 (40/25/15%).
-    // getMessage(data, role) gets roleLabel() ('' for no role). Tips carry no closing period: the overlay adds the gain after them.
+    // getMessage(data, role) gets roleLabel() ('' for no role). Tips carry no closing period and no trailing parenthetical:
+    // the overlay adds " ({gainText})." after them.
     this.rules = {
       photo: {
         check: (data) => data.exists, // throws on null (extractor error), so the catch skips the gap
@@ -57,7 +58,7 @@ class ProfileCompletenessCalculator {
             return `ElevateLI couldn't read your headline. If it's empty, add one with your focus area and ${result}`;
           }
           const n = data.charCount;
-          if (165 - n < 20) return `Add a few more words to your headline (${fmt(n)} characters now; 165+ gets full credit)`;
+          if (165 - n < 20) return `Add a few more words to your headline: ${fmt(n)} characters now, 165+ gets full credit`;
           return `Expand your headline from ${fmt(n)} to 165+ characters: add your focus area and ${result}`;
         }
       },
@@ -73,7 +74,7 @@ class ProfileCompletenessCalculator {
             return `Add an About section: what you do, 2–3 results, and the ${role ? `${role} ` : ''}work you want to be known for`;
           }
           const n = data.charCount;
-          if (1560 - n < 150) return `Add a sentence or two to your About section (${fmt(n)} characters now; 1,560+ gets full credit)`;
+          if (1560 - n < 150) return `Add a sentence or two to your About section: ${fmt(n)} characters now, 1,560+ gets full credit`;
           return `Expand your About section from ${fmt(n)} to 1,560+ characters with 2–3 results ${role ? `that fit ${role} roles` : 'from your recent work'}`;
         }
       },
@@ -107,7 +108,7 @@ class ProfileCompletenessCalculator {
             const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
             const one = names.length === 1;
             return `Add ${one ? 'a description' : 'descriptions'} to your ${list} role${one ? '' : 's'}: what you owned and one measurable result. ` +
-              `Full credit needs an average of 800+ characters per role (yours: ${avg})`;
+              `Full credit needs an average of 800+ characters per role${data.averageDescriptionLength ? `; yours average ${avg}` : ''}`;
           }
           return `Expand your role descriptions from an average of ${avg} to 800+ characters: add one measurable result to each`;
         }
@@ -193,7 +194,8 @@ class ProfileCompletenessCalculator {
           data: this.summarizeData(data)
         };
 
-        if (scoreMultiplier < 1) {
+        // No tip for a section whose extractor failed (null): ElevateLI didn't measure it. Headline says it couldn't read it.
+        if (scoreMultiplier < 1 && (data != null || section === 'headline')) {
           recommendations.push({
             section,
             priority: this.getPriority(section, weight, scoreMultiplier),
