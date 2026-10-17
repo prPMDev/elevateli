@@ -115,20 +115,17 @@ class ProfileCompletenessCalculator {
       
       skills: {
         check: (data) => data && data.count >= 10,
-        getMessage: (data) => {
-          if (!data || !data.exists || data.count === 0) return "Add relevant skills";
-          if (data.count < 5) return "Add more skills (aim for 10+)";
-          if (data.count < 10) return `Add ${10 - data.count} more skills`;
-          return "Optimize your skills section";
+        getMessage: (data, role) => {
+          const which = role ? `the ones ${role} job posts ask for` : "the ones in job posts you're targeting";
+          const k = 10 - (data?.count || 0);
+          if (k === 10) return `Add at least 10 skills, starting with ${which}`;
+          return `Add ${k} more skill${k > 1 ? 's' : ''} to reach 10, starting with ${which}`;
         }
       },
-      
+
       education: {
         check: (data) => data && data.count >= 1,
-        getMessage: (data) => {
-          if (!data || !data.exists || data.count === 0) return "Add your education";
-          return "Complete your education details";
-        }
+        getMessage: () => 'Add your education: a degree, bootcamp or other program'
       },
       
       recommendations: {
@@ -138,22 +135,24 @@ class ProfileCompletenessCalculator {
           if (data.isCurrentlyEndorsed !== undefined) return data.isCurrentlyEndorsed;
           return data.count >= 1;
         },
-        getMessage: (data) => {
-          if (!data || !data.exists || data.count === 0) return "Request at least one recommendation";
-          if (data.isCurrentlyEndorsed === false) return "Request a recent recommendation (within 2 years)";
-          if (data.count < 3) return "Request more recommendations (aim for 3+)";
-          return "Keep recommendations current";
+        getMessage: (data, role) => {
+          const about = role ? `a result relevant to ${role} roles` : 'a specific result you delivered';
+          // count is received only
+          if (data?.count && data.isCurrentlyEndorsed === false) return `None of your recommendations is from the last 2 years. Ask a recent manager or teammate for one about ${about}`;
+          return `Ask a recent manager or teammate for a recommendation about ${about}`;
         }
       },
-      
+
       certifications: {
         check: (data) => data && data.count >= 1,
-        getMessage: () => "Add relevant certifications"
+        getMessage: (data, role) => role
+          ? `If you hold certifications relevant to ${role} roles, add them under Licenses & certifications`
+          : 'If you hold any certifications, add them under Licenses & certifications'
       },
-      
+
       projects: {
         check: (data) => data && data.count >= 1,
-        getMessage: () => "Showcase projects you've worked on"
+        getMessage: (data, role) => `Add 1–2 projects ${role ? `relevant to ${role} roles` : 'that show your work'}, with links where you can`
       }
     };
   }
