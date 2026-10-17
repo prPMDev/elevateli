@@ -193,8 +193,8 @@ class Analyzer {
       if (failedSections.length) {
         const list = new Intl.ListFormat('en-GB', { type: 'conjunction' }).format(failedSections); // "A, B and C"
         const msg = `No new AI rating for your ${list} this time. Click Analyze to retry.`;
-        // Short label in the bar slot, the sentence in its title; the status region keeps COMPLETE's result too
-        OverlayManager.showError('Some sections not rated', { message: msg });
+        // The bar's red line (its title holds the whole sentence); the status region keeps COMPLETE's result too
+        OverlayManager.showError(msg);
         OverlayManager.announce(`Analysis done. Profile ${Math.round(result.completeness)}% complete. ${msg}`);
       }
     } catch (error) {
