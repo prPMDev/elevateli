@@ -11,18 +11,18 @@
  * ============================================ */
 class Analyzer {
   constructor() {
-    // Available extractors (will be defined in separate files)
+    // The manifest loads every extractor before this file
     this.extractors = {
-      photo: typeof PhotoExtractor !== 'undefined' ? PhotoExtractor : null,
-      headline: typeof HeadlineExtractor !== 'undefined' ? HeadlineExtractor : null,
-      about: typeof AboutExtractor !== 'undefined' ? AboutExtractor : null,
-      experience: typeof ExperienceExtractor !== 'undefined' ? ExperienceExtractor : null,
-      skills: typeof SkillsExtractor !== 'undefined' ? SkillsExtractor : null,
-      education: typeof EducationExtractor !== 'undefined' ? EducationExtractor : null,
-      recommendations: typeof RecommendationsExtractor !== 'undefined' ? RecommendationsExtractor : null,
-      certifications: typeof CertificationsExtractor !== 'undefined' ? CertificationsExtractor : null,
-      projects: typeof ProjectsExtractor !== 'undefined' ? ProjectsExtractor : null,
-      featured: typeof FeaturedExtractor !== 'undefined' ? FeaturedExtractor : null
+      photo: PhotoExtractor,
+      headline: HeadlineExtractor,
+      about: AboutExtractor,
+      experience: ExperienceExtractor,
+      skills: SkillsExtractor,
+      education: EducationExtractor,
+      recommendations: RecommendationsExtractor,
+      certifications: CertificationsExtractor,
+      projects: ProjectsExtractor,
+      featured: FeaturedExtractor
     };
     
     this.profileId = null;
@@ -69,42 +69,34 @@ class Analyzer {
       // Update overlay state
       OverlayManager.setState(OverlayManager.states.SCANNING);
       
-      // Check cache first (unless forced refresh)
-      if (!forceRefresh) {
-        cachedData = await OverlayManager.getCachedData(this.profileId);
-        if (cachedData && cachedData.completeness !== undefined) {
-          
-          clearTimeout(analysisTimeout);
-          OverlayManager.setState(OverlayManager.states.COMPLETE, {
-            ...cachedData,
-            fromCache: true,
-            cacheRestored: true,
-            // Only mark AI as disabled if there's no content score
-            aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
-            // Pass current settings for UI logic
-            settings: {
-              enableAI: this.settings.enableAI,
-              aiProvider: this.settings.aiProvider,
-              aiModel: this.settings.aiModel
-            }
-          });
-          
-          return { success: true, fromCache: true, data: cachedData };
-        }
-      } else {
-        // Even on force refresh, get cached data for fallback
-        cachedData = await OverlayManager.getCachedData(this.profileId);
+      // Use the cache unless forced refresh; a forced refresh keeps it for the fallbacks below
+      cachedData = await OverlayManager.getCachedData(this.profileId);
+      if (!forceRefresh && cachedData?.completeness !== undefined) {
+        OverlayManager.setState(OverlayManager.states.COMPLETE, {
+          ...cachedData,
+          fromCache: true,
+          cacheRestored: true,
+          // Only mark AI as disabled if there's no content score
+          aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
+          // Pass current settings for UI logic
+          settings: {
+            enableAI: this.settings.enableAI,
+            aiProvider: this.settings.aiProvider,
+            aiModel: this.settings.aiModel
+          }
+        });
+        return;
       }
-      
+
       // Run extractors
       const extractedData = await this.runExtractors();
       // analyzer-main cancelAnalysis(): navigation, Reset analysis or Factory Reset. Stop reading, saving and painting.
-      if (this.cancelled) return { success: false, cancelled: true };
+      if (this.cancelled) return;
 
       // Calculate completeness
       OverlayManager.setState(OverlayManager.states.CALCULATING);
 
-      const completenessData = await this.calculateCompleteness(extractedData);
+      const completenessData = this.calculateCompleteness(extractedData);
       
       
       // Prepare result
@@ -130,7 +122,7 @@ class Analyzer {
         // Pre-flight API key validation. A failed check takes the same
         // keep-previous-AI-results path as a failed AI run below.
         const validationResult = await this.validateApiKey();
-        if (this.cancelled) return { success: false, cancelled: true };
+        if (this.cancelled) return;
 
         let aiResult;
         if (!validationResult.isValid) {
@@ -153,14 +145,10 @@ class Analyzer {
           result.sectionScores = aiResult.sectionScores;
           failedSections = aiResult.failed;
         } else {
-
-          // Check for cached AI data to merge with new completeness
-          if (cachedData && cachedData.contentScore !== undefined) {
-
+          // Keep the previous AI results with the new completeness
+          if (cachedData?.contentScore !== undefined) {
             result.contentScore = cachedData.contentScore;
             result.sectionScores = cachedData.sectionScores;
-            result.partialUpdate = true;
-            result.cachedContentScore = true;
             result.aiFailedWithCache = true;
           }
           
@@ -176,29 +164,25 @@ class Analyzer {
       // Cancelled, or a factory reset during the run cleared storage: don't write this run back or show it
       const { compliance } = await chrome.storage.local.get('compliance');
       if (this.cancelled || !compliance?.hasAcknowledged) {
-        clearTimeout(analysisTimeout);
         // Factory Reset from another tab (only the active tab is told): leave 'AI analyzing...' for first-run setup
         if (!this.cancelled) {
           OverlayManager.hasCompliance = false;
           OverlayManager.setState(OverlayManager.states.INITIALIZING);
         }
-        return { success: false, cancelled: true };
+        return;
       }
 
       // Save to cache (result.extractedData is extractedData); stamped with the save time
       await chrome.storage.local.set({ [`cache_${this.profileId}`]: { ...result, timestamp: new Date().toISOString() } })
         .catch(error => console.error('[Analyzer] Cache save failed:', error));
-      
-      // Clear timeout on success
-      clearTimeout(analysisTimeout);
-      
+
       // Log total analysis time
       
       // Update overlay with final results. An AI failure keeps the completeness results and advice
       // (COMPLETE, as a reload shows them); earlier AI results come back with the cache-fallback banner.
       let finalState = OverlayManager.states.COMPLETE;
-      if (result.aiError && this.settings.enableAI) {
-        if (result.partialUpdate) {
+      if (result.aiError) {
+        if (result.aiFailedWithCache) {
           finalState = OverlayManager.states.ANALYSIS_FAILED_CACHE_FALLBACK;
         } else if (result.aiError.type === 'validation_failed') {
           // Add a specific message for API key errors
@@ -211,8 +195,8 @@ class Analyzer {
       // Log what we're passing to overlay manager
       const overlayData = {
         ...result,
-        // Ensure fromCache flag is set for partial updates
-        fromCache: result.partialUpdate || result.cachedContentScore || result.fromCache,
+        // Previous AI results kept after an AI failure
+        fromCache: result.aiFailedWithCache,
         // Cache-fallback banner text: say what failed (e.g. rate limit wait time)
         message: result.aiError && `AI analysis failed (${result.aiError.message}). Showing your previous AI results.`,
         // Only mark AI as disabled if there's no content score
@@ -228,18 +212,13 @@ class Analyzer {
       const aiNote = result.aiError ? ` AI analysis failed: ${result.aiError.message}`
         : failedSections.length ? ` AI could not analyze ${failedSections.join(', ')} this time.` : '';
       OverlayManager.showToast(`Analysis done: profile ${result.completeness}% complete.${aiNote}`, aiNote ? 'warning' : 'success');
-      
-      return { success: true, data: result };
-      
     } catch (error) {
       console.error('[Analyzer] Analysis failed:', error);
-      clearTimeout(analysisTimeout);
       // An extension reload orphans this run (chrome.storage throws); the new script's overlay is not its to paint
-      if (this.cancelled || !chrome.runtime?.id) return { success: false, cancelled: true };
+      if (this.cancelled || !chrome.runtime?.id) return;
 
-      // If we have cached data, fall back to it
-      if (cachedData && cachedData.completeness !== undefined) {
-        
+      // If we have cached data, fall back to it; otherwise show the error
+      if (cachedData?.completeness !== undefined) {
         OverlayManager.setState(OverlayManager.states.ANALYSIS_FAILED_CACHE_FALLBACK, {
           ...cachedData,
           fromCache: true,
@@ -248,15 +227,11 @@ class Analyzer {
           // Only mark AI as disabled if there's no content score
           aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null
         });
-        
-        return { success: true, fromCache: true, fallback: true, data: cachedData };
       } else {
-        // No cache available, show error
-        OverlayManager.setState(OverlayManager.states.ERROR, {
-          message: error.message
-        });
-        return { success: false, error: error.message };
+        OverlayManager.setState(OverlayManager.states.ERROR, { message: error.message });
       }
+    } finally {
+      clearTimeout(analysisTimeout);
     }
   }
   
@@ -266,20 +241,9 @@ class Analyzer {
    * @returns {number} Years of experience
    */
   calculateYearsOfExperience(experienceData) {
-    if (!experienceData?.experiences?.length) return 0;
-    
-    // Find earliest start date
-    let earliestStart = new Date();
-    experienceData.experiences.forEach(exp => {
-      // The extractor stores 'Mon YYYY' under employment; skip roles without a parseable date
-      const startDate = new Date(exp.employment?.startDate);
-      if (!isNaN(startDate) && startDate < earliestStart) {
-        earliestStart = startDate;
-      }
-    });
-    
-    const now = new Date();
-    const years = (now - earliestStart) / (1000 * 60 * 60 * 24 * 365.25);
+    // The extractor stores 'Mon YYYY' under employment; skip roles without a parseable date
+    const starts = (experienceData?.experiences || []).map(e => Date.parse(e.employment?.startDate)).filter(t => !isNaN(t));
+    const years = (Date.now() - Math.min(Date.now(), ...starts)) / (365.25 * 24 * 60 * 60 * 1000);
     return Math.round(years * 10) / 10; // Round to 1 decimal
   }
 
@@ -350,7 +314,6 @@ class Analyzer {
    * Run all extractors
    */
   async runExtractors() {
-    const results = {};
     // Leaving this profile cancels the run right away: the scan's own scrolling keeps analyzer-main's
     // debounced navigation observer from firing until it ends
     const stop = () => {
@@ -376,83 +339,44 @@ class Analyzer {
       toast.remove();
     }
     // A cancelled run must not scan the next page or paint EXTRACTING over a reset overlay
-    if (stop()) return results;
+    if (stop()) return {};
     
     // Run extractors in parallel
-    const promises = Object.entries(this.extractors).map(async ([name, extractor]) => {
-      if (!extractor) {
-        return { name, data: null };
-      }
-      
+    return Object.fromEntries(await Promise.all(Object.entries(this.extractors).map(async ([name, extractor], i) => {
+      const section = sections[i];
       try {
-        // Update status to scanning
-        sections.find(s => s.name === name).status = 'scanning';
+        section.status = 'scanning';
         OverlayManager.updateScanProgress(sections);
         
-        // Run scan
         const scanResult = await extractor.scan();
         
-        
-        // Update status to complete
-        const section = sections.find(s => s.name === name);
         section.status = 'complete';
         section.itemCount = scanResult.totalCount || scanResult.count || 0;
         OverlayManager.updateScanProgress(sections);
         
+        // A missing section returns its scan result, so the scorer gets exists: false
+        if (!scanResult.exists) return [name, scanResult];
         
-        // Run extraction if section exists - match alpha version exactly
-        if (scanResult.exists) {
-          OverlayManager.setState(OverlayManager.states.EXTRACTING);
-          OverlayManager.updateExtractionProgress(name);
-          
-          // Small delay to ensure UI updates
-          await new Promise(resolve => setTimeout(resolve, 50));
-          
-          const extractResult = await extractor.extract();
-            
-            
-          return { name, data: extractResult };
-        }
+        OverlayManager.setState(OverlayManager.states.EXTRACTING);
+        OverlayManager.updateExtractionProgress(name);
         
-        // Return scanResult for non-existent sections so scorer gets exists: false
-        return { name, data: scanResult };
+        // Small delay to ensure UI updates
+        await new Promise(resolve => setTimeout(resolve, 50));
         
+        return [name, await extractor.extract()];
       } catch (error) {
         console.error(`[Analyzer] ${name} extraction failed:`, error);
-        return { name, data: null, error: error.message };
+        return [name, null];
       }
-    });
-    
-    const extractorResults = await Promise.all(promises);
-    
-    // Compile results
-    extractorResults.forEach(({ name, data }) => {
-      results[name] = data;
-    });
-    
-    
-    return results;
+    })));
   }
   
   /**
    * Calculate completeness score
    */
-  async calculateCompleteness(extractedData) {
+  calculateCompleteness(extractedData) {
     try {
-      if (typeof ProfileCompletenessCalculator !== 'undefined') {
-        const calculator = new ProfileCompletenessCalculator();
-        
-        
-        const result = calculator.calculate(extractedData);
-        return result;
-      }
-      
-      // Fallback calculation
-      return {
-        score: 50,
-        recommendations: [],
-        breakdown: {}
-      };
+      return new ProfileCompletenessCalculator().calculate(extractedData);
     } catch (error) {
       console.error('[Analyzer] Error calculating completeness:', error);
       // Return a basic result on error
