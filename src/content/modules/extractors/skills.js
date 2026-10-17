@@ -4,8 +4,6 @@
  */
 
 const SkillsExtractor = {
-  name: 'skills',
-
   /**
    * Quick scan for skills section existence
    * @returns {Object} Scan results

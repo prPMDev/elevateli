@@ -1,12 +1,9 @@
 /**
  * Education Extractor Module for ElevateLI
  * Handles extraction of LinkedIn profile education section
- * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
 const EducationExtractor = {
-  name: 'education',
-  
   /**
    * Quick scan for education section existence
    * @returns {Object} Scan results

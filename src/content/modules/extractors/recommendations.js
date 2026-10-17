@@ -1,12 +1,9 @@
 /**
  * Recommendations Extractor Module for ElevateLI
  * Handles extraction of LinkedIn profile recommendations section
- * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
 const RecommendationsExtractor = {
-  name: 'recommendations',
-  
   /**
    * Quick scan for recommendations section existence
    * @returns {Object} Scan results

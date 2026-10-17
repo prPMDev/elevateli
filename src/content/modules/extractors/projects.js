@@ -1,12 +1,9 @@
 /**
  * Projects Extractor Module for ElevateLI
  * Handles extraction of LinkedIn profile projects section
- * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
 const ProjectsExtractor = {
-  name: 'projects',
-  
   /**
    * Quick scan for projects section existence
    * @returns {Object} Scan results

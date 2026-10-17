@@ -1,12 +1,9 @@
 /**
  * Photo Extractor Module for ElevateLI
  * Handles detection of LinkedIn profile photo
- * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
 const PhotoExtractor = {
-  name: 'photo',
-  
   /**
    * Quick scan for profile photo existence
    * @returns {Object} Scan results

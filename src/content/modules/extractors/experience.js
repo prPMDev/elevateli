@@ -1,12 +1,9 @@
 /**
  * Experience Extractor Module for ElevateLI
  * Handles extraction of LinkedIn profile experience section
- * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
 const ExperienceExtractor = {
-  name: 'experience',
-  
   /**
    * Quick scan for experience section existence
    * @returns {Object} Scan results

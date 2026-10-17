@@ -1,12 +1,9 @@
 /**
  * Certifications Extractor Module for ElevateLI
  * Handles extraction of LinkedIn profile certifications section
- * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
 const CertificationsExtractor = {
-  name: 'certifications',
-  
   /**
    * Quick scan for certifications section existence
    * @returns {Object} Scan results

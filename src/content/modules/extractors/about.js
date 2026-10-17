@@ -1,12 +1,9 @@
 /**
  * About Extractor Module for ElevateLI
  * Handles extraction of LinkedIn profile About section
- * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
 const AboutExtractor = {
-  name: 'about',
-
   /**
    * Quick scan for about section existence
    * @returns {Object} Scan results

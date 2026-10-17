@@ -1,12 +1,9 @@
 /**
  * Featured Extractor Module for ElevateLI
  * Handles extraction of LinkedIn profile featured section
- * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
 const FeaturedExtractor = {
-  name: 'featured',
-
   /**
    * Quick scan for featured section existence
    * @returns {Object} Scan results

@@ -1,12 +1,9 @@
 /**
  * Headline Extractor Module for ElevateLI
  * Handles extraction of LinkedIn profile headline
- * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
 const HeadlineExtractor = {
-  name: 'headline',
-  
   /**
    * Quick scan for headline existence
    * @returns {Object} Scan results
