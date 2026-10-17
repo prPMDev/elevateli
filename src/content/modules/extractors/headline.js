@@ -13,9 +13,10 @@ const HeadlineExtractor = {
    */
   async scan() {
     // Top card <p>s after the name: optional pronouns ("He/Him"), then the headline
-    // ponytail: pronouns spotted by their "X/Y" shape; custom pronouns with spaces would be read as the headline
+    // ponytail: pronouns spotted by their "X/Y" or "X/Y/Z" shape; custom pronouns with spaces would be read as the
+    // headline, and a whole headline of that shape ("Founder/CEO") is taken for pronouns
     const element = Array.from(BaseExtractor.topCard()?.querySelectorAll('p') || [])
-      .find(p => !/^\w+\/\w+$/.test(p.textContent.trim()));
+      .find(p => !/^\w+(\/\w+)+$/.test(p.textContent.trim()));
     
     return {
       exists: !!element,
