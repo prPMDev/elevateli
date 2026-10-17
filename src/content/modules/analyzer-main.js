@@ -507,9 +507,9 @@
             // Hide the overlay without destroying it
             OverlayManager.hide();
           } else {
-            // Show the overlay if we're on own profile
+            // Show the overlay if we're on own profile, as init() would: not on /details/ or /recent-activity/
             isOwnProfile().then(async isOwn => {
-              if (isOwn) {
+              if (isOwn && isProfilePage()) {
                 // Check if overlay already exists
                 if (OverlayManager.overlayElement) {
                   // Just show the existing overlay
