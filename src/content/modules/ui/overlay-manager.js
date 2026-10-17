@@ -280,14 +280,14 @@ const OverlayManager = {
         this.updateDetailsLabel();
         // Lower sections mount only when <main> scrolls to them, which carries the overlay out of view.
         // The toast is fixed, so it explains the motion; 20 s is a backstop, the next state removes it.
-        const provider = this.aiState(data.settings) === 'on' && this.providerName(data.settings);
+        const provider = this.aiState(data.settings) === 'on' && aiProviderName(data.settings);
         this.scrollToast = this.showToast('Scrolling through your profile so LinkedIn loads every section. ' +
           `You'll be back here in a few seconds${provider ? `, then ${provider} rates your writing` : ''}.`, 20000);
       },
 
       [this.states.CALCULATING]: () => {
         // With AI on, this line stays up during the key check
-        const provider = this.aiState(data.settings) === 'on' && this.providerName(data.settings);
+        const provider = this.aiState(data.settings) === 'on' && aiProviderName(data.settings);
         this.updateStatus(provider ? `Checking your connection to ${provider}…` : 'Scoring completeness…', true);
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
@@ -295,10 +295,9 @@ const OverlayManager = {
       },
 
       [this.states.AI_ANALYZING]: () => {
-        // The first section's line (updateAIProgress) replaces this one
+        // The first section's line (updateAIProgress, "i of n") replaces this one; the section count isn't known yet
         const role = data.roleLabel ? ` for ${data.roleLabel} roles` : '';
-        const sections = data.sectionCount ? `${data.sectionCount} sections` : 'your profile';
-        this.updateStatus(`Rating ${sections} with ${this.providerName(data.settings) || 'AI'}${role}…`, true);
+        this.updateStatus(`Rating your profile with ${aiProviderName(data.settings)}${role}…`, true);
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
         }
@@ -425,22 +424,11 @@ const OverlayManager = {
   },
 
   /**
-   * {provider} in copy: Gemini, OpenAI, Claude, or "your local model" when a server URL is set; undefined if unknown
-   */
-  providerName(settings) {
-    if (settings?.aiBaseUrl) return 'your local model';
-    return { gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Claude' }[settings?.aiProvider];
-  },
-
-  /**
    * {reason} in copy: the failure's own phrase, without a closing period
    * @param {Object} [error] - { message, type }: an aiError, or a section's error
    */
   reason(error, settings) {
-    if (error?.type === 'timeout') {
-      const provider = this.providerName(settings);
-      return provider ? `${provider} took too long to respond` : 'your AI provider took too long to respond';
-    }
+    if (error?.type === 'timeout') return `${aiProviderName(settings)} took too long to respond`;
     return String(error?.message || 'something went wrong').replace(/\.$/, '');
   },
 
@@ -1276,7 +1264,7 @@ const OverlayManager = {
       slot.title = slot.textContent;
       slot.className = 'last-analyzed-collapsed';
       analyzeBtn.title = this.hasCompliance ? slot.textContent : 'Set up ElevateLI to analyze your profile';
-      quality.title = aiOn ? `Rated by ${this.providerName(settings)} when you click Analyze` : this.noRatingText({ settings });
+      quality.title = aiOn ? `Rated by ${aiProviderName(settings)} when you click Analyze` : this.noRatingText({ settings });
     };
     // chrome.storage throws at once when the extension was reloaded
     Promise.resolve()
