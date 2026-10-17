@@ -33,7 +33,7 @@ function targetRoleLabel({ targetRole, seniorityLevel, customRole } = {}) {
  * The AI provider in a sentence ({provider}): Gemini, OpenAI, Claude, or "your local model" when a server URL is set
  */
 function aiProviderName({ aiProvider, aiBaseUrl } = {}) {
-  if (aiProvider === 'openai' && aiBaseUrl) return 'your local model';
+  if (aiBaseUrl) return 'your local model';
   return { gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Claude' }[aiProvider] || 'your AI provider';
 }
 

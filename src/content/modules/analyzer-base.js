@@ -133,6 +133,7 @@ class Analyzer {
         if (aiResult.success) {
           result.contentScore = aiResult.score;
           result.sectionScores = aiResult.sectionScores;
+          result.aiRatedAt = result.timestamp; // kept through later failed runs, which restamp timestamp
           failedSections = aiResult.failed;
         } else {
           // Keep the previous AI results with the new completeness
@@ -140,6 +141,7 @@ class Analyzer {
             result.contentScore = cachedData.contentScore;
             result.sectionScores = cachedData.sectionScores;
             result.roleLabel = cachedData.roleLabel; // the role those ratings were for
+            result.aiRatedAt = cachedData.aiRatedAt || cachedData.timestamp; // and when they were made
             result.aiFailedWithCache = true;
           }
           
@@ -178,13 +180,11 @@ class Analyzer {
         fromCache: result.aiFailedWithCache,
         // Cache-fallback banner text: say what failed (e.g. rate limit wait time)
         message: result.aiFailedWithCache && `AI analysis failed (${String(result.aiError.message).replace(/\.$/, '')}). ` +
-          `Showing your AI ratings from ${formatDate(cachedData.timestamp)}. Completeness is up to date.`,
+          `Showing your AI ratings from ${formatDate(result.aiRatedAt)}. Completeness is up to date.`,
         // Only mark AI as disabled if there's no content score
         aiDisabled: result.contentScore === undefined || result.contentScore === null,
         // The overlay's 'AI failed' contract (aiError + settings.enableAI), as the cache restore passes it
-        settings: this.uiSettings,
-        // timestamp is this run's; the earlier results kept on screen are from this date
-        previousTimestamp: cachedData?.timestamp
+        settings: this.uiSettings
       };
 
       OverlayManager.setState(finalState, overlayData);
@@ -192,7 +192,10 @@ class Analyzer {
       // bar names them (not a toast: the scroll notice is the only one)
       if (failedSections.length) {
         const list = new Intl.ListFormat('en-GB', { type: 'conjunction' }).format(failedSections); // "A, B and C"
-        OverlayManager.showError(`No new AI rating for your ${list} this time. Click Analyze to retry.`);
+        const msg = `No new AI rating for your ${list} this time. Click Analyze to retry.`;
+        // Short label in the bar slot, the sentence in its title; the status region keeps COMPLETE's result too
+        OverlayManager.showError('Some sections not rated', { message: msg });
+        OverlayManager.announce(`Analysis done. Profile ${Math.round(result.completeness)}% complete. ${msg}`);
       }
     } catch (error) {
       console.error('[Analyzer] Analysis failed:', error);
@@ -209,7 +212,8 @@ class Analyzer {
           message: `Something went wrong while reading your profile. Showing your results from ${formatDate(cachedData.timestamp)}. ` +
             'Reload the page, then click Analyze.',
           // Only mark AI as disabled if there's no content score
-          aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null
+          aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
+          settings: this.uiSettings
         });
       } else {
         // The raw error is in the console above
@@ -272,7 +276,9 @@ class Analyzer {
       const recovered = await OverlayManager.restoreAppropriateState(this.profileId, {
         isErrorFallback: true,
         error: 'Analysis timeout',
-        message: `This analysis took too long and was stopped. Showing your results from ${formatDate(this.previousTimestamp)}. ` +
+        // No cache at run start but one now (another tab): the date is unknown, so the ERR-5 wording
+        message: 'This analysis took too long and was stopped. ' + (this.previousTimestamp
+          ? `Showing your results from ${formatDate(this.previousTimestamp)}. ` : 'Showing your earlier results. ') +
           'Reload the page, then click Analyze.'
       });
 
