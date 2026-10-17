@@ -472,10 +472,10 @@ class Analyzer {
     const sectionResults = {};
     const sections = [];
     
-    // Build list of sections to analyze
+    // Build list of sections to analyze. Each sends only what its service-worker prompt reads.
     // [CRITICAL_PATH:FIRST_IMPRESSION_EXTRACTION] - P0: Extract all first impression data
-    // 1. First Impression (Headline + Photo + Banner)
-    if (extractedData.headline || extractedData.photo || extractedData.banner) {
+    // 1. First Impression (Headline + Photo)
+    if (extractedData.headline || extractedData.photo) {
       sections.push({
         type: 'first_impression',
         name: 'First Impression',
@@ -483,80 +483,35 @@ class Analyzer {
         data: {
           headline: extractedData.headline?.text || '',
           headlineCharCount: extractedData.headline?.charCount || 0,
-          photo: {
-            exists: extractedData.photo?.exists || false,
-            hasPhoto: extractedData.photo?.exists || false
-          }
+          photo: { exists: extractedData.photo?.exists || false }
           // No banner/Open to Work/Creator Mode/connections: no extractor produces them
         }
       });
     }
     
     // [CRITICAL_PATH:ABOUT_ISOLATED] - P0: About must be separate section
-    // 2. About Section (separate from headline)
+    // 2. About Section (separate from headline). The SW reads the role and level from storage.
     if (extractedData.about?.exists || extractedData.about?.text) {
-      const aboutContext = {
-        text: extractedData.about?.text || '',
-        charCount: extractedData.about?.charCount || 0,
-        hasKeywords: extractedData.about?.hasKeywords || false,
-        
-        // Career context for better analysis
-        currentRole: extractedData.experience?.experiences?.[0] || null,
-        targetRole: this.settings.targetRole || 'general professional',
-        seniorityLevel: this.settings.seniorityLevel || 'any level'
-      };
-      
-      
-      sections.push({
-        type: 'about',
-        name: 'About',
-        data: aboutContext
-      });
+      sections.push({ type: 'about', name: 'About', data: { text: extractedData.about?.text || '' } });
     }
     
-    // 2. Experience (one overall section; roles feed its prompt)
-    // Check if experience exists and has count > 0
+    // 3. Experience (one overall section; roles feed its prompt)
     if (extractedData.experience?.exists && extractedData.experience?.count > 0) {
-      // Need to run extractDeep to get individual experiences for AI analysis
-      
       try {
-        // Run deep extraction to get detailed experiences
-        const experienceExtractor = this.extractors.experience;
-        
-        if (experienceExtractor && typeof experienceExtractor.extractDeep === 'function') {
-          const deepExperienceData = await experienceExtractor.extractDeep();
-          if (this.cancelled) return { success: false, cancelled: true };
+        const deep = await this.extractors.experience.extractDeep();
+        if (this.cancelled) return { success: false, cancelled: true };
 
-          if (deepExperienceData.experiences && deepExperienceData.experiences.length > 0) {
-            // Expose roles to skills/recommendations career context below
-            extractedData.experience.experiences = deepExperienceData.experiences;
-
-            sections.push({
-              type: 'experience_overall',
-              name: 'Overall Experience',
-              data: {
-                ...extractedData.experience,
-                experiences: deepExperienceData.experiences,
-                experienceChunks: deepExperienceData.experienceChunks,
-                averageTenure: deepExperienceData.averageTenure,
-                careerProgression: deepExperienceData.careerProgression,
-                totalRoles: deepExperienceData.experiences.length,
-                currentRole: deepExperienceData.experiences[0], // Most recent role
-                hasQuantifiedAchievements: deepExperienceData.hasQuantifiedAchievements,
-                hasTechStack: deepExperienceData.hasTechStack
-              }
-            });
-          }
+        if (deep.experiences?.length) {
+          // Expose roles to the skills/recommendations career context below
+          extractedData.experience.experiences = deep.experiences;
+          sections.push({
+            type: 'experience_overall',
+            name: 'Overall Experience',
+            data: { ...extractedData.experience, averageTenure: deep.averageTenure, totalRoles: deep.experiences.length }
+          });
         }
       } catch (error) {
-        console.error('[Analyzer] Failed to extract deep experience data:', {
-          message: error.message,
-          stack: error.stack,
-          extractorState: {
-            exists: !!this.extractors.experience,
-            type: typeof this.extractors.experience
-          }
-        });
+        console.error('[Analyzer] Failed to extract deep experience data:', error);
         // Fallback: analyze experience as a single section
         sections.push({
           type: 'experience',
@@ -566,124 +521,44 @@ class Analyzer {
       }
     }
     
-    // 3. Skills
+    // Career context for the skills and recommendations prompts
+    const roles = extractedData.experience?.experiences || [];
+    const career = {
+      // The latest role may have ended (between jobs): "Not specified" then, like the experience prompt
+      currentRole: roles.find(e => e.employment?.isCurrent) || null,
+      recentCompanies: roles.slice(0, 3).map(e => ({ company: e.company })),
+      yearsOfExperience: this.calculateYearsOfExperience(extractedData.experience)
+    };
+    
+    // 4. Skills: visible skills only (no /details/skills navigation); the data carries the hidden count
     if (extractedData.skills?.exists && extractedData.skills?.count > 0) {
-      // IMPORTANT: Not using extractDeep() for skills to avoid navigation to /details/skills
-      // Using visible skills data only, which includes count info for hidden skills
       const skillsData = extractedData.skills;
-      
-      
-      // Cross-reference skills with experience descriptions
-      const skillsInRoles = {};
-      const skillCompanyMatrix = {};
-      
-      if (skillsData.skills && extractedData.experience?.experiences) {
-        skillsData.skills.forEach(skill => {
-          const skillNameLower = skill.name.toLowerCase();
-          skillsInRoles[skill.name] = [];
-          skillCompanyMatrix[skill.name] = [];
-          
-          extractedData.experience.experiences.forEach((exp, expIndex) => {
-            // Check if skill is mentioned in role description
-            if (exp.description && exp.description.toLowerCase().includes(skillNameLower)) {
-              skillsInRoles[skill.name].push({
-                role: exp.title,
-                company: exp.company,
-                isCurrent: exp.employment?.isCurrent || false,
-                roleIndex: expIndex
-              });
-              
-              if (!skillCompanyMatrix[skill.name].includes(exp.company)) {
-                skillCompanyMatrix[skill.name].push(exp.company);
-              }
-            }
-          });
-        });
-      }
-      
-      // Build career context for skills analysis
-      const careerContext = {
-        // The latest role may have ended (between jobs): "Not specified" then, like the experience prompt
-        currentRole: extractedData.experience?.experiences?.find(e => e.employment?.isCurrent) || null,
-        recentCompanies: extractedData.experience?.experiences?.slice(0, 3).map(exp => ({
-          company: exp.company,
-          title: exp.title,
-          duration: exp.duration,
-          isCurrent: exp.employment?.isCurrent || false
-        })) || [],
-        totalExperience: extractedData.experience?.experiences?.length || 0,
-        yearsOfExperience: this.calculateYearsOfExperience(extractedData.experience),
-        
-        // Add completeness score for conditional advice
-        completenessScore: extractedData.completenessScore || 100,
-        
-        // NEW: Skills usage context
-        skillsInRoles: skillsInRoles,
-        skillCompanyMatrix: skillCompanyMatrix,
-        
-        // Skills mentioned in current/recent roles
-        currentRoleSkills: Object.keys(skillsInRoles).filter(skill => 
-          skillsInRoles[skill].some(role => role.isCurrent)
-        ),
-        recentRoleSkills: Object.keys(skillsInRoles).filter(skill => 
-          skillsInRoles[skill].some(role => role.roleIndex < 3)
-        )
-      };
-      
       sections.push({
         type: 'skills',
         name: `Skills (${skillsData.totalCount || skillsData.count || 0} total)`,
         data: skillsData,
-        context: careerContext
+        // Completeness score for conditional advice
+        context: { ...career, completenessScore: extractedData.completenessScore || 100 }
       });
     }
     
     // [CRITICAL_PATH:RECOMMENDATIONS_AI_EXTRACTION] - P0: Must extract recommendations for AI analysis
-    // 4. Recommendations - Deep extract for AI analysis
+    // 5. Recommendations - Deep extract for AI analysis
     if (extractedData.recommendations?.exists && extractedData.recommendations?.count > 0) {
-      // Deep extract recommendations to get full details
       try {
-        const recommendationsExtractor = this.extractors.recommendations;
-        if (recommendationsExtractor && typeof recommendationsExtractor.extractDeep === 'function') {
-          
-          const deepRecommendationsData = await recommendationsExtractor.extractDeep();
-          
-          
-          if (deepRecommendationsData && deepRecommendationsData.recommendationChunks) {
-            // Replace basic data with deep data
-            extractedData.recommendations = deepRecommendationsData;
-          } else if (deepRecommendationsData) {
-            // Even if no chunks, use the deep data
-            extractedData.recommendations = deepRecommendationsData;
-          }
-        }
+        extractedData.recommendations = await this.extractors.recommendations.extractDeep();
       } catch (error) {
         console.error('[Analyzer] Failed to deep extract recommendations:', error);
         // Continue with basic data
       }
       
-      // Build career context for recommendations analysis
-      const careerContext = {
-        currentRole: extractedData.experience?.experiences?.find(e => e.employment?.isCurrent) || null,
-        recentCompanies: extractedData.experience?.experiences?.slice(0, 3).map(exp => ({
-          company: exp.company,
-          title: exp.title,
-          duration: exp.duration,
-          isCurrent: exp.employment?.isCurrent || false
-        })) || [],
-        allCompanies: extractedData.experience?.experiences?.map(exp => exp.company).filter(Boolean) || [],
-        totalExperience: extractedData.experience?.experiences?.length || 0,
-        yearsOfExperience: this.calculateYearsOfExperience(extractedData.experience)
-      };
-      
       sections.push({
         type: 'recommendations',
         name: `Recommendations (${extractedData.recommendations.count || 0} total)`,
         data: extractedData.recommendations,
-        context: careerContext
+        context: career
       });
     }
-    
     
     // Track consecutive failures for early exit
     let consecutiveFailures = 0;
@@ -736,7 +611,7 @@ class Analyzer {
       return { success: false, error: result.error, errorType: result.errorType, retryAfter: result.retryAfter };
     }
 
-    // 5. Synthesize all results
+    // 6. Synthesize all results
     if (this.cancelled) return { success: false, cancelled: true };
     OverlayManager.updateAIProgress('synthesizing', 'Synthesizing results...');
 
