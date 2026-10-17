@@ -118,11 +118,16 @@ const RecommendationsExtractor = {
   },
   
   /**
-   * One card per recommender: the nearest ancestor of their profile link that holds the recommendation text
+   * Cards of the Received tab (or the only list when there are no tabs). One card per recommender:
+   * the nearest ancestor of their profile link that holds the recommendation text
    * @param {Element} section - Recommendations section
    * @returns {Array<Element>} Cards
    */
   visibleCards(section) {
+    // With "Given" selected the cards are ones the user wrote about other people
+    const checkedTab = section?.querySelector('[role="radio"][aria-checked="true"]');
+    if (checkedTab && !checkedTab.textContent.trim().startsWith('Received')) return [];
+
     const cards = new Map();
     
     for (const link of section?.querySelectorAll('a[href*="/in/"]') || []) {
