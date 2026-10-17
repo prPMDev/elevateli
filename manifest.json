@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ElevateLI",
   "version": "1.0.0",
-  "description": "See how complete your LinkedIn profile is and what to add next. Scoring runs in your browser; AI review is optional.",
+  "description": "See how complete your LinkedIn profile is and what to fix first. Optional AI ratings use your own API key or a local model.",
   "permissions": [
     "storage",
     "activeTab",
