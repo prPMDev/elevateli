@@ -198,22 +198,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       settingsGearBtn.focus();
     } catch (error) {
       if (error.message?.includes('Could not establish connection')) {
-        const parser = new DOMParser();
-        const htmlContent = `
-            <div style="text-align: center; padding: 20px; background: #fef3c7; border-radius: 8px; margin: 10px 0;">
-              <p style="color: #92400e; font-weight: 500; margin-bottom: 8px;">Refresh needed</p>
-              <p style="color: #78350f; font-size: 14px; margin-bottom: 12px;">Refresh your LinkedIn tab to finish setup</p>
-              <button id="refreshTab" class="primary-button">Refresh LinkedIn tab</button>
-            </div>
-          `;
-        const doc = parser.parseFromString(htmlContent, 'text/html');
-        const fragment = document.createDocumentFragment();
-        Array.from(doc.body.childNodes).forEach(node => {
-          fragment.appendChild(node.cloneNode(true));
-        });
-        profileSetupDiv.replaceChildren(fragment);
-
-        document.getElementById('refreshTab')?.addEventListener('click', () => {
+        profileSetupDiv.replaceChildren(document.getElementById('refreshNeeded').content.cloneNode(true));
+        document.getElementById('refreshTab').addEventListener('click', () => {
           chrome.tabs.reload(activeTab.id);
           window.close(); // Close popup after refreshing
         });

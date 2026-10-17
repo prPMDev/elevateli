@@ -47,6 +47,15 @@
       </div>
     </div>
 
+    <!-- Replaces the setup view when the LinkedIn tab has no live content script -->
+    <template id="refreshNeeded">
+      <div style="text-align: center; padding: 20px; background: #fef3c7; border-radius: 8px; margin: 10px 0;">
+        <p style="color: #92400e; font-weight: 500; margin-bottom: 8px;">Refresh needed</p>
+        <p style="color: #78350f; font-size: 14px; margin-bottom: 12px;">Refresh your LinkedIn tab to finish setup</p>
+        <button id="refreshTab" class="primary-button">Refresh LinkedIn tab</button>
+      </div>
+    </template>
+
     <!-- Active State Main View -->
     <div id="activeMain" class="hidden">
       <p class="active-profile">
