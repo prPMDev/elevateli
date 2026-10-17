@@ -341,20 +341,8 @@ class Analyzer {
    * Validate API key before running AI analysis
    */
   async validateApiKey() {
-    return new Promise((resolve) => {
-      safeSendMessage({
-        action: 'validateApiKey'
-      }, (response) => {
-        if (response && response.success) {
-          resolve({ isValid: true });
-        } else {
-          resolve({ 
-            isValid: false, 
-            error: response?.error || 'API key validation failed'
-          });
-        }
-      });
-    });
+    const response = await safeSendMessage({ action: 'validateApiKey' });
+    return response?.success ? { isValid: true } : { isValid: false, error: response?.error || 'API key validation failed' };
   }
   
   /**
@@ -757,41 +745,11 @@ class Analyzer {
   /**
    * Analyze individual section
    */
-  async analyzeSection(sectionType, data, context = {}) {
-    return new Promise((resolve) => {
-      safeSendMessage({
-        action: 'analyzeSection',
-        section: sectionType,
-        data: data,
-        context: context
-      }, (response) => {
-        if (response && response.success) {
-          resolve({
-            success: true,
-            section: sectionType,
-            score: response.score,
-            // Include all AI analysis fields
-            positiveInsight: response.insight,
-            actionItems: response.actionItems
-          });
-        } else {
-          // Ensure error is always a string
-          let errorMessage = 'Section analysis failed';
-          if (response?.error) {
-            errorMessage = typeof response.error === 'object' ? 
-              JSON.stringify(response.error) : 
-              String(response.error);
-          }
-          resolve({
-            success: false,
-            section: sectionType,
-            error: errorMessage,
-            errorType: response?.errorType,
-            retryAfter: response?.retryAfter
-          });
-        }
-      });
-    });
+  async analyzeSection(section, data, context = {}) {
+    const r = await safeSendMessage({ action: 'analyzeSection', section, data, context });
+    return r?.success
+      ? { success: true, section, score: r.score, positiveInsight: r.insight, actionItems: r.actionItems }
+      : { success: false, section, error: r?.error || 'Section analysis failed', errorType: r?.errorType, retryAfter: r?.retryAfter };
   }
   
   /**
