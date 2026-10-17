@@ -71,39 +71,13 @@ const ExperienceExtractor = {
   },
   
   /**
-   * Deep extraction for AI analysis
-   * @returns {Object} Detailed experience data
+   * Deep extraction for AI analysis: the roles and their average tenure (analyzer-base reads only these)
+   * @returns {Object} { experiences, averageTenure }
    */
   async extractDeep() {
-    const basicData = await this.extract();
-    
-    if (!basicData.exists) {
-      return basicData;
-    }
-    
     // Descriptions are in the DOM in full; "… more" only unclamps them
     const experiences = await this.extractDetailedExperiences();
-    
-    const result = {
-      ...basicData,
-      experiences: experiences,
-      
-      // Analysis metrics
-      averageTenure: this.calculateAverageTenure(experiences),
-      careerProgression: this.analyzeCareerProgression(experiences),
-      industryChanges: this.countIndustryChanges(experiences),
-      hasQuantifiedAchievements: experiences.some(e => e.hasQuantifiedAchievements),
-      hasTechStack: experiences.some(e => e.hasTechStack),
-      
-      // Content quality metrics
-      averageDescriptionLength: this.calculateAverageDescriptionLength(experiences),
-      rolesWithDescriptions: experiences.filter(e => e.description).length,
-      
-      // For AI processing
-      experienceChunks: this.prepareForAI(experiences)
-    };
-    
-    return result;
+    return { experiences, averageTenure: this.calculateAverageTenure(experiences) };
   },
   
   
@@ -175,7 +149,7 @@ const ExperienceExtractor = {
     }
     
     return roles
-      .map((role, i) => this.extractExperienceItem(role.element, i, roles.length, role.company))
+      .map(role => this.extractExperienceItem(role.element, role.company))
       .filter(experience => experience.title);
   },
   
@@ -200,7 +174,7 @@ const ExperienceExtractor = {
    * @param {string|null} groupCompany - Company of the group the role sits in
    * @returns {Object} Experience data
    */
-  extractExperienceItem(item, index = 0, totalCount = 1, groupCompany = null) {
+  extractExperienceItem(item, groupCompany = null) {
     // Fields in order: title, "Company · Full-time" (not inside a company group), "Jan 2022 - Present · 2 yrs",
     // "City · Remote", description, skills
     const fields = BaseExtractor.fields(item);
@@ -215,7 +189,6 @@ const ExperienceExtractor = {
     return {
       title,
       company: groupCompany ?? companyLine.split('·')[0].trim(),
-      companyDetails: { size: '', industry: '', type: '' },
       employment: {
         type: /Full-time|Part-time|Contract|Freelance|Internship/i.test(companyLine) ? this.detectEmploymentType(companyLine) : '',
         ...dateInfo
@@ -225,31 +198,8 @@ const ExperienceExtractor = {
       endDate: dateInfo.endDate,
       duration,
       location: next && !description.startsWith(next) && !/skills?$/.test(next) ? next : '',
-      description, // Raw description text; AI judges achievements and quality
-      hasQuantifiedAchievements: this.hasQuantifiedAchievements(description),
-      hasTechStack: this.hasTechStack(description),
-      recencyScore: this.calculateRecencyScore(index, totalCount)
+      description // Raw description text; AI judges achievements and quality
     };
-  },
-  
-  /**
-   * Check for quantified achievements
-   * @param {string} text - Description text
-   * @returns {boolean}
-   */
-  hasQuantifiedAchievements(text) {
-    const pattern = /\d+[%+,kKmMbB$]*\s*(revenue|users|customers|growth|increase|decrease|ROI|saved|generated|improvement|reduction)/gi;
-    return pattern.test(text);
-  },
-  
-  /**
-   * Check for tech stack mentions
-   * @param {string} text - Description text
-   * @returns {boolean}
-   */
-  hasTechStack(text) {
-    const techPattern = /\b(React|Angular|Vue|Node|Python|Java|JavaScript|AWS|Azure|Docker|Kubernetes|SQL|API)\b/gi;
-    return techPattern.test(text);
   },
   
   /**
@@ -286,93 +236,6 @@ const ExperienceExtractor = {
     }, 0);
     
     return Math.round(totalMonths / experiences.length);
-  },
-  
-  /**
-   * Analyze career progression
-   * @param {Array<Object>} experiences - Experience items
-   * @returns {string} Progression analysis
-   */
-  analyzeCareerProgression(experiences) {
-    if (experiences.length < 2) return 'insufficient_data';
-    
-    const titles = experiences.map(e => e.title.toLowerCase());
-    const progressionIndicators = ['senior', 'lead', 'principal', 'manager', 'director', 'vp', 'chief'];
-    
-    let progressionScore = 0;
-    for (let i = 1; i < titles.length; i++) {
-      const currentLevel = progressionIndicators.findIndex(ind => titles[i].includes(ind));
-      const previousLevel = progressionIndicators.findIndex(ind => titles[i-1].includes(ind));
-      
-      if (currentLevel > previousLevel) progressionScore++;
-    }
-    
-    return progressionScore > experiences.length / 3 ? 'upward' : 'lateral';
-  },
-  
-  /**
-   * Count industry changes
-   * @param {Array<Object>} experiences - Experience items
-   * @returns {number} Number of industry changes
-   */
-  countIndustryChanges(experiences) {
-    // Simplified - could be enhanced with industry detection
-    const companies = experiences.map(e => e.company);
-    const uniqueCompanies = new Set(companies);
-    return Math.max(0, uniqueCompanies.size - 1);
-  },
-  
-  /**
-   * Prepare experiences for AI processing
-   * @param {Array<Object>} experiences - Experience items
-   * @returns {Array<Object>} Chunked data for AI
-   */
-  prepareForAI(experiences) {
-    return experiences.map(exp => ({
-      // Core data that AI needs
-      title: exp.title,
-      company: exp.company,
-      duration: exp.duration,
-      location: exp.location,
-      description: exp.description || '', // Full description text
-      
-      // Employment details
-      employment: exp.employment,
-      companyDetails: exp.companyDetails,
-      
-      // Simple metadata
-      recencyScore: exp.recencyScore,
-      descriptionLength: exp.description ? exp.description.length : 0
-    }));
-  },
-  
-  /**
-   * Calculate average description length
-   * @param {Array<Object>} experiences - Experience items
-   * @returns {number} Average length
-   */
-  calculateAverageDescriptionLength(experiences) {
-    const withDescriptions = experiences.filter(e => e.description);
-    if (withDescriptions.length === 0) return 0;
-    
-    const totalLength = withDescriptions.reduce((sum, exp) => {
-      const descLength = exp.description ? exp.description.length : 0;
-      return sum + descLength;
-    }, 0);
-    
-    return Math.round(totalLength / withDescriptions.length);
-  },
-  
-  /**
-   * Calculate recency score for position
-   * @param {number} index - Position index (0 = most recent)
-   * @param {number} totalCount - Total number of positions
-   * @returns {number} Score from 0-1 (1 = most recent)
-   */
-  calculateRecencyScore(index, totalCount) {
-    if (totalCount <= 1) return 1;
-    // Exponential decay - recent positions weighted much higher
-    return Math.pow(0.8, index);
   },
   
   /**
