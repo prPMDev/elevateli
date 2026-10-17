@@ -997,9 +997,14 @@ async function handleSectionAnalysis(request, sendResponse) {
   try {
     // Read settings at call time, not from the content script's snapshot, and in one get: provider, model,
     // base URL and key then always match
-    const { aiProvider, aiModel, aiBaseUrl, encryptedApiKey, targetRole, customRole, seniorityLevel, customInstructions } = await chrome.storage.local.get(
-      ['aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions']
+    const { enableAI, aiProvider, aiModel, aiBaseUrl, encryptedApiKey, targetRole, customRole, seniorityLevel, customInstructions } = await chrome.storage.local.get(
+      ['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions']
     );
+    // Turning AI off in the popup only writes storage; stop here so a running analysis sends no more profile text
+    if (!enableAI) {
+      sendResponse({ success: false, error: 'AI analysis was turned off' });
+      return;
+    }
     const apiKey = await getDecryptedApiKey(encryptedApiKey);
     
     if (!aiProvider || !apiKey) {
