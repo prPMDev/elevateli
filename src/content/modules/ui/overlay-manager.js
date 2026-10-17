@@ -803,6 +803,8 @@ const OverlayManager = {
     const rated = sections.some(section => typeof section.rating === 'number');
     // Neutral, amber for a failure: a green banner on a 51% score or a failed run read as success
     const warn = data.isCacheFallback || (this.aiFailed(data) && !data.aiFailedWithCache);
+    // Why an unrated row has no stars: AI rated other rows, failed, is set up but hasn't run, or is off
+    const unrated = rated ? 'NOT_RATED' : this.aiFailed(data) ? 'ANALYSIS_FAILED' : this.aiReady(data) ? 'AI_READY' : null;
 
     // Blank stars are explained once, here, instead of only in a tooltip on every row
     let caption = '';
@@ -815,7 +817,7 @@ const OverlayManager = {
     this.fillFromTemplate(unifiedSection, `
       <p class="eli-banner${warn ? ' is-warning' : ''}">${this.escapeHtml(this.generateUnifiedMessage(data, sections))}</p>
       ${caption}
-      ${sections.map(section => this.renderSection(section)).join('')}
+      ${sections.map(section => this.renderSection(section, unrated)).join('')}
     `);
 
     // Replace star placeholders with actual DOM elements
@@ -905,7 +907,7 @@ const OverlayManager = {
       const items = (firstImpression.actionItems || [])
         .filter(item => item.element !== 'banner' && !(photoMissing && item.element === 'photo'));
       sections.push({
-        name: 'First Impression',
+        name: 'First impression',
         key: 'headline',
         rating,
         positive: firstImpression.positiveInsight || null,
@@ -917,24 +919,24 @@ const OverlayManager = {
         key: 'headline',
         rating: null, // Always show blank stars without AI
         errorType: firstImpression?.errorType || null,
-        positive: !gap('headline') && extracted('headline')?.charCount >= 50 ? '✓ You have a professional headline' : null,
+        positive: !gap('headline') && extracted('headline')?.charCount >= 50 ? '✓ Detailed headline' : null,
         improvements: []
       });
     }
 
     // Profile photo: a row only when missing (First Impression covers a present one); never AI-rated
     if (photoMissing) {
-      sections.push({ name: 'Profile Photo', key: 'photo', stars: false, rating: null, positive: null, improvements: [] });
+      sections.push({ name: 'Profile photo', key: 'photo', stars: false, rating: null, positive: null, improvements: [] });
     }
 
     const about = sectionScores.about;
     if (scored(about)) {
       const rating = this.scoreToRating(about.score);
-      sections.push({ name: 'About Section', key: 'about', rating, positive: about.positiveInsight || null,
+      sections.push({ name: 'About', key: 'about', rating, positive: about.positiveInsight || null,
         improvements: this.aiImprovements(about.actionItems, rating) });
     } else {
-      sections.push({ name: 'About Section', key: 'about', rating: null, errorType: about?.errorType || null,
-        positive: !gap('about') && extracted('about')?.charCount >= 800 ? '✓ Comprehensive About section' : null,
+      sections.push({ name: 'About', key: 'about', rating: null, errorType: about?.errorType || null,
+        positive: !gap('about') && extracted('about')?.charCount >= 800 ? '✓ Detailed About section' : null,
         improvements: [] });
     }
 
@@ -948,7 +950,7 @@ const OverlayManager = {
       const experienceData = extracted('experience');
       let positive = null;
       if (!gap('experience') && experienceData?.hasCurrentRole) {
-        positive = '✓ Your experience section is up to date';
+        positive = '✓ Current role listed';
       } else if (!gap('experience') && experienceData?.count >= 2) {
         positive = `✓ ${experienceData.count} professional experiences documented`;
       }
@@ -973,11 +975,11 @@ const OverlayManager = {
     const skills = sectionScores.skills;
     if (scored(skills)) {
       const rating = this.scoreToRating(skills.score);
-      sections.push({ name: 'Skills & Expertise', key: 'skills', rating, positive: skills.positiveInsight || null,
+      sections.push({ name: 'Skills', key: 'skills', rating, positive: skills.positiveInsight || null,
         improvements: this.aiImprovements(skills.actionItems, rating) });
     } else {
       const count = extracted('skills')?.count;
-      sections.push({ name: 'Skills & Expertise', key: 'skills', rating: null, errorType: skills?.errorType || null,
+      sections.push({ name: 'Skills', key: 'skills', rating: null, errorType: skills?.errorType || null,
         positive: !gap('skills') && count >= 10 ? `✓ Strong skills section with ${count} skills` : null,
         improvements: [] });
     }
@@ -995,7 +997,7 @@ const OverlayManager = {
     const fullCredit = Object.keys(breakdown).filter(key => !rowKeys.includes(key) && breakdown[key].scoreMultiplier === 1);
     if (otherGaps.length || fullCredit.length) {
       sections.push({
-        name: 'Other Sections',
+        name: 'Other sections',
         stars: false,
         rating: null,
         positive: fullCredit.length ? `✓ Full credit: ${fullCredit.map(key => key[0].toUpperCase() + key.slice(1)).join(', ')}` : null,
@@ -1015,9 +1017,10 @@ const OverlayManager = {
 
   /**
    * Render a section with star rating
+   * @param {string|null} unrated - getFailureTooltip key for a row with no rating and no errorType of its own
    */
-  renderSection(section) {
-    // Profile Photo and Other Sections are never AI-rated, so they get no star row
+  renderSection(section, unrated) {
+    // Profile photo and Other sections are never AI-rated, so they get no star row
     let stars = '';
     if (section.stars !== false) {
       // Generate a unique placeholder ID for this section's stars, filled in by showUnifiedView
@@ -1027,7 +1030,7 @@ const OverlayManager = {
       }
       this.pendingStarElements.push({
         id: starPlaceholderId,
-        element: this.renderStars(section.rating, section.errorType)
+        element: this.renderStars(section.rating, section.errorType || unrated)
       });
       stars = `<div class="star-rating" data-star-placeholder="${starPlaceholderId}"></div>`;
     }
@@ -1124,6 +1127,7 @@ const OverlayManager = {
       'RESPONSE_PARSE_ERROR': 'AI response could not be read',
       'DATA_READ_ERROR': 'AI was unable to read data for this section',
       'AI_READY': 'Click Analyze for AI content analysis',
+      'NOT_RATED': 'Not rated by AI',
       'DEFAULT': 'No AI rating yet. Turn on AI in settings, then click Analyze.'
     };
 
@@ -1344,7 +1348,7 @@ const OverlayManager = {
           data: {
             ...stateData,
             analysisError: context.error || 'Analysis error',
-            message: context.message || 'Analysis failed. Showing cached results.'
+            message: context.message || 'Analysis failed. Showing your last results.'
           }
         };
       } else {
