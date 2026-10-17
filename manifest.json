@@ -50,7 +50,8 @@
     }
   ],
   "action": {
-    "default_popup": "src/popup/popup.html"
+    "default_popup": "src/popup/popup.html",
+    "default_title": "ElevateLI: score your LinkedIn profile"
   },
   "icons": {
     "16": "src/images/icon16.png",
