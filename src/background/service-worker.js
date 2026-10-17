@@ -137,8 +137,7 @@ Analyze the overall experience section and provide:
 2. Feedback on career progression and trajectory
 3. Recommendations for improving the experience section
 
-Reply with JSON, filling in these fields: score, positiveInsight (what works, quoting their roles), gapAnalysis (what is weak),
-specificFeedback (one weak line and its rewrite), actionItems (specific improvements).
+Reply with JSON, filling in these fields: score, positiveInsight (what works, quoting their roles) and actionItems (specific improvements).
 
 NOTE: This is a fallback analysis. Individual role analysis would provide better insights.`;
 }
@@ -227,7 +226,7 @@ Analyze the OVERALL career trajectory and experience section:
    - If metrics missing, be specific: "Quantify the 'API-first products' user base or revenue impact"
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above), gapAnalysis, specificFeedback and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or '10/10 Optimization').`;
+Reply with JSON: fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above) and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or '10/10 Optimization').`;
 }
 
 // Create specialized prompt for recommendations using Anthropic best practices
@@ -311,7 +310,7 @@ Analyze the recommendations section:
    - If they have good recommendations, suggest how to leverage them better
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight (what they have, even if it's 0), gapAnalysis, specificFeedback (quote a recommendation or describe the gap) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or '10/10 Optimization'; name people and companies when possible).`;
+Reply with JSON: fill in score, positiveInsight (what they have, even if it's 0) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or '10/10 Optimization'; name people and companies when possible).`;
 }
 
 // [CRITICAL_PATH:FIRST_IMPRESSION_AI] - P0: AI analysis for unified first impression
@@ -355,7 +354,7 @@ Analyze the first impression elements:
    - For scores 0-6: Focus on critical gaps first
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight, gapAnalysis (quote their actual headline), specificFeedback and actionItems (category: 'Profile Photo', 'Headline Enhancement' or '10/10 Optimization'; element: 'photo' or 'headline').`;
+Reply with JSON: fill in score, positiveInsight and actionItems (category: 'Profile Photo', 'Headline Enhancement' or '10/10 Optimization'; element: 'photo' or 'headline').`;
 }
 
 // [CRITICAL_PATH:ABOUT_SECTION_AI] - P0: Standalone About section analysis
@@ -401,18 +400,17 @@ Analyze the About section for strategic positioning:
    - Narrative clarity and flow
    - Positioning for target role
    - Professional tone and personal brand
+   - Major weaknesses throughout, including the first 2-3 lines and the story's flow
 
-3. Provide two distinct assessments:
-   - positiveInsight: What's working well (quote specific strong content)
-   - gapAnalysis: Major weaknesses throughout, including the first 2-3 lines and the story's flow (quote weak phrases)
+3. positiveInsight: What's working well (quote specific strong content)
 
-4. For action items:
+4. For action items (quote the weak phrases they fix):
    - If opening is weak: Show exact rewrite
    - If claims lack evidence: Quote the claim and suggest specific metrics
    - If flow is poor: Identify the disconnect and suggest restructuring
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight, gapAnalysis, specificFeedback (their weakest sentence) and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or '10/10 Refinement').`;
+Reply with JSON: fill in score, positiveInsight and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or '10/10 Refinement').`;
 }
 
 // Create specialized prompt for skills section
@@ -519,7 +517,7 @@ Analyze the skills section for quality and relevance:
    - Example bad feedback: "Move skill from position #1 to #1" (meaningless)
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight (their actual skills and endorsement counts), gapAnalysis, specificFeedback (their actual top 3 skills and how to position them) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or '10/10 Refinement'; name their actual skills).`;
+Reply with JSON: fill in score, positiveInsight (their actual skills and endorsement counts) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or '10/10 Refinement'; name their actual skills).`;
 }
 
 // Parse section analysis response. Providers return SECTION_SCHEMA JSON; slicing to the outer
@@ -537,9 +535,7 @@ function parseSectionAnalysis(response) {
       return {
         score: Math.min(10, Math.max(0, score)),
         positiveInsight: parsed.positiveInsight || '',
-        gapAnalysis: parsed.gapAnalysis || '',
-        actionItems,
-        specificFeedback: parsed.specificFeedback || null
+        actionItems
       };
     }
   } catch {
@@ -595,21 +591,10 @@ const str = description => ({ type: 'string', description });
 const SECTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['score', 'positiveInsight', 'gapAnalysis', 'specificFeedback', 'actionItems'],
+  required: ['score', 'positiveInsight', 'actionItems'],
   properties: {
     score: { type: 'integer', description: '0-10, where 10 is perfect for landing the target role' },
     positiveInsight: str('150-300 chars on what works, quoting their actual content'),
-    gapAnalysis: str('150-250 chars on the weakest areas, quoting their actual phrases'),
-    specificFeedback: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['originalLine', 'suggestion', 'why'],
-      properties: {
-        originalLine: str('The line or gap this addresses, quoted when it is a line'),
-        suggestion: str('The specific improvement'),
-        why: str('50-100 chars on why the rewrite is stronger')
-      }
-    },
     actionItems: {
       type: 'array',
       items: {
@@ -837,9 +822,7 @@ async function handleSectionAnalysis({ section, data, context }) {
     section,
     score: analysis.score,
     insight: analysis.positiveInsight,
-    gapAnalysis: analysis.gapAnalysis,
-    actionItems: analysis.actionItems,
-    specificFeedback: analysis.specificFeedback
+    actionItems: analysis.actionItems
   };
 }
 
