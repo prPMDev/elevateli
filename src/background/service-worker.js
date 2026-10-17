@@ -106,7 +106,7 @@ function createSectionPrompt(sectionName, content, config, context = {}) {
     return createRecommendationsPrompt(content, enhancedConfig, context);
   }
   
-  // Special handling for first impression (headline + photo + banner)
+  // Special handling for first impression (headline + photo)
   if (sectionName === 'first_impression' && typeof content === 'object') {
     return createFirstImpressionPrompt(content, enhancedConfig);
   }
@@ -329,7 +329,8 @@ Reply with JSON: fill in score, positiveInsight (what they have, even if it's 0)
 }
 
 // [CRITICAL_PATH:FIRST_IMPRESSION_AI] - P0: AI analysis for unified first impression
-// Create specialized prompt for first impression (headline + photo + banner)
+// Create specialized prompt for first impression (headline + photo). Only these are extracted, so the
+// prompt states nothing about the banner, Open to Work, Creator Mode or connections.
 function createFirstImpressionPrompt(firstImpressionData, config) {
   
   const prompt = `You are an expert LinkedIn profile optimizer analyzing first impressions for ${config.targetRole} positions at the ${config.seniorityLevel} level.
@@ -348,17 +349,12 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
    - Scores 0-6: START with critical gaps, then acknowledge strengths
    - Scores 7-10: START with what's working, END with refinements to reach 10/10
 3. Analyze how all elements work together for first impression
-4. Don't penalize for default banner - it's common and professional
 </critical_rules>
 
 <first_impression_data>
 HEADLINE: "${firstImpressionData.headline || '[NO HEADLINE - CRITICAL GAP]'}"
 Character Count: ${firstImpressionData.headlineCharCount || 0} of 220 maximum
 Profile Photo: ${firstImpressionData.photo?.exists ? 'Present ✓' : 'MISSING - Critical gap'}
-Background Banner: ${firstImpressionData.banner?.isCustomBanner ? 'Custom (good!)' : 'Default (normal, not a weakness)'}
-Open to Work: ${firstImpressionData.metadata?.openToWork ? 'Enabled' : 'Not enabled'}
-Creator Mode: ${firstImpressionData.metadata?.creatorMode ? 'Enabled' : 'Not enabled'}
-Connection Count: ${firstImpressionData.metadata?.connectionCount || 'Not visible'}
 </first_impression_data>
 
 <analysis_task>
@@ -367,14 +363,11 @@ Analyze the first impression elements:
 1. FIRST, evaluate what's present:
    - Headline quality and relevance to ${config.targetRole}
    - Profile photo presence (critical for trust)
-   - Banner customization (nice-to-have, not critical)
-   - Open to Work badge implications
 
 2. Score (0-10) based on:
    - Headline clarity and positioning (weighs heavily)
    - Photo presence (missing = cap at 5)
    - Overall professional presentation
-   - NOTE: Default banner is NORMAL, don't penalize heavily
 
 3. Provide feedback:
    - Quote the exact headline when discussing it
@@ -382,7 +375,7 @@ Analyze the first impression elements:
    - For scores 0-6: Focus on critical gaps first
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight, gapAnalysis (quote their actual headline), specificFeedback and actionItems (category: 'Profile Photo', 'Headline Enhancement', 'Visual Branding' or '10/10 Optimization'; element: 'photo', 'headline' or 'banner').`;
+Reply with JSON: fill in score, positiveInsight, gapAnalysis (quote their actual headline), specificFeedback and actionItems (category: 'Profile Photo', 'Headline Enhancement' or '10/10 Optimization'; element: 'photo' or 'headline').`;
 
   return prompt;
 }
@@ -673,7 +666,7 @@ const SECTION_SCHEMA = {
           impact: str('How it helps for the target role and level'),
           priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
           quotedContent: str('Exact quote from their profile this item addresses, or the specific gap'),
-          element: str("'photo', 'headline' or 'banner' for first-impression items, else ''")
+          element: str("'photo' or 'headline' for first-impression items, else ''")
         }
       }
     }
@@ -1103,7 +1096,7 @@ function handleSynthesisAnalysis(request, sendResponse) {
   let totalScore = 0;
   let totalWeight = 0;
   const weights = {
-    first_impression: 0.20,   // 20% - First impression (headline + photo + banner)
+    first_impression: 0.20,   // 20% - First impression (headline + photo)
     about: 0.25,              // 25% - Standalone about section
     experience_overall: 0.30, // 30% - Overall experience
     skills: 0.15,             // 15% - Skills
