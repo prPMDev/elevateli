@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>ElevateLI</title>
@@ -7,130 +7,119 @@
 </head>
 <body>
   <div class="popup-container">
-    <header id="mainHeader" style="display: flex; align-items: center; justify-content: space-between;">
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <img src="../images/icon48.png" alt="ElevateLI" style="width: 24px; height: 24px;">
-        <h3 style="margin: 0; font-size: 18px;">ElevateLI</h3>
+    <header id="mainHeader">
+      <div class="brand">
+        <img src="../images/icon48.png" alt="">
+        <h1>ElevateLI</h1>
       </div>
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <span class="version" style="font-size: 12px; color: #666;">v1.0.0</span>
-        <button id="reloadExtension" style="background: none; border: none; cursor: pointer; padding: 4px; color: #666; font-size: 16px;" title="Reload extension and page">↻</button>
-        <button id="settingsGear" class="hidden" style="background: none; border: none; cursor: pointer; padding: 4px; color: #666; font-size: 18px;" title="Settings">⚙️</button>
+      <div class="header-actions">
+        <span class="version"></span>
+        <button id="settingsGear" class="icon-button hidden" title="Settings" aria-label="Settings">⚙︎</button>
       </div>
     </header>
-    
-    <!-- First Time Setup - Welcoming onboarding (v0.6.0) -->
+
+    <!-- First Time Setup -->
     <div id="profileSetup" class="hidden">
       <div class="welcome-container" style="text-align: center; padding: 0;">
-        <h2 style="margin: 0 0 6px 0; font-size: 18px; color: #0a66c2;">Welcome! 🚀</h2>
-        
+        <h2 style="margin: 0 0 6px 0; font-size: 18px; color: #0a66c2;">Welcome</h2>
+
         <p style="margin: 0 0 12px 0; color: #666; font-size: 13px;">Elevate your LinkedIn profile with data-driven insights</p>
-        
-        <div class="value-props" style="display: flex; justify-content: space-around; margin: 12px 0; padding: 10px; background: #f3f7fa; border-radius: 8px;">
-          <div style="text-align: center; flex: 1;">
-            <span style="font-size: 18px;">📊</span>
-            <p style="margin: 2px 0 0 0; font-size: 11px; color: #444;">Instant completeness analysis</p>
-          </div>
-          <div style="text-align: center; flex: 1;">
-            <span style="font-size: 18px;">✨</span>
-            <p style="margin: 2px 0 0 0; font-size: 11px; color: #444;">Enhanced AI insights*</p>
-          </div>
-          <div style="text-align: center; flex: 1;">
-            <span style="font-size: 18px;">🎯</span>
-            <p style="margin: 2px 0 0 0; font-size: 11px; color: #444;">Personalized recommendations*</p>
-          </div>
+
+        <div class="value-props" style="display: flex; justify-content: space-around; gap: 8px; margin: 12px 0; padding: 10px; background: #f3f7fa; border-radius: 8px;">
+          <p style="flex: 1; font-size: 12px; color: #444;">Completeness score</p>
+          <p style="flex: 1; font-size: 12px; color: #444;">Tips for each section</p>
+          <p style="flex: 1; font-size: 12px; color: #444;">Writing ratings (needs AI)</p>
         </div>
-        
-        <p style="margin: 6px 0 0 0; font-size: 10px; color: #888; text-align: center;">* AI setup unlocks enhanced features</p>
-        
+
         <div class="compliance-notice" style="background: white; border: 1px solid #e1e9ee; border-radius: 8px; padding: 12px; margin: 12px 0;">
           <label class="checkbox-label" style="display: flex; align-items: flex-start; text-align: left; cursor: pointer;">
             <input type="checkbox" id="complianceCheck" style="margin-right: 8px; margin-top: 2px;">
             <div>
-              <strong style="color: #2e3338; font-size: 13px;">I'll analyze my own profile</strong>
-              <p style="margin: 2px 0 0 0; color: #666; font-size: 12px;">Get personalized insights for your career</p>
+              <strong style="color: #2e3338; font-size: 13px;">I'll use ElevateLI only on my own LinkedIn profile</strong>
+              <p style="margin: 2px 0 0 0; color: #666; font-size: 12px;">It's built to improve your profile, not to look at other people's.</p>
             </div>
           </label>
         </div>
-        
-        <button id="acknowledgeCompliance" class="primary-button" disabled style="width: 100%; padding: 12px; font-size: 16px; font-weight: 600; background: #0a66c2; color: white; border: none; border-radius: 24px; cursor: not-allowed; position: relative; opacity: 0.6; transition: all 0.2s ease;">
-          Get Started
-        </button>
-        <p id="buttonHint" style="margin: 8px 0 0 0; font-size: 11px; color: #666; text-align: center;">Check the box above to continue</p>
+
+        <button id="acknowledgeCompliance" class="primary-button" disabled>Get started</button>
+        <p id="buttonHint" style="margin: 8px 0 0 0; font-size: 12px; color: #666; text-align: center;">Check the box above to continue</p>
+        <div id="setupError" class="error-text" role="alert"></div>
       </div>
     </div>
-    
+
     <!-- Active State Main View -->
     <div id="activeMain" class="hidden">
-      <div class="active-profile">
-        <span class="active-checkmark">✓</span>
-        <span class="active-text">Active: <span id="activeProfileName">Loading...</span></span>
-      </div>
-      
+      <p class="active-profile">
+        <span class="active-checkmark" aria-hidden="true">✓</span>
+        <span>Your profile: <span id="activeProfileName"></span></span>
+      </p>
+
       <div class="linkedin-cta">
-        <p class="cta-icon">💡</p>
-        <p class="cta-text">Go to your LinkedIn profile<br>to see your analysis</p>
+        <p id="onProfileText" class="cta-text hidden">Your results are in the ElevateLI bar on this page.</p>
+        <button id="openProfileBtn" class="primary-button">Open my profile</button>
       </div>
-      
+
       <div class="current-settings">
-        <h4>Current Settings:</h4>
+        <h2>Current settings</h2>
         <ul class="settings-status">
-          <li>• Analysis on profile - <span id="analysisStatus">On</span></li>
-          <li>• Target role - <span id="targetRoleStatus">Not set</span></li>
-          <li>• AI analysis - <span id="aiAnalysisStatus">Not configured</span></li>
-          <li>• Custom instructions - <span id="customInstructionsStatus">No</span></li>
+          <li>Show analysis on profile: <span id="analysisStatus">On</span></li>
+          <li>AI analysis: <span id="aiAnalysisStatus">Not set up</span></li>
         </ul>
       </div>
     </div>
-    
-    <!-- Settings View -->
+
+    <!-- Settings View: every change saves as it is made -->
     <div id="settingsView" class="hidden">
       <header class="settings-header">
         <button id="backButton" class="back-button">← Back</button>
-        <h3>Settings</h3>
+        <h2>Settings</h2>
       </header>
-      
+
       <div class="settings-content">
-        <!-- Display Section -->
         <div class="settings-section">
-          <h4>DISPLAY</h4>
+          <h3>Display</h3>
           <label class="toggle-wrapper">
             <input type="checkbox" id="settingsShowAnalysis" class="toggle-input" checked>
             <span class="toggle-slider"></span>
-            <span class="toggle-text">Show Analysis on Profile</span>
+            <span class="toggle-text">Show analysis on profile</span>
           </label>
         </div>
-        
-        <!-- AI Enhancement Section -->
+
         <div class="settings-section">
-          <h4>AI ENHANCEMENT</h4>
+          <h3>AI analysis</h3>
           <label class="toggle-wrapper">
             <input type="checkbox" id="settingsEnableAI" class="toggle-input">
             <span class="toggle-slider"></span>
-            <span class="toggle-text">Enable AI Analysis</span>
+            <span class="toggle-text">Enable AI analysis</span>
           </label>
-          
+          <p class="cost-hint">When on, the profile sections being reviewed (including recommendations and who wrote them) go straight from your browser to the provider you pick, never to us. Free Gemini keys: Google may use this text to improve its products. <a href="../../privacy-terms.html#privacy" target="_blank">Privacy details</a></p>
+
           <div id="aiConfigSection" class="ai-config-section hidden">
-            <select id="settingsAiProvider" class="settings-select">
+            <select id="settingsAiProvider" class="settings-select" aria-label="AI provider">
               <option value="">Select AI provider...</option>
               <option value="gemini" data-key-url="https://aistudio.google.com/apikey" data-pricing-url="https://ai.google.dev/gemini-api/docs/pricing">Google Gemini</option>
               <option value="openai" data-key-url="https://platform.openai.com/api-keys" data-pricing-url="https://developers.openai.com/api/docs/pricing">OpenAI or local (Ollama, LM Studio)</option>
               <option value="anthropic" data-key-url="https://platform.claude.com/settings/keys" data-pricing-url="https://claude.com/pricing#api">Anthropic Claude</option>
             </select>
-            <div id="baseUrlGroup" class="hidden">
-              <input type="url" id="settingsBaseUrl" placeholder="https://api.openai.com/v1" class="settings-input">
-              <p class="cost-hint">Local server: e.g. http://localhost:11434/v1, no key needed. Ollama: set OLLAMA_ORIGINS=chrome-extension://*</p>
-            </div>
-            <input type="password" id="settingsApiKey" placeholder="Enter your API key" class="settings-input">
-            <div id="apiKeyError" class="error-text">API key required</div>
-            <select id="settingsAiModel" class="settings-select">
+            <label for="settingsApiKey" class="settings-label">API key</label>
+            <input type="password" id="settingsApiKey" placeholder="Paste your API key" class="settings-input">
+            <div id="apiKeyError" class="error-text" role="alert"></div>
+            <select id="settingsAiModel" class="settings-select" aria-label="AI model">
               <option value="">Enter your API key to load models</option>
             </select>
-            <p class="cost-hint"><a id="pricingLink" href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank">Pricing →</a> • <a id="getKeyLink" href="https://aistudio.google.com/apikey" target="_blank">Get key →</a></p>
-            
-            <!-- Target Role & Custom Instructions (moved inside AI config) -->
+            <div id="modelError" class="error-text" role="alert"></div>
+            <p class="cost-hint">Tip: a flash, mini or haiku model is cheap and works well.</p>
+            <details id="baseUrlGroup" class="hidden">
+              <summary>Use a local model (Ollama / LM Studio)</summary>
+              <label for="settingsBaseUrl" class="settings-label">Server URL (optional)</label>
+              <input type="url" id="settingsBaseUrl" placeholder="http://localhost:11434/v1" class="settings-input">
+              <p class="cost-hint">Leave empty for OpenAI. A local server needs no key. For Ollama, set OLLAMA_ORIGINS=chrome-extension://*</p>
+            </details>
+            <p class="cost-hint"><a id="getKeyLink" href="https://aistudio.google.com/apikey" target="_blank">Get an API key</a><span class="separator">•</span><a id="pricingLink" href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank">Pricing</a></p>
+
+            <!-- Target role & custom instructions only feed the AI prompts -->
             <div class="ai-subsection">
-              <label class="settings-label">Target Role</label>
+              <label for="settingsTargetRole" class="settings-label">Target role</label>
               <select id="settingsTargetRole" class="settings-select">
                 <option value="">Select your target role...</option>
                 <option value="product-manager">Product Manager</option>
@@ -144,10 +133,9 @@
                 <option value="general">General Professional</option>
                 <option value="other">Other (specify)</option>
               </select>
-              <input type="text" id="settingsCustomRole" class="settings-input hidden" placeholder="Enter your target role (e.g., DevOps Engineer, UX Researcher)" style="margin-top: 8px;">
-              <div id="customRoleError" class="error-text">Please enter your target role</div>
-              
-              <label class="settings-label">Target Level</label>
+              <input type="text" id="settingsCustomRole" class="settings-input hidden" aria-label="Custom target role" placeholder="Enter your target role (e.g., DevOps Engineer, UX Researcher)">
+
+              <label for="settingsSeniorityLevel" class="settings-label">Target level</label>
               <select id="settingsSeniorityLevel" class="settings-select">
                 <option value="">Select target level...</option>
                 <option value="entry">Entry Level</option>
@@ -156,63 +144,57 @@
                 <option value="lead">Lead/Principal</option>
                 <option value="director">Director+</option>
               </select>
-              
-              <label class="settings-label">Custom Instructions</label>
-              <textarea id="settingsCustomInstructions" class="settings-textarea" 
-                        placeholder="e.g., Focus on leadership experience, highlight international work..." 
+
+              <label for="settingsCustomInstructions" class="settings-label">Custom instructions</label>
+              <textarea id="settingsCustomInstructions" class="settings-textarea"
+                        placeholder="e.g., Focus on leadership experience, highlight international work..."
                         rows="3"></textarea>
             </div>
           </div>
         </div>
-        
-        <button id="saveSettingsBtn" class="primary-button">Save Settings</button>
-        
+
         <div class="settings-footer">
-          <a href="#" id="settingsResetAnalysis">Reset Profile Analysis</a>
+          <button type="button" id="settingsClearApiKey">Clear API key</button>
           <span class="separator">•</span>
-          <a href="#" id="settingsClearApiKey">Clear API Key</a>
-          <span class="separator">•</span>
-          <a href="#" id="settingsResetAll">Reset All</a>
+          <button type="button" id="settingsResetAll">Reset all</button>
+          <p id="settingsStatus" class="cost-hint" role="status"></p>
         </div>
       </div>
     </div>
-    
-    <!-- Confirmation Dialog -->
-    <div id="confirmDialog" class="confirm-overlay hidden">
-      <div class="confirm-content">
-        <p class="confirm-message"></p>
+
+    <!-- Confirmation Dialog: Esc or Cancel closes it with returnValue '' / 'no' -->
+    <dialog id="confirmDialog" class="confirm-content" aria-labelledby="confirmTitle" aria-describedby="confirmMessage">
+      <form method="dialog">
+        <h2 id="confirmTitle" class="confirm-title"></h2>
+        <p id="confirmMessage" class="confirm-message"></p>
         <div class="confirm-buttons">
-          <button class="confirm-yes">Confirm</button>
-          <button class="confirm-no">Cancel</button>
+          <button value="no" class="confirm-no" autofocus>Cancel</button>
+          <button value="yes" class="confirm-yes">Confirm</button>
         </div>
-      </div>
-    </div>
-    
+      </form>
+    </dialog>
+
     <div class="footer-links">
-      <a href="#" 
+      <a href="#"
          id="terms-link"
          data-url="privacy-terms.html#terms">
         Terms
       </a>
       <span class="separator">•</span>
-      <a href="#" 
+      <a href="#"
          id="privacy-link"
          data-url="privacy-terms.html#privacy">
         Privacy
       </a>
       <span class="separator">•</span>
-      <a href="https://github.com/prPMDev/elevateli/issues" 
-         target="_blank" 
+      <a href="https://github.com/prPMDev/elevateli/issues/new"
+         target="_blank"
          rel="noopener">
-        💬 Feedback
+        Send feedback
       </a>
     </div>
-    
-    <div class="footer-message">
-      Built with ❤️ for job seekers everywhere
-    </div>
   </div>
-  
+
   <script src="popup.js"></script>
 </body>
 </html>

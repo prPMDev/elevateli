@@ -5,74 +5,60 @@ document.addEventListener('DOMContentLoaded', async () => {
   const activeMainDiv = document.getElementById('activeMain');
   const profileSetupDiv = document.getElementById('profileSetup');
   const settingsViewDiv = document.getElementById('settingsView');
-  
+
   // Header elements
   const settingsGearBtn = document.getElementById('settingsGear');
-  const reloadExtensionBtn = document.getElementById('reloadExtension');
-  
+
   // Settings view elements
   const backButton = document.getElementById('backButton');
   const settingsShowAnalysisToggle = document.getElementById('settingsShowAnalysis');
   const settingsEnableAIToggle = document.getElementById('settingsEnableAI');
   const settingsAiProviderSelect = document.getElementById('settingsAiProvider');
   const settingsBaseUrlInput = document.getElementById('settingsBaseUrl');
+  const baseUrlGroup = document.getElementById('baseUrlGroup');
   const settingsAiModelSelect = document.getElementById('settingsAiModel');
   const settingsApiKeyInput = document.getElementById('settingsApiKey');
+  const apiKeyError = document.getElementById('apiKeyError');
+  const modelError = document.getElementById('modelError');
   const settingsTargetRoleSelect = document.getElementById('settingsTargetRole');
   const settingsCustomRoleInput = document.getElementById('settingsCustomRole');
   const settingsSeniorityLevelSelect = document.getElementById('settingsSeniorityLevel');
   const settingsCustomInstructionsTextarea = document.getElementById('settingsCustomInstructions');
-  const saveSettingsBtn = document.getElementById('saveSettingsBtn');
-  const settingsResetAnalysisLink = document.getElementById('settingsResetAnalysis');
-  const settingsClearApiKeyLink = document.getElementById('settingsClearApiKey');
-  const settingsResetAllLink = document.getElementById('settingsResetAll');
+  const settingsClearApiKeyBtn = document.getElementById('settingsClearApiKey');
+  const settingsResetAllBtn = document.getElementById('settingsResetAll');
+  const settingsStatus = document.getElementById('settingsStatus');
   const aiConfigSection = document.getElementById('aiConfigSection');
-  
+
   // Active main view elements
   const activeProfileName = document.getElementById('activeProfileName');
   const analysisStatus = document.getElementById('analysisStatus');
-  const targetRoleStatus = document.getElementById('targetRoleStatus');
   const aiAnalysisStatus = document.getElementById('aiAnalysisStatus');
-  const customInstructionsStatus = document.getElementById('customInstructionsStatus');
-  
+  const openProfileBtn = document.getElementById('openProfileBtn');
+  const onProfileText = document.getElementById('onProfileText');
+
   // Other elements
   const complianceCheck = document.getElementById('complianceCheck');
   const acknowledgeComplianceBtn = document.getElementById('acknowledgeCompliance');
+  const setupError = document.getElementById('setupError');
   const confirmDialog = document.getElementById('confirmDialog');
-  const confirmMessage = confirmDialog?.querySelector('.confirm-message');
-  const confirmYesBtn = confirmDialog?.querySelector('.confirm-yes');
-  const confirmNoBtn = confirmDialog?.querySelector('.confirm-no');
-  
+  const confirmTitle = document.getElementById('confirmTitle');
+  const confirmMessage = document.getElementById('confirmMessage');
+  const confirmYesBtn = confirmDialog.querySelector('.confirm-yes');
+
+  document.querySelector('.version').textContent = 'v' + chrome.runtime.getManifest().version;
+
   // Handle gear icon click
-  settingsGearBtn?.addEventListener('click', async () => {
-    await showView('settings');
+  settingsGearBtn.addEventListener('click', () => {
+    showView('settings');
+    backButton.focus();
   });
-  
+
   // Handle back button click
-  backButton?.addEventListener('click', async () => {
-    await showView('activeMain');
+  backButton.addEventListener('click', () => {
+    showView('activeMain');
+    settingsGearBtn.focus();
   });
-  
-  // Handle reload button in header
-  reloadExtensionBtn?.addEventListener('click', async () => {
-    try {
-      // Get current active tab
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
-      // Reload the extension
-      chrome.runtime.reload();
-      
-      // Reload the current tab
-      if (tab?.id) {
-        chrome.tabs.reload(tab.id);
-      }
-      
-      // Close the popup
-      window.close();
-    } catch (error) {
-    }
-  });
-  
+
   // Load current settings
   const settings = await chrome.storage.local.get([
     'aiProvider',
@@ -87,18 +73,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     'seniorityLevel',
     'compliance',
     'userProfile',
-    'lastAnalyzed'
+    'settingsDraft'
   ]);
-  
+  // activeTab exposes the URL of whatever tab the popup was opened on
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
   // Check configuration states
   const hasCompliance = settings.compliance?.hasAcknowledged;
-  
+
   // Sync settings across popup instances and tabs
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
       const updates = {};
       ['showAnalysis', 'enableAI', 'targetRole', 'customRole', 'seniorityLevel'].forEach(key => {
-        // Skip values this popup already holds (its own writes), so a sync never wipes unsaved form edits
+        // Skip values this popup already holds (its own writes), so a sync never wipes form edits
         if (changes[key] && changes[key].newValue !== settings[key]) updates[key] = changes[key].newValue;
       });
       if (Object.keys(updates).length) {
@@ -108,336 +96,134 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     }
   });
-  
+
   // View management functions
   function showView(viewName) {
-    // Hide all views
-    profileSetupDiv.classList.add('hidden');
-    activeMainDiv.classList.add('hidden');
-    settingsViewDiv.classList.add('hidden');
-    
-    // Clear any validation errors when switching views
+    profileSetupDiv.classList.toggle('hidden', viewName !== 'profileSetup');
+    activeMainDiv.classList.toggle('hidden', viewName !== 'activeMain');
+    settingsViewDiv.classList.toggle('hidden', viewName !== 'settings');
+    settingsGearBtn.classList.toggle('hidden', viewName !== 'activeMain');
+    if (viewName === 'activeMain') updateActiveMainView();
     if (viewName === 'settings') {
-      // Clear field errors when entering settings
-      clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
-      clearFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'));
-      clearFieldError(settingsAiModelSelect, null);
-    }
-    
-    // Show requested view
-    switch(viewName) {
-      case 'profileSetup':
-        profileSetupDiv.classList.remove('hidden');
-        settingsGearBtn.classList.add('hidden');
-        break;
-      case 'activeMain':
-        activeMainDiv.classList.remove('hidden');
-        settingsGearBtn.classList.remove('hidden');
-        updateActiveMainView();
-        break;
-      case 'settings':
-        settingsViewDiv.classList.remove('hidden');
-        settingsGearBtn.classList.add('hidden');
-        updateSettingsView();
-        // Provider/model are set only on open, so storage syncs can't reset them mid-edit
-        settingsAiProviderSelect.value = settings.aiProvider || '';
-        settingsBaseUrlInput.value = settings.aiBaseUrl || '';
-        onProviderChange();
-        break;
+      settingsStatus.textContent = '';
+      updateSettingsView();
+      onProviderChange();
     }
   }
-  
-  // Show custom confirmation dialog (supports HTML)
-  function showConfirmDialog(message, isHtml = false) {
-    return new Promise((resolve) => {
-      // Defensive check: validate message parameter
-      if (typeof message !== 'string' || !message) {
-        console.error('[showConfirmDialog] Invalid message:', { message, type: typeof message, isHtml });
-        resolve(confirm('Are you sure?')); // Fallback
-        return;
-      }
 
-      if (!confirmDialog || !confirmMessage) {
-        // Fallback to browser confirm
-        console.warn('[showConfirmDialog] Dialog elements not found, using browser confirm');
-        resolve(confirm(message));
-        return;
-      }
-
-      console.log('[showConfirmDialog] Called with:', {
-        messageLength: message.length,
-        messagePreview: message.substring(0, 50) + '...',
-        isHtml
-      });
-
-      // Support HTML content if specified
-      if (isHtml) {
-        try {
-          // Use DOMParser for safe HTML rendering (Chrome Web Store compliant)
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(message, 'text/html');
-          confirmMessage.textContent = '';
-          Array.from(doc.body.childNodes).forEach(node => {
-            confirmMessage.appendChild(node.cloneNode(true));
-          });
-          console.log('[showConfirmDialog] HTML content rendered successfully');
-        } catch (error) {
-          console.error('[showConfirmDialog] HTML parsing failed:', error);
-          confirmMessage.textContent = message; // Fallback to plain text
-        }
-      } else {
-        confirmMessage.textContent = message;
-        console.log('[showConfirmDialog] Plain text content set');
-      }
-      confirmDialog.classList.remove('hidden');
-      
-      // Update button text based on message content
-      if (confirmYesBtn) {
-        confirmYesBtn.textContent = message.includes('not verified') ? 'Continue Anyway' : 'Confirm';
-      }
-      
-      const handleYes = () => {
-        cleanup();
-        resolve(true);
-      };
-      
-      const handleNo = () => {
-        cleanup();
-        resolve(false);
-      };
-      
-      const cleanup = () => {
-        confirmDialog.classList.add('hidden');
-        confirmYesBtn.removeEventListener('click', handleYes);
-        confirmNoBtn.removeEventListener('click', handleNo);
-        // Reset button text
-        if (confirmYesBtn) {
-          confirmYesBtn.textContent = 'Confirm';
-        }
-      };
-      
-      confirmYesBtn.addEventListener('click', handleYes);
-      confirmNoBtn.addEventListener('click', handleNo);
+  // Resolves true only for the confirm button; Cancel and Esc resolve false
+  function showConfirmDialog(title, body, yesLabel = 'Confirm', danger = false) {
+    confirmTitle.textContent = title;
+    confirmMessage.textContent = body;
+    confirmYesBtn.textContent = yesLabel;
+    confirmYesBtn.classList.toggle('danger', danger);
+    confirmDialog.returnValue = ''; // Esc leaves the previous value in place
+    confirmDialog.showModal();
+    return new Promise(resolve => {
+      confirmDialog.addEventListener('close', () => resolve(confirmDialog.returnValue === 'yes'), { once: true });
     });
   }
-  
-  // [CRITICAL_PATH:SETTINGS_MANAGEMENT] - Centralized settings handler
-  const SettingsManager = {
-    // Single source of truth for settings updates
-    async updateAndSync(changes) {
-      // Update local cache
-      Object.assign(settings, changes);
-      
-      // Update homepage if visible
-      if (!activeMainDiv?.classList.contains('hidden')) {
-        updateActiveMainView();
-      }
-      
-      // Notify overlay only for showAnalysis changes
-      if (changes.showAnalysis !== undefined) {
-        // Persist first: the toggle applies live, and the content script re-reads it from storage
-        await chrome.storage.local.set({ showAnalysis: changes.showAnalysis });
-        const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-        if (tab?.url?.includes('linkedin.com/in/')) {
-          chrome.tabs.sendMessage(tab.id, {
-            action: 'updateOverlayVisibility',
-            showAnalysis: changes.showAnalysis
-          }).catch(() => {});
-        }
-      }
-    }
-  };
-  
+
+  // [CRITICAL_PATH:SETTINGS_MANAGEMENT] - Every settings change saves as it is made.
+  // Open LinkedIn tabs pick the changes up from chrome.storage.onChanged.
+  function saveSettings(changes) {
+    Object.assign(settings, changes);
+    return chrome.storage.local.set(changes);
+  }
+
   function updateActiveMainView() {
-    // Update status displays in active main view
-    if (analysisStatus) analysisStatus.textContent = settings.showAnalysis !== false ? 'On' : 'Off';
-    if (targetRoleStatus) targetRoleStatus.textContent = (settings.targetRole === 'other' && settings.customRole) || settings.targetRole || 'Not set';
-    if (aiAnalysisStatus) {
-      const hasApiKey = !!settings.encryptedApiKey;
-      const hasProvider = !!settings.aiProvider;
-      aiAnalysisStatus.textContent = (hasApiKey && hasProvider && settings.enableAI) ? 'Configured' : 'Not configured';
-    }
-    if (customInstructionsStatus) {
-      customInstructionsStatus.textContent = settings.customInstructions ? 'Yes' : 'No';
-    }
-    if (activeProfileName && settings.userProfile) {
-      activeProfileName.textContent = settings.userProfile.profileName || settings.userProfile.profileId || 'Your Profile';
-    }
+    analysisStatus.textContent = settings.showAnalysis !== false ? 'On' : 'Off';
+    aiAnalysisStatus.textContent = !(settings.encryptedApiKey && settings.aiProvider && settings.aiModel) ? 'Not set up'
+      : settings.enableAI ? 'On' : 'Off';
+    const profileId = settings.userProfile?.profileId;
+    activeProfileName.textContent = settings.userProfile?.profileName || profileId || '';
+    // On the profile itself (not a /details/ subpage) the overlay is right there
+    const onProfile = !!profileId && activeTab?.url?.match(/linkedin\.com\/in\/([^\/?#]+)\/?(?:[?#]|$)/)?.[1] === profileId;
+    openProfileBtn.classList.toggle('hidden', onProfile);
+    onProfileText.classList.toggle('hidden', !onProfile);
   }
-  
-  function updateSettingsView() {
-    // Update all settings controls with current values
-    if (settingsShowAnalysisToggle) settingsShowAnalysisToggle.checked = settings.showAnalysis !== false;
-    if (settingsEnableAIToggle) settingsEnableAIToggle.checked = settings.enableAI === true;
-    if (settingsApiKeyInput && settings.encryptedApiKey) {
-      settingsApiKeyInput.value = '••••••••••••';
-    }
-    if (settingsTargetRoleSelect) {
-      settingsTargetRoleSelect.value = settings.targetRole || '';
-      // Handle custom role visibility
-      if (settingsCustomRoleInput) {
-        if (settings.targetRole === 'other' || settings.targetRole === 'Other') {
-          settingsCustomRoleInput.classList.remove('hidden');
-          settingsCustomRoleInput.value = settings.customRole || '';
-        } else {
-          settingsCustomRoleInput.classList.add('hidden');
-        }
-      }
-    }
-    if (settingsSeniorityLevelSelect) settingsSeniorityLevelSelect.value = settings.seniorityLevel || '';
-    if (settingsCustomInstructionsTextarea) settingsCustomInstructionsTextarea.value = settings.customInstructions || '';
-    
-    // Update AI config section visibility
-    if (aiConfigSection) {
-      if (settingsEnableAIToggle?.checked) {
-        aiConfigSection.classList.remove('hidden');
-      } else {
-        aiConfigSection.classList.add('hidden');
-      }
-    }
-  }
-  
-  // Determine which UI to show
-  if (!hasCompliance) {
-    // Show compliance setup first
-    showView('profileSetup');
-  } else {
-    // Always go to main view after compliance
-    // AI setup is optional and accessed through settings
-    showView('activeMain');
-    
-  }
-  
-  
-  // Handle compliance checkbox
-  complianceCheck?.addEventListener('change', () => {
-    if (acknowledgeComplianceBtn) {
-      acknowledgeComplianceBtn.disabled = !complianceCheck.checked;
-      // Update button styles
-      if (complianceCheck.checked) {
-        acknowledgeComplianceBtn.style.opacity = '1';
-        acknowledgeComplianceBtn.style.cursor = 'pointer';
-      } else {
-        acknowledgeComplianceBtn.style.opacity = '0.6';
-        acknowledgeComplianceBtn.style.cursor = 'not-allowed';
-      }
-      // Update hint text
-      const buttonHint = document.getElementById('buttonHint');
-      if (buttonHint) {
-        buttonHint.style.display = complianceCheck.checked ? 'none' : 'block';
-      }
-    }
+
+  // Built from the id, not the saved URL, which can be the subpage setup ran on
+  openProfileBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: `https://www.linkedin.com/in/${settings.userProfile?.profileId || 'me'}/` });
   });
-  
+
+  function updateSettingsView() {
+    settingsShowAnalysisToggle.checked = settings.showAnalysis !== false;
+    settingsEnableAIToggle.checked = settings.enableAI === true;
+    aiConfigSection.classList.toggle('hidden', !settingsEnableAIToggle.checked);
+    settingsTargetRoleSelect.value = settings.targetRole || '';
+    settingsCustomRoleInput.classList.toggle('hidden', settings.targetRole !== 'other');
+    settingsCustomRoleInput.value = settings.customRole || '';
+    settingsSeniorityLevelSelect.value = settings.seniorityLevel || '';
+    settingsCustomInstructionsTextarea.value = settings.customInstructions || '';
+  }
+
+  // Setup: on a LinkedIn profile the button saves it; anywhere else it opens the user's profile
+  const onProfilePage = !!activeTab?.url?.includes('linkedin.com/in/');
+  if (!onProfilePage) {
+    document.querySelector('.compliance-notice').classList.add('hidden');
+    acknowledgeComplianceBtn.disabled = false;
+    acknowledgeComplianceBtn.textContent = 'Open my LinkedIn profile';
+  }
+
+  // Determine which UI to show
+  showView(hasCompliance ? 'activeMain' : 'profileSetup');
+
+  // Handle compliance checkbox (CSS hides the hint once the button is enabled)
+  complianceCheck.addEventListener('change', () => {
+    acknowledgeComplianceBtn.disabled = !complianceCheck.checked;
+  });
+
   // Handle compliance acknowledgment
-  acknowledgeComplianceBtn?.addEventListener('click', async () => {
-    // Get current tab to save profile
-    const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-    
-    if (tab && tab.url && tab.url.includes('linkedin.com/in/')) {
-      // Save profile ownership acknowledgment
-      try {
-        // Check profile WITHOUT saving. A tab opened before install/reload has no live
-        // content script, so this rejects with 'Could not establish connection' and the
-        // catch below offers a refresh (which loads the manifest's content scripts).
-        const response = await chrome.tabs.sendMessage(tab.id, {
-          action: 'saveProfile',
-          checkOnly: true  // Just check, don't save yet
-        });
-        
-        if (response && response.success) {
-          // Check if ownership was verified
-          const hasOwnership = response.userProfile?.verifiedOwnership;
-          const profileName = response.userProfile?.profileName || response.userProfile?.profileId || 'Unknown';
-          // The name comes from the LinkedIn page; escape it before it goes into the HTML message
-          const safeName = String(profileName).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+  acknowledgeComplianceBtn.addEventListener('click', async () => {
+    if (!onProfilePage) {
+      // create, not update, so an unrelated tab (Gmail, the install page) is never replaced
+      chrome.tabs.create({ url: 'https://www.linkedin.com/in/me/' });
+      window.close();
+      return;
+    }
+    clearFieldError(null, setupError);
+    try {
+      // A tab opened before install/reload has no live content script, so this rejects with
+      // 'Could not establish connection' and the catch below offers a refresh (which loads the manifest's content scripts).
+      const response = await chrome.tabs.sendMessage(activeTab.id, { action: 'saveProfile', checkOnly: true });
+      if (!response?.success) {
+        showFieldError(null, setupError, 'Open your own LinkedIn profile (not a section page), then try again.');
+        return;
+      }
 
-          // Build improved confirmation message
-          let confirmMsg;
+      const { userProfile } = response;
+      // Ticking the box already confirmed ownership; ask again only when the page doesn't look like the user's
+      const confirmed = userProfile.verifiedOwnership || await showConfirmDialog(
+        'This doesn\'t look like your own profile',
+        `ElevateLI only analyzes yours. Continue only if ${userProfile.profileName || userProfile.profileId} is you.`,
+        'Continue anyway'
+      );
+      if (!confirmed) return;
 
-          if (hasOwnership) {
-            confirmMsg = `Ready to save profile <b>${safeName}</b><br><br>
-            ✅ Ownership verified<br><br>
-            Continue?`;
-          } else {
-            confirmMsg = `Profile detected <b>${safeName}</b><br><br>
-            ⚠️ <span style="color: #dc2626;">Ownership not verified</span><br>
-            ElevateLI works best with your own profile.<br><br>
-            Continue anyway?`;
-          }
+      await chrome.storage.local.set({
+        compliance: {
+          hasAcknowledged: true,
+          acknowledgedAt: Date.now(),
+          version: '1.0'
+        },
+        userProfile
+      });
+      // Open tabs update from storage.onChanged; this builds the overlay if this tab has none yet
+      chrome.tabs.sendMessage(activeTab.id, { action: 'showOverlay' }).catch(() => {});
 
-          // Defensive logging
-          console.log('[acknowledgeCompliance] About to show dialog:', {
-            profileName,
-            hasOwnership,
-            confirmMsgType: typeof confirmMsg,
-            confirmMsgLength: confirmMsg?.length,
-            confirmMsgPreview: confirmMsg?.substring(0, 50)
-          });
-
-          // Show confirmation dialog with HTML support
-          const confirmed = await showConfirmDialog(confirmMsg, true);
-          
-          if (!confirmed) {
-            // User cancelled - clear checkbox and stay on setup page
-            if (complianceCheck) {
-              complianceCheck.checked = false;
-              // Trigger change event to update button state
-              complianceCheck.dispatchEvent(new Event('change'));
-            }
-            return;
-          }
-          
-          // NOW actually save the profile (user confirmed)
-          const saveResponse = await chrome.tabs.sendMessage(tab.id, { 
-            action: 'saveProfile'
-            // No checkOnly flag, so it will save
-          });
-          
-          if (!saveResponse || !saveResponse.success) {
-            alert('Failed to save profile. Please try again.');
-            return;
-          }
-          
-          // Save compliance
-          await chrome.storage.local.set({
-            compliance: {
-              hasAcknowledged: true,
-              acknowledgedAt: Date.now(),
-              version: '1.0'
-            },
-            userProfile: response.userProfile
-          });
-          
-          // Update compliance state in content script
-          await chrome.tabs.sendMessage(tab.id, {
-            action: 'updateComplianceState',
-            hasCompliance: true
-          });
-          
-          // Show overlay on the profile
-          await chrome.tabs.sendMessage(tab.id, {
-            action: 'showOverlay'
-          });
-          
-          // Move to main view (not AI setup)
-          settings.userProfile = response.userProfile;
-          showView('activeMain');
-        } else {
-          alert('Failed to save profile. Please ensure you are on your LinkedIn profile.');
-        }
-      } catch (error) {
-        
-        // Check if it's a connection error (content script not loaded)
-        if (error.message && error.message.includes('Could not establish connection')) {
-          // Show refresh message using existing UI pattern
-          (() => {
+      settings.userProfile = userProfile;
+      showView('activeMain');
+      settingsGearBtn.focus();
+    } catch (error) {
+      if (error.message?.includes('Could not establish connection')) {
         const parser = new DOMParser();
         const htmlContent = `
             <div style="text-align: center; padding: 20px; background: #fef3c7; border-radius: 8px; margin: 10px 0;">
-              <p style="color: #92400e; font-weight: 500; margin-bottom: 8px;">🔄 Refresh needed</p>
+              <p style="color: #92400e; font-weight: 500; margin-bottom: 8px;">Refresh needed</p>
               <p style="color: #78350f; font-size: 14px; margin-bottom: 12px;">Refresh your LinkedIn tab to finish setup</p>
-              <button id="refreshTab" class="primary-button" style="background: #f59e0b;">Refresh LinkedIn Tab</button>
+              <button id="refreshTab" class="primary-button">Refresh LinkedIn tab</button>
             </div>
           `;
         const doc = parser.parseFromString(htmlContent, 'text/html');
@@ -446,130 +232,78 @@ document.addEventListener('DOMContentLoaded', async () => {
           fragment.appendChild(node.cloneNode(true));
         });
         profileSetupDiv.replaceChildren(fragment);
-      })();
-          
-          document.getElementById('refreshTab')?.addEventListener('click', () => {
-            chrome.tabs.reload(tab.id);
-            window.close(); // Close popup after refreshing
-          });
-        } else {
-          alert('Failed to save profile. Please refresh the page and try again.');
-        }
+
+        document.getElementById('refreshTab')?.addEventListener('click', () => {
+          chrome.tabs.reload(activeTab.id);
+          window.close(); // Close popup after refreshing
+        });
+      } else {
+        showFieldError(null, setupError, 'Could not save your profile. Refresh the page and try again.');
       }
-    } else {
-      alert('Please navigate to your LinkedIn profile first.');
     }
   });
-  
-  
+
+
   // Settings view event handlers
-  settingsEnableAIToggle?.addEventListener('change', (e) => {
-    if (aiConfigSection) {
-      aiConfigSection.classList.toggle('hidden', !e.target.checked);
-      if (!e.target.checked) {
-        clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
-        clearFieldError(settingsAiModelSelect, null);
-      }
-    }
+  settingsEnableAIToggle.addEventListener('change', (e) => {
+    saveSettings({ enableAI: e.target.checked }); // safe without a key: analysis needs enableAI, a key and a provider
+    aiConfigSection.classList.toggle('hidden', !e.target.checked);
     if (e.target.checked) onProviderChange(); // models load only once AI is on
   });
-  
-  // Real-time overlay sync when toggled
-  settingsShowAnalysisToggle?.addEventListener('change', (e) => {
-    SettingsManager.updateAndSync({ showAnalysis: e.target.checked });
+
+  settingsShowAnalysisToggle.addEventListener('change', (e) => saveSettings({ showAnalysis: e.target.checked }));
+
+  settingsTargetRoleSelect.addEventListener('change', (e) => {
+    settingsCustomRoleInput.classList.toggle('hidden', e.target.value !== 'other');
+    saveSettings({ targetRole: e.target.value });
   });
-  
-  settingsTargetRoleSelect?.addEventListener('change', (e) => {
-    if (settingsCustomRoleInput) {
-      // Show custom role input when "Other" is selected
-      if (e.target.value === 'other' || e.target.value === 'Other') {
-        settingsCustomRoleInput.classList.remove('hidden');
-      } else {
-        settingsCustomRoleInput.classList.add('hidden');
-      }
-    }
+  settingsSeniorityLevelSelect.addEventListener('change', (e) => saveSettings({ seniorityLevel: e.target.value }));
+  // 'input', not 'change': the popup can close before a text field ever fires 'change'
+  settingsCustomRoleInput.addEventListener('input', (e) => saveSettings({ customRole: e.target.value.trim() }));
+  settingsCustomInstructionsTextarea.addEventListener('input', (e) => saveSettings({ customInstructions: e.target.value.trim() }));
+
+  settingsClearApiKeyBtn.addEventListener('click', async () => {
+    if (!await showConfirmDialog('Remove your saved API key?', 'AI analysis will turn off.', 'Remove key', true)) return;
+    await chrome.storage.local.remove(['encryptedApiKey', 'installationId']);
+    delete settings.encryptedApiKey; // or Settings shows the saved-key placeholder and 'On' again
+    await saveSettings({ enableAI: false });
+    settingsEnableAIToggle.checked = false;
+    aiConfigSection.classList.add('hidden');
+    settingsApiKeyInput.value = '';
+    settingsStatus.textContent = 'API key removed. AI analysis is off.';
   });
-  
-  settingsResetAnalysisLink?.addEventListener('click', async (e) => {
-    e.preventDefault();
-    if (await showConfirmDialog('🗑️ <b>Clear Cached Analysis?</b><br><br>Settings will be preserved.', true)) {
-      const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-      // The content script keys the cache by the URL path id (no query string); off your profile, clear your own
-      const tabProfileId = tab?.url?.match(/linkedin\.com\/in\/([^\/?#]+)/)?.[1];
-      const keys = [tabProfileId, settings.userProfile?.profileId].filter(Boolean).map(id => `cache_${id}`);
-      const cleared = Object.keys(await chrome.storage.local.get(keys)).length > 0;
-      if (cleared) {
-        await chrome.storage.local.remove(keys);
-        if (tabProfileId) chrome.tabs.sendMessage(tab.id, {action: 'triggerAnalysis'}).catch(() => {});
-      }
-      e.target.textContent = cleared ? '✓ Cleared' : 'Nothing to clear';
-      setTimeout(() => e.target.textContent = 'Reset Profile Analysis', 2000);
-    }
+
+  settingsResetAllBtn.addEventListener('click', async () => {
+    if (!await showConfirmDialog('Reset ElevateLI?',
+      'This deletes your API key, settings and saved results. You\'ll need to set up again.', 'Delete everything', true)) return;
+    await chrome.storage.local.clear(); // open LinkedIn tabs reset themselves from storage.onChanged
+    window.location.reload();
   });
-  
-  settingsClearApiKeyLink?.addEventListener('click', async (e) => {
-    e.preventDefault();
-    if (await showConfirmDialog('Clear API key? You\'ll need to re-enter it.')) {
-      await chrome.storage.local.remove(['encryptedApiKey', 'installationId']);
-      delete settings.encryptedApiKey; // or Settings shows the saved-key placeholder and 'Configured' again
-      settingsApiKeyInput.value = '';
-      // Update UI state
-      await SettingsManager.updateAndSync({ enableAI: false });
-      await chrome.storage.local.set({ enableAI: false });
-      if (settingsEnableAIToggle) {
-        settingsEnableAIToggle.checked = false;
-        settingsEnableAIToggle.dispatchEvent(new Event('change'));
-      }
-      e.target.textContent = '✓ Cleared';
-      setTimeout(() => e.target.textContent = 'Clear API Key', 2000);
-    }
-  });
-  
-  settingsResetAllLink?.addEventListener('click', async (e) => {
-    e.preventDefault();
-    if (await showConfirmDialog('⚠️ Factory Reset\n\nDelete ALL data including API keys?')) {
-      if (await showConfirmDialog('Are you absolutely sure?')) {
-        // BEFORE clearing storage, notify overlay
-        const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-        if (tab?.url?.includes('linkedin.com/in/')) {
-          chrome.tabs.sendMessage(tab.id, {action: 'resetToZeroState'}).catch(() => {});
-        }
-        await chrome.storage.local.clear();
-        setTimeout(() => window.location.reload(), 1000);
-      }
-    }
-  });
-  
+
   // Validation helper functions
   function showFieldError(inputElement, errorElement, message) {
     if (inputElement) {
       inputElement.classList.add('input-error');
+      inputElement.setAttribute('aria-invalid', 'true');
     }
     if (errorElement) {
       errorElement.textContent = message || errorElement.textContent;
       errorElement.classList.add('show');
     }
   }
-  
+
   function clearFieldError(inputElement, errorElement) {
     if (inputElement) {
       inputElement.classList.remove('input-error');
+      inputElement.removeAttribute('aria-invalid');
     }
     if (errorElement) {
       errorElement.classList.remove('show');
     }
   }
-  
+
   // Clear validation on input
-  settingsApiKeyInput?.addEventListener('input', () => {
-    clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
-  });
-  
-  settingsCustomRoleInput?.addEventListener('input', () => {
-    clearFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'));
-  });
-  
-  settingsAiModelSelect?.addEventListener('change', () => clearFieldError(settingsAiModelSelect, null));
+  settingsApiKeyInput.addEventListener('input', () => clearFieldError(settingsApiKeyInput, apiKeyError));
 
   // Ollama / LM Studio on this machine
   function isLocalBaseUrl() {
@@ -577,220 +311,132 @@ document.addEventListener('DOMContentLoaded', async () => {
       /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(settingsBaseUrlInput.value.trim());
   }
 
-  // localhost is an optional host permission; asking needs a user gesture (change/click handlers)
-  function requestLocalAccess() {
-    return isLocalBaseUrl()
-      ? chrome.permissions.request({ origins: ['http://localhost/*', 'http://127.0.0.1/*'] }).catch(() => false)
-      : Promise.resolve(true);
+  // localhost is an optional host permission. Asking needs a user gesture, and Chrome's prompt closes the popup,
+  // so ask only when access is missing; the draft and the auto-saved fields survive the close.
+  async function requestLocalAccess() {
+    if (!isLocalBaseUrl()) return;
+    const origins = { origins: ['http://localhost/*', 'http://127.0.0.1/*'] };
+    if (!await chrome.permissions.contains(origins)) await chrome.permissions.request(origins).catch(() => false);
   }
 
-  function typedApiKey() {
-    const key = settingsApiKeyInput.value.trim();
-    if (key === '••••••••••••') return null;
-    // ponytail: local servers need no key; the stand-in 'local' keeps every "has an API key" check unchanged
-    return key || (isLocalBaseUrl() ? 'local' : null);
+  // The saved key only ever goes to the provider and server it was saved with
+  function keyIsSaved() {
+    return !!settings.encryptedApiKey && settingsAiProviderSelect.value === settings.aiProvider &&
+      (settings.aiProvider !== 'openai' || settingsBaseUrlInput.value.trim() === (settings.aiBaseUrl || ''));
   }
 
-  // Fill the model list from the provider. The same call validates the key; no key = the saved one.
-  let lastValidated = null; // provider|key|baseUrl that loadModels last validated, so Save need not test it again
-  async function loadModels(apiKey) {
+  // A provider or server counts only once a key works with it. Until then it waits in a draft, so Back,
+  // "Get an API key" and the localhost prompt (which closes the popup) lose nothing, and the stored
+  // key, provider and server stay a set that works together.
+  function saveDraft() {
+    const settingsDraft = { aiProvider: settingsAiProviderSelect.value, aiBaseUrl: settingsBaseUrlInput.value.trim() };
+    return keyIsSaved() || !settingsDraft.aiProvider
+      ? chrome.storage.local.remove('settingsDraft')
+      : chrome.storage.local.set({ settingsDraft });
+  }
+
+  // Fill the model list from the provider. The same call validates the key; a typed key that works is stored.
+  let loadSeq = 0; // bumped whenever provider, key or server changes; only the latest load may write
+  let listedFor = null; // provider|key|baseUrl the model list shows or is loading for
+  async function loadModels() {
     const provider = settingsAiProviderSelect.value;
-    const keep = settingsAiModelSelect.value;
     const baseUrl = settingsBaseUrlInput.value.trim();
-    const response = await chrome.runtime.sendMessage({ action: 'testApiKey', provider, apiKey, baseUrl });
-    if (provider !== settingsAiProviderSelect.value) return; // provider changed while loading
+    const saved = keyIsSaved();
+    // ponytail: local servers need no key; the stand-in 'local' keeps every "has an API key" check unchanged
+    const apiKey = settingsApiKeyInput.value.trim() || (!saved && isLocalBaseUrl() ? 'local' : '');
+    // Never send a key anywhere while AI is off
+    if (!provider || !settingsEnableAIToggle.checked || !(apiKey || saved)) return;
+    const id = [provider, apiKey, baseUrl].join('|');
+    if (id === listedFor) return; // e.g. the blur that follows a paste
+    listedFor = id;
+    const seq = ++loadSeq;
+    const keep = settingsAiModelSelect.value;
+    if (!keep) settingsAiModelSelect.replaceChildren(new Option('Loading models…', ''));
+    // No apiKey = the saved key, which the service worker only sends to the saved server
+    const response = await chrome.runtime.sendMessage({ action: 'testApiKey', provider, apiKey: apiKey || undefined, baseUrl });
+    if (seq !== loadSeq) return; // provider, key or server changed while loading
     if (!response?.success) {
-      showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), response?.error || 'Could not load models');
+      listedFor = null; // let the same values be retried
+      if (!keep) settingsAiModelSelect.replaceChildren(new Option('Enter your API key to load models', ''));
+      showFieldError(settingsApiKeyInput, apiKeyError, response?.error || 'Could not load models');
       return;
     }
-    lastValidated = [provider, apiKey, baseUrl].join('|');
-    clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
+    clearFieldError(settingsApiKeyInput, apiKeyError);
     settingsAiModelSelect.replaceChildren(
       new Option('Select AI model...', ''),
       ...response.models.map(id => new Option(id, id, false, id === keep))
     );
+    if (apiKey) {
+      // The new key works: store it with the provider, server and model it was tested with.
+      // The set below overwrites the old key, so it stays usable until the new one is stored.
+      const encrypted = await chrome.runtime.sendMessage({ action: 'encryptApiKey', apiKey });
+      if (seq !== loadSeq) return;
+      if (!encrypted?.success || !encrypted.encryptedApiKey) {
+        listedFor = null;
+        showFieldError(settingsApiKeyInput, apiKeyError, 'Could not save the API key securely');
+        return;
+      }
+      await saveSettings({
+        encryptedApiKey: encrypted.encryptedApiKey,
+        aiProvider: provider,
+        aiBaseUrl: provider === 'openai' ? baseUrl : '',
+        aiModel: settingsAiModelSelect.value
+      });
+      await chrome.storage.local.remove('settingsDraft');
+      settingsApiKeyInput.value = '';
+      settingsApiKeyInput.placeholder = 'Key saved. Paste a new key to replace it.';
+    }
+    listedFor = [provider, settingsApiKeyInput.value.trim(), baseUrl].join('|');
+    if (!settingsAiModelSelect.value) showFieldError(settingsAiModelSelect, modelError, 'Choose a model');
   }
 
-  // Provider picked (or settings opened): point the links at it and load its models
+  // Provider or server picked (or settings opened): point the links at it and load its models
   function onProviderChange() {
     const option = settingsAiProviderSelect.selectedOptions[0];
     if (option?.value) {
       document.getElementById('getKeyLink').href = option.dataset.keyUrl;
       document.getElementById('pricingLink').href = option.dataset.pricingUrl;
     }
-    document.getElementById('baseUrlGroup').classList.toggle('hidden', option?.value !== 'openai');
-    const isSaved = !!option?.value && option.value === settings.aiProvider && !!settings.encryptedApiKey; // a cleared key leaves aiProvider behind
-    settingsAiModelSelect.replaceChildren(isSaved && settings.aiModel
+    baseUrlGroup.classList.toggle('hidden', option?.value !== 'openai');
+    clearFieldError(settingsApiKeyInput, apiKeyError);
+    clearFieldError(settingsAiModelSelect, modelError);
+    const saved = keyIsSaved();
+    settingsApiKeyInput.placeholder = saved ? 'Key saved. Paste a new key to replace it.'
+      : isLocalBaseUrl() ? 'Not needed for a local server' : 'Paste your API key';
+    loadSeq++; // a list still loading for the old choice must not land
+    listedFor = null;
+    settingsAiModelSelect.replaceChildren(saved && settings.aiModel
       ? new Option(settings.aiModel, settings.aiModel, true, true)
       : new Option('Enter your API key to load models', ''));
-    // Never send the key anywhere while AI is off
-    if (option?.value && settingsEnableAIToggle.checked && (typedApiKey() || isSaved)) loadModels(typedApiKey());
+    loadModels();
   }
 
-  settingsAiProviderSelect?.addEventListener('change', onProviderChange);
-  settingsApiKeyInput?.addEventListener('change', () => {
-    if (settingsAiProviderSelect.value && typedApiKey()) loadModels(typedApiKey());
+  // A provider or server the saved key doesn't belong to comes back from the draft
+  settingsAiProviderSelect.value = settings.settingsDraft?.aiProvider ?? settings.aiProvider ?? '';
+  settingsBaseUrlInput.value = settings.settingsDraft?.aiBaseUrl ?? settings.aiBaseUrl ?? '';
+  baseUrlGroup.open = !!settingsBaseUrlInput.value;
+
+  settingsAiProviderSelect.addEventListener('change', () => {
+    saveDraft();
+    onProviderChange();
   });
-  settingsBaseUrlInput?.addEventListener('change', async () => {
-    // The saved key belongs to the saved URL; never send it to a new one
-    if (settingsApiKeyInput.value === '••••••••••••') settingsApiKeyInput.value = '';
+  settingsApiKeyInput.addEventListener('change', loadModels);
+  settingsApiKeyInput.addEventListener('paste', () => setTimeout(loadModels)); // after the pasted text lands
+  settingsBaseUrlInput.addEventListener('change', async () => {
+    await saveDraft(); // first: the permission prompt below can close the popup
     await requestLocalAccess();
-    settingsAiModelSelect.replaceChildren(new Option('Enter your API key to load models', ''));
-    if (typedApiKey()) loadModels(typedApiKey());
+    onProviderChange();
+  });
+  settingsAiModelSelect.addEventListener('change', () => {
+    clearFieldError(settingsAiModelSelect, modelError);
+    if (keyIsSaved()) saveSettings({ aiModel: settingsAiModelSelect.value });
   });
 
-  // Handle Save Settings button
-  saveSettingsBtn?.addEventListener('click', async () => {
-    let hasErrors = false;
-    let provider = null;
-    let model = null;
-    let apiKey = null;
-    let isPlaceholder = false;
-    const baseUrl = settingsBaseUrlInput.value.trim();
-    await requestLocalAccess(); // first, while the click still counts as a user gesture
 
-    // Validate if AI is enabled AND visible
-    if (settingsEnableAIToggle.checked && !aiConfigSection.classList.contains('hidden')) {
-      provider = settingsAiProviderSelect.value;
-      model = settingsAiModelSelect.value;
-      apiKey = settingsApiKeyInput.value.trim();
-      if (!apiKey && isLocalBaseUrl()) apiKey = 'local'; // local servers need no key
-      
-      // Check if it's a placeholder or real key
-      isPlaceholder = apiKey === '••••••••••••';
-      
-      // Check for empty API key if not placeholder
-      if (!isPlaceholder && !apiKey) {
-        showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), 'API key is required');
-        hasErrors = true;
-      }
-      
-      // The saved key belongs to the saved provider
-      if (isPlaceholder && provider !== settings.aiProvider) {
-        showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), 'Enter an API key for this provider');
-        hasErrors = true;
-      }
-
-      if (!provider || !model) {
-        showFieldError(provider ? settingsAiModelSelect : settingsAiProviderSelect, null, null);
-        hasErrors = true;
-      }
-
-      // The custom role field lives in the AI section, so it is only checked while that is shown
-      if ((settingsTargetRoleSelect.value === 'other' || settingsTargetRoleSelect.value === 'Other') && !settingsCustomRoleInput.value.trim()) {
-        showFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'), 'Please enter your target role');
-        hasErrors = true;
-      }
-
-      // Validate everything before any write, so a failed save changes nothing
-      if (hasErrors) return;
-
-      // Only validate if user entered a new key (not placeholder)
-      if (!isPlaceholder && apiKey) {
-        // Show validating state
-        saveSettingsBtn.textContent = '⟳ Validating...';
-        saveSettingsBtn.disabled = true;
-        
-        // Validate API key first
-        try {
-          const testResponse = [provider, apiKey, baseUrl].join('|') === lastValidated
-            ? { success: true }
-            : await chrome.runtime.sendMessage({ action: 'testApiKey', provider, apiKey, baseUrl });
-          
-          if (!testResponse || !testResponse.success) {
-            // Use consistent field validation error UI
-            const errorMessage = testResponse?.error || 'Invalid API key';
-            showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'), errorMessage);
-            
-            // Reset button
-            saveSettingsBtn.textContent = 'Save Settings';
-            saveSettingsBtn.disabled = false;
-            
-            return;
-          }
-          
-          // Valid key, proceed with encryption
-          saveSettingsBtn.textContent = '⟳ Saving...';
-          
-          // Clear any validation errors since key is valid
-          clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
-
-          // The set below overwrites the old key, so it stays usable until the new one is stored
-          const encryptResponse = await chrome.runtime.sendMessage({
-            action: 'encryptApiKey',
-            apiKey: apiKey
-          });
-          
-          if (encryptResponse && encryptResponse.success && encryptResponse.encryptedApiKey) {
-            await chrome.storage.local.set({
-              encryptedApiKey: encryptResponse.encryptedApiKey,
-              aiProvider: provider,
-              aiModel: model,
-              aiBaseUrl: baseUrl
-            });
-          } else {
-            throw new Error('Failed to encrypt API key');
-          }
-        } catch (error) {
-          showFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'),
-            error.message?.includes('Extension context invalidated') ? 'Extension reloaded. Please refresh the page' : 'Failed to save API key securely');
-          
-          // Reset button
-          saveSettingsBtn.textContent = 'Save Settings';
-          saveSettingsBtn.disabled = false;
-          
-          return; // Don't continue with saving
-        }
-      }
-    }
-
-    // Save all other settings
-    const settingsToSave = {
-      showAnalysis: settingsShowAnalysisToggle.checked,
-      enableAI: settingsEnableAIToggle.checked,
-      targetRole: settingsTargetRoleSelect.value,
-      customRole: settingsCustomRoleInput.value.trim(),
-      seniorityLevel: settingsSeniorityLevelSelect.value,
-      customInstructions: settingsCustomInstructionsTextarea.value.trim()
-    };
-    // Provider/model change even when the key did not
-    if (provider) Object.assign(settingsToSave, { aiProvider: provider, aiModel: model, aiBaseUrl: baseUrl });
-
-    await chrome.storage.local.set(settingsToSave);
-
-    // Update settings object with saved values
-    Object.assign(settings, settingsToSave);
-    if (provider && !isPlaceholder) settings.encryptedApiKey = true; // Mark that we have an encrypted key
-
-    await SettingsManager.updateAndSync(settings);  // Pass full settings
-    
-    // Clear all validation errors on successful save
-    clearFieldError(settingsApiKeyInput, document.getElementById('apiKeyError'));
-    clearFieldError(settingsCustomRoleInput, document.getElementById('customRoleError'));
-    clearFieldError(settingsAiModelSelect, null);
-    
-    // Enhanced visual feedback with guidance
-    saveSettingsBtn.textContent = '✓ Settings Saved';
-    saveSettingsBtn.classList.add('success');
-    
-    // Navigate back to homepage after 1 second
-    setTimeout(() => {
-      saveSettingsBtn.textContent = 'Save Settings';
-      saveSettingsBtn.disabled = false;
-      saveSettingsBtn.classList.remove('success');
-      showView('activeMain'); // Navigate back to homepage
-    }, 1000);
-  });
-  
-  // Removed test button handler - API validation now happens on save
-  
-  
-  
-  
   // Handle footer links for Privacy and Terms
   const termsLink = document.getElementById('terms-link');
   const privacyLink = document.getElementById('privacy-link');
-  
+
   if (termsLink) {
     termsLink.addEventListener('click', (e) => {
       e.preventDefault();
@@ -798,7 +444,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       chrome.tabs.create({ url: chrome.runtime.getURL(url) });
     });
   }
-  
+
   if (privacyLink) {
     privacyLink.addEventListener('click', (e) => {
       e.preventDefault();
@@ -806,5 +452,5 @@ document.addEventListener('DOMContentLoaded', async () => {
       chrome.tabs.create({ url: chrome.runtime.getURL(url) });
     });
   }
-  
+
 });
