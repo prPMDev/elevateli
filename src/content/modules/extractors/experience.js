@@ -30,46 +30,26 @@ const ExperienceExtractor = {
    */
   async extract() {
     const scanResult = await this.scan();
-    
-    if (!scanResult.exists) {
-      return {
-        exists: false,
-        count: 0,
-        charCount: 0, // Added for completeness scoring
-        averageDescriptionLength: 0, // Added for completeness scoring
-        totalMonths: 0,
-        hasCurrentRole: false
-      };
-    }
-    
-    // Use totalCount from scan
-    const totalCount = scanResult.totalCount || scanResult.visibleCount;
+    if (!scanResult.exists) return scanResult;
 
-    // Calculate total months and check for current role
-    const basicInfo = await this.extractBasicInfo();
-    // A company row can hold several roles (promotions), so count roles, not rows
-    const count = Math.max(totalCount, basicInfo.roleCount);
+    const experiences = await this.extractDetailedExperiences();
 
-    // Calculate character count for completeness scoring
-    // More experience entries = more content depth
-    // Average description length is ~200 chars per role
-    const charCount = count * 200;
-
-    const result = {
+    return {
       exists: true,
-      count,
-      charCount: charCount, // Added for completeness scoring
-      averageDescriptionLength: basicInfo.averageDescriptionLength, // Across visible roles, empty ones included
-      emptyRoles: basicInfo.emptyRoles, // Company (or title) of each visible role without a description
-      totalMonths: basicInfo.totalMonths,
-      hasCurrentRole: basicInfo.hasCurrentRole,
+      // A company row can hold several roles (promotions), so count roles, not rows
+      count: Math.max(scanResult.totalCount, experiences.length),
+      // Across visible roles, empty ones included
+      averageDescriptionLength: Math.round(
+        experiences.reduce((sum, exp) => sum + exp.description.length, 0) / (experiences.length || 1)
+      ),
+      emptyRoles: experiences.filter(exp => !exp.description).map(exp => exp.company || exp.title), // Visible roles without a description
+      totalMonths: this.coveredMonths(experiences),
+      hasCurrentRole: experiences.some(exp => /present/i.test(exp.duration)),
       visibleCount: scanResult.visibleCount,
       hasMoreItems: scanResult.hasMore // Older roles hidden behind "Show all": count and months are a lower bound
     };
-    
-    return result;
   },
-  
+
   /**
    * Deep extraction for AI analysis: the roles and their average tenure (analyzer-base reads only these)
    * @returns {Object} { experiences, averageTenure }
@@ -78,25 +58,6 @@ const ExperienceExtractor = {
     // Descriptions are in the DOM in full; "… more" only unclamps them
     const experiences = await this.extractDetailedExperiences();
     return { experiences, averageTenure: this.calculateAverageTenure(experiences) };
-  },
-  
-  
-  /**
-   * Extract basic info like total months and current role
-   * @returns {Object} Basic info
-   */
-  async extractBasicInfo() {
-    const experiences = await this.extractDetailedExperiences();
-    
-    return {
-      roleCount: experiences.length,
-      totalMonths: this.coveredMonths(experiences),
-      hasCurrentRole: experiences.some(exp => /present/i.test(exp.duration)),
-      averageDescriptionLength: Math.round(
-        experiences.reduce((sum, exp) => sum + exp.description.length, 0) / (experiences.length || 1)
-      ),
-      emptyRoles: experiences.filter(exp => !exp.description).map(exp => exp.company || exp.title)
-    };
   },
   
   /**
