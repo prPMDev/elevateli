@@ -185,7 +185,7 @@ class Analyzer {
           ...cachedData,
           fromCache: true,
           analysisError: error.message,
-          message: 'Analysis couldn\'t complete. Showing cached results. Please try again in a few minutes.',
+          message: 'Analysis couldn\'t finish. Showing your last results. Try again in a few minutes.',
           // Only mark AI as disabled if there's no content score
           aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null
         });
@@ -247,7 +247,7 @@ class Analyzer {
       const recovered = await OverlayManager.restoreAppropriateState(this.profileId, {
         isErrorFallback: true,
         error: 'Analysis timeout',
-        message: 'Analysis is taking longer than expected. Showing cached results. Please try again later.'
+        message: 'Analysis is taking too long. Showing your last results. Try again later.'
       });
       
       if (!recovered) {
