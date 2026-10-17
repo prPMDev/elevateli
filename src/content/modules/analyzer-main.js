@@ -66,7 +66,9 @@
       const profileId = extractProfileIdFromUrl();
       if (!profileId || !isProfilePage()) return;
 
+      // Backstop for init()'s ownership check; the finally below resets the buttons
       const isOwn = await isOwnProfile();
+      if (!isOwn) return;
 
       await analyzer.init(profileId, isOwn, settings);
       await analyzer.analyze(forceRefresh);
