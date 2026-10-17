@@ -66,13 +66,9 @@ class ProfileCompletenessCalculator {
         },
         points: 10,
         getMessage: function(data) {
-          if (!data || !data.exists) return "Add a professional headline";
-          const headlineLimit = 220; // LinkedIn headline character limit
-          const utilization = data.charCount / headlineLimit;
-          if (utilization < 0.30) return `Expand headline to 70+ characters (currently ${data.charCount}/220)`;
-          if (utilization < 0.50) return `Add more detail to headline (aim for 110+ characters)`;
-          if (utilization < 0.75) return `Optimize headline further (165+ characters recommended)`;
-          return "Headline looks good - ensure keywords are included";
+          if (!data || !data.exists || !data.charCount) return "Add a professional headline";
+          const full = Math.round(this.characterLimits.headline * this.contentDepthThresholds.headline.excellent);
+          return `Headline is ${data.charCount} characters. ${full}+ gets full credit.`;
         }
       },
       
@@ -93,13 +89,9 @@ class ProfileCompletenessCalculator {
         },
         points: 20,
         getMessage: function(data) {
-          if (!data || !data.exists || data.charCount === 0) return "Add an About section";
-          const aboutLimit = 2600; // LinkedIn about section character limit
-          const utilization = data.charCount / aboutLimit;
-          if (utilization < 0.20) return `About section too brief (${data.charCount}/2600) - aim for 1000+ characters`;
-          if (utilization < 0.40) return `Expand About section (${data.charCount}/2600) - recruiters need more detail`;
-          if (utilization < 0.60) return `Good About section - consider adding more achievements`;
-          return "Excellent About section depth";
+          if (!data || !data.exists || !data.charCount) return "Add an About section";
+          const full = Math.round(this.characterLimits.about * this.contentDepthThresholds.about.excellent);
+          return `About is ${data.charCount} characters. ${full}+ gets full credit.`;
         }
       },
       
@@ -147,10 +139,13 @@ class ProfileCompletenessCalculator {
           if (!data || !data.exists || data.count === 0) return "Add your work experience";
           if (data.count === 1) return "Add more work experiences (at least 2)";
           if (!data.hasCurrentRole) return "Update with your current position";
-          if (data.averageDescriptionLength !== undefined && data.averageDescriptionLength < 300) {
-            return `Expand experience descriptions (avg ${Math.round(data.averageDescriptionLength)} chars) - aim for 500+ per role`;
+          const empty = data.emptyRoles || [];
+          if (empty.length) {
+            return `Add a description to your ${empty.slice(0, 2).join(' and ')} role${empty.length > 1 ? 's' : ''}` +
+              (empty.length > 2 ? ` (+${empty.length - 2} more empty)` : '');
           }
-          return "Enhance experience descriptions";
+          const full = Math.round(this.characterLimits.experienceDescription * this.contentDepthThresholds.experienceDescription.excellent);
+          return `Role descriptions average ${data.averageDescriptionLength} characters. ${full}+ per role gets full credit. Add one measurable result to each.`;
         }
       },
       

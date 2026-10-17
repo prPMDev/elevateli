@@ -63,6 +63,7 @@ const ExperienceExtractor = {
       count,
       charCount: charCount, // Added for completeness scoring
       averageDescriptionLength: basicInfo.averageDescriptionLength, // Across visible roles, empty ones included
+      emptyRoles: basicInfo.emptyRoles, // Company (or title) of each visible role without a description
       totalMonths: basicInfo.totalMonths,
       hasCurrentRole: basicInfo.hasCurrentRole,
       visibleCount: scanResult.visibleCount,
@@ -122,7 +123,8 @@ const ExperienceExtractor = {
       hasCurrentRole: experiences.some(exp => /present/i.test(exp.duration)),
       averageDescriptionLength: Math.round(
         experiences.reduce((sum, exp) => sum + exp.description.length, 0) / (experiences.length || 1)
-      )
+      ),
+      emptyRoles: experiences.filter(exp => !exp.description).map(exp => exp.company || exp.title)
     };
   },
   
