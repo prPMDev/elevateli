@@ -53,7 +53,9 @@ const OverlayManager = {
    * @returns {OverlayManager} Self for chaining
    */
   async initialize() {
-    
+    // Before any await: the profile this call was made for (another member's page must not get the overlay)
+    const profileId = extractProfileIdFromUrl();
+
     // Check if extension context is still valid
     try {
       if (!chrome?.runtime?.id) {
@@ -91,9 +93,13 @@ const OverlayManager = {
     // Always start in collapsed view
     this.viewState = 'collapsed';
     
-    // The profile renders client-side; wait for its top card, then inject. No timed retries: an overlay
-    // injected later would skip the cached-state restore below
-    await BaseExtractor.waitForElement('main section h2', 10000);
+    // The profile renders client-side, slowly on bad links: wait for its top card with no deadline, but only
+    // while this profile is still the page (navigation re-runs init()). Profile ids, not paths, so modals still count.
+    while (!BaseExtractor.topCard()) {
+      if (extractProfileIdFromUrl() !== profileId || !chrome.runtime?.id) return this;
+      await BaseExtractor.wait(250);
+    }
+    if (extractProfileIdFromUrl() !== profileId) return this;
     this.createAndInject();
     
     // CRITICAL: Restore cached data automatically after overlay is created
