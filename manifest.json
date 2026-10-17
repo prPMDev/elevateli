@@ -66,15 +66,12 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "src/images/icon.png",
-        "src/images/icon48.png",
-        "updates.html",
-        "privacy-terms.html"
+        "src/images/icon48.png"
       ],
       "matches": [
-        "https://www.linkedin.com/*",
-        "chrome-extension://*/*"
-      ]
+        "https://www.linkedin.com/*"
+      ],
+      "use_dynamic_url": true
     }
   ],
   "content_security_policy": {
