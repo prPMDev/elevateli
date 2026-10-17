@@ -3,6 +3,35 @@
  * Progressive UI states and LinkedIn-matching design
  */
 
+/* Colour tokens. Light by default; .eli-dark (createAndInject reads LinkedIn's theme off the top card) flips them.
+ * Semantic fills are rgba tints, so they need no dark override. The toast sits on <body>, so it gets the tokens too.
+ * Every text pair is 4.5:1 or better in both themes. */
+.elevateli-overlay-wrapper,
+.elevateli-toast {
+  --eli-surface: #fff;
+  --eli-surface-muted: #f3f2ef;
+  --eli-text: rgba(0, 0, 0, 0.9);
+  --eli-text-muted: rgba(0, 0, 0, 0.6);
+  --eli-link: #0a66c2;
+  --eli-success: #057642;
+  --eli-warning: #a8500a;
+  --eli-error: #b91c1c;
+  color-scheme: light;
+}
+
+.elevateli-overlay-wrapper.eli-dark,
+.elevateli-toast.eli-dark {
+  --eli-surface: #1b1f23;
+  --eli-surface-muted: #2d3135;
+  --eli-text: rgba(255, 255, 255, 0.9);
+  --eli-text-muted: rgba(255, 255, 255, 0.6);
+  --eli-link: #71b7fb;
+  --eli-success: #5fc48e;
+  --eli-warning: #f0b54a;
+  --eli-error: #f58b8b;
+  color-scheme: dark;
+}
+
 /* ============================================
  * COLLAPSED VIEW STYLES
  * ============================================ */
@@ -10,9 +39,8 @@
   display: flex;
   align-items: center;
   gap: 4px;  /* Reduced from 6px */
-  padding: 8px 20px;
+  padding: 8px 24px;
   min-height: 44px;  /* Reduced from 50px */
-  border-bottom: 1px solid #e0e0e0;
   overflow: hidden;
   flex-wrap: nowrap;
 }
@@ -28,7 +56,7 @@
 .overlay-collapsed-view .brand-name {
   font-weight: 600;
   font-size: 14px;
-  color: #0a66c2;
+  color: var(--eli-link);
   margin-right: 16px;
 }
 
@@ -46,38 +74,30 @@
   margin-right: 6px;
 }
 
-/* Unscored ("—"): neutral, so it can't be mistaken for a blue score */
+/* Unscored ("—", AI off): neutral, so it can't be mistaken for a score */
 .overlay-collapsed-view .score-badge.completeness,
 .overlay-collapsed-view .score-badge.quality {
-  background: #f3f2ef;
-  color: rgba(0, 0, 0, 0.6);
+  background: var(--eli-surface-muted);
+  color: var(--eli-text-muted);
 }
 
-/* Score colours from getScoreClass (90/70/50, 8.5/7/5): 5:1 or better at 12px. Good and excellent share green. */
+/* Score colours from getScoreClass (90/70/50, 8.5/7/5). Good and excellent share green. */
 .overlay-collapsed-view .score-badge.score-excellent,
 .overlay-collapsed-view .score-badge.score-good {
-  background: #e8f5e9;
-  color: #057642;
+  background: rgba(5, 118, 66, 0.12);
+  color: var(--eli-success);
 }
 
-.overlay-collapsed-view .score-badge.score-moderate {
-  background: #fef3c7;
-  color: #92400e;
+/* Moderate, and AI on but failed ("No score", the reason is in the title) */
+.overlay-collapsed-view .score-badge.score-moderate,
+.overlay-collapsed-view .score-badge.quality.ai-error {
+  background: rgba(245, 158, 11, 0.16);
+  color: var(--eli-warning);
 }
 
 .overlay-collapsed-view .score-badge.score-poor {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.overlay-collapsed-view .score-badge.quality.ai-disabled {
-  color: #4b5563;
-}
-
-/* AI was on but failed: "No score", reason in the title */
-.overlay-collapsed-view .score-badge.quality.ai-error {
-  background: #fef3c7;
-  color: #92400e;
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--eli-error);
 }
 
 .eli-asterisk {
@@ -88,7 +108,7 @@
 
 .overlay-collapsed-view .last-analyzed-collapsed {
   font-size: 12px;
-  color: #666;
+  color: var(--eli-text-muted);
   white-space: nowrap;
   margin-right: 8px;
   min-width: 0;
@@ -97,13 +117,13 @@
 }
 
 .overlay-collapsed-view .last-analyzed-collapsed.is-stale {
-  color: #b45309;
+  color: var(--eli-warning);
 }
 
 /* Errors stay visible at every width, unlike the date (hidden on narrow bars below) */
 .overlay-collapsed-view .last-analyzed-collapsed.has-error {
   display: block;
-  color: #b91c1c;
+  color: var(--eli-error);
 }
 
 /* Text-style button, e.g. "Open settings" */
@@ -113,7 +133,7 @@
   padding: 0;
   font: inherit;
   font-weight: 600;
-  color: #0a66c2;
+  color: var(--eli-link);
   cursor: pointer;
 }
 
@@ -129,12 +149,12 @@
   margin-left: 8px;
   font-size: 18px;
   line-height: 1;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--eli-text-muted);
   cursor: pointer;
 }
 
 .overlay-collapsed-view .eli-hide:hover {
-  color: rgba(0, 0, 0, 0.9);
+  color: var(--eli-text);
 }
 
 /* Zero state: welcome + consent before setup, one line after */
@@ -142,7 +162,7 @@
   margin: 0 0 8px;
   font-size: 20px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.9);
+  color: var(--eli-text);
 }
 
 .eli-welcome-text,
@@ -150,11 +170,11 @@
   margin: 0 0 12px;
   font-size: 14px;
   line-height: 1.5;
-  color: rgba(0, 0, 0, 0.9);
+  color: var(--eli-text);
 }
 
 .eli-welcome-consent {
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--eli-text-muted);
 }
 
 .elevateli-overlay .eli-primary {
@@ -162,15 +182,15 @@
   padding: 0 16px;
   border: 0;
   border-radius: 9999px;
-  background: #0a66c2;
-  color: #fff;
+  background: var(--eli-link);
+  color: var(--eli-surface);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
 }
 
-.elevateli-overlay .eli-primary:hover {
-  background: #004182;
+.elevateli-overlay .eli-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--eli-link) 85%, #000);
 }
 
 /* Screen-reader-only live region */
@@ -184,9 +204,9 @@
 }
 
 .overlay-collapsed-view .analyze-btn-collapsed {
-  background: #0a66c2;
-  border: 1px solid #0a66c2;
-  color: white;
+  background: var(--eli-link);
+  border: 1px solid var(--eli-link);
+  color: var(--eli-surface);
   padding: 5px 12px;  /* Increased vertical padding */
   border-radius: 16px;
   font-size: 12px;
@@ -200,30 +220,29 @@
 }
 
 .overlay-collapsed-view .analyze-btn-collapsed:hover:not(:disabled) {
-  background: #0856a0;
-  border-color: #0856a0;
+  background: color-mix(in srgb, var(--eli-link) 85%, #000);
 }
 
 /* Once results show, the score leads and Analyze steps back to an outlined button */
 .elevateli-overlay[data-state="complete"] .analyze-btn-collapsed:not(:disabled) {
-  background: #fff;
-  color: #0a66c2;
+  background: var(--eli-surface);
+  color: var(--eli-link);
 }
 
 .elevateli-overlay[data-state="complete"] .analyze-btn-collapsed:hover:not(:disabled) {
-  background: #ebf4fd;
+  background: color-mix(in srgb, var(--eli-link) 10%, var(--eli-surface));
 }
 
 /* Disabled only while analyzing, and then it carries the progress ("Analyzing 2/5"), so keep it readable */
 .overlay-collapsed-view .analyze-btn-collapsed:disabled {
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--eli-surface-muted);
   border-color: transparent;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--eli-text-muted);
   cursor: progress;
 }
 
 .overlay-collapsed-view .view-details-link {
-  color: #0a66c2;
+  color: var(--eli-link);
   text-decoration: none;
   font-size: 12px;
   font-weight: 500;
@@ -305,7 +324,7 @@
   
   .details-icon {
     display: inline;
-    color: #0a66c2;
+    color: var(--eli-link);
     font-size: 18px;
     vertical-align: middle;
   }
@@ -436,27 +455,27 @@
   margin: 8px 0 12px;
   padding: 12px;
   border-radius: 8px;
-  background: #f3f2ef;
+  background: var(--eli-surface-muted);
   font-size: 14px;
   line-height: 1.5;
-  color: rgba(0, 0, 0, 0.9);
+  color: var(--eli-text);
 }
 
 .eli-banner.is-warning {
-  background: #fef3c7;
-  color: #92400e;
+  background: rgba(245, 158, 11, 0.16);
+  color: var(--eli-warning);
 }
 
 .eli-caption {
   margin: 0 0 8px;
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--eli-text-muted);
 }
 
 .eli-row {
   margin-bottom: 12px;
   padding: 12px;
-  background: #f8f9fa;
+  background: var(--eli-surface-muted);
   border-radius: 8px;
 }
 
@@ -471,7 +490,7 @@
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #333;
+  color: var(--eli-text);
 }
 
 .eli-row-head .star-rating {
@@ -481,13 +500,13 @@
 .eli-row-positive {
   margin: 0 0 8px;
   font-size: 14px;
-  color: #057642;
+  color: var(--eli-success);
 }
 
 .eli-row-note {
   margin: 0 0 8px;
   font-size: 12px;
-  color: #92400e;
+  color: var(--eli-warning);
 }
 
 .eli-advice {
@@ -502,7 +521,7 @@
   padding-left: 8px;
   font-size: 14px;
   line-height: 1.5;
-  color: rgba(0, 0, 0, 0.9);
+  color: var(--eli-text);
 }
 
 .eli-advice li::before {
@@ -514,17 +533,18 @@
 .eli-why {
   margin: 2px 0 0;
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.6);
+  color: var(--eli-text-muted);
 }
 
 /* ============================================
  * BASE OVERLAY STYLES
  * ============================================ */
 .elevateli-overlay-wrapper {
-  /* Custom card styling without LinkedIn classes; the inline .elevateli-card ring is the only edge */
-  background: #fff;
+  /* LinkedIn's card: 8px radius and a 1px ring. 8px above; LinkedIn's own card gap follows below. */
+  background: var(--eli-surface);
   border-radius: 8px;
-  margin: 16px 0;
+  box-shadow: 0 0 0 1px rgba(140, 140, 140, 0.2);
+  margin: 8px 0 0;
   overflow: hidden;
   max-width: 100%;
   box-sizing: border-box;
@@ -537,25 +557,17 @@
   float: none !important;
 }
 
-/* Custom card class to replace LinkedIn's artdeco-card */
-.elevateli-card {
-  /* Mimic LinkedIn card appearance */
-  background: #fff;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
 .elevateli-overlay {
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: 14px;
   line-height: 1.5;
-  color: #333;
+  color: var(--eli-text);
 }
 
-/* Padding only for expanded view */
+/* Padding only for expanded view; the divider shows only while expanded */
 .overlay-expanded-view {
-  padding: 16px;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(140, 140, 140, 0.2);
 }
 
 /* ============================================
@@ -632,7 +644,7 @@
   align-items: center;
   justify-content: center;
   padding: 8px 12px;
-  background: #f3f2ef;
+  background: var(--eli-surface-muted);
   border-radius: 6px;
   margin-bottom: 16px;
   min-height: 40px;
@@ -649,7 +661,12 @@
 
 .status-text {
   font-size: 14px;
-  color: #333;
+}
+
+.elapsed-time-display {
+  margin-left: 12px;
+  font-size: 12px;
+  color: var(--eli-text-muted);
 }
 
 /* ============================================
@@ -657,11 +674,8 @@
  * ============================================ */
 /* Progress stays on the neutral base background; only an error tints the status line */
 .elevateli-overlay[data-state="error"] .status-indicator {
-  background: #f8d7da;
-}
-
-.elevateli-overlay[data-state="error"] .status-text {
-  color: #721c24;
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--eli-error);
 }
 
 /* ============================================
@@ -691,11 +705,6 @@
 /* ============================================
  * LINKEDIN INTEGRATION
  * ============================================ */
-/* Ensure overlay matches LinkedIn's visual hierarchy */
-.pvs-list__paged-list-item + .elevateli-overlay-wrapper {
-  margin-top: 24px;
-}
-
 /* Prevent LinkedIn's grid layout from placing overlay in sidebar */
 .scaffold-layout__sidebar .elevateli-overlay-wrapper {
   display: none !important; /* Never show in sidebar */
@@ -715,13 +724,13 @@
   right: 20px;
   padding: 12px 20px;
   border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.15);
+  background: var(--eli-surface);
+  box-shadow: 0 0 0 1px rgba(140, 140, 140, 0.2), 0 4px 12px rgba(0, 0, 0, 0.15);
   max-width: 400px;
   z-index: 10001;
   font-size: 14px;
   line-height: 1.4;
-  color: rgba(0, 0, 0, 0.9);
+  color: var(--eli-text);
   transform: translateX(calc(100% + 20px));
   transition: transform 0.3s ease-out, opacity 0.3s ease-out;
   opacity: 0;

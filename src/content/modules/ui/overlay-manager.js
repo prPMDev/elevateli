@@ -135,127 +135,7 @@ const OverlayManager = {
   createAndInject(hidden = false) {
     // Create wrapper for proper integration
     const wrapperHtml = `
-      <style>
-        /* Ensure overlay takes full width and doesn't go to sidebar */
-        .elevateli-overlay-wrapper {
-          width: 100% !important;
-          max-width: none !important;
-          margin-left: 0 !important;
-          margin-right: 0 !important;
-          display: block !important;
-          position: relative !important;
-          clear: both !important;
-        }
-        
-        /* LinkedIn card appearance without their layout rules */
-        .elevateli-card {
-          background: white;
-          border-radius: 8px;
-          box-shadow: 0 0 0 1px rgba(0,0,0,.08), 0 2px 3px rgba(0,0,0,.04);
-          margin-top: 16px;
-          margin-bottom: 16px;
-          padding: 0;
-          overflow: hidden;
-        }
-        
-        /* Zero state responsive layout with fallbacks */
-        .elevateli-overlay .zero-state-tiles {
-          /* Flexbox fallback for older browsers */
-          display: flex;
-          flex-wrap: wrap;
-          justify-content: center;
-          gap: 16px;
-          
-          /* Modern grid layout */
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
-          max-width: 800px;
-          margin: 0 auto 24px;
-        }
-        
-        /* Flexbox fallback styling */
-        @supports not (display: grid) {
-          .elevateli-overlay .zero-state-tiles > div {
-            flex: 0 1 calc(33.333% - 16px);
-            min-width: 200px;
-          }
-        }
-        
-        /* Responsive breakpoints */
-        @media (max-width: 768px) {
-          .elevateli-overlay .zero-state-tiles {
-            grid-template-columns: repeat(2, 1fr);
-          }
-          
-          /* Center the third tile */
-          .elevateli-overlay .zero-state-tiles > div:nth-child(3) {
-            grid-column: 1 / -1;
-            max-width: 300px;
-            margin: 0 auto;
-          }
-          
-          /* Flexbox fallback for tablet */
-          @supports not (display: grid) {
-            .elevateli-overlay .zero-state-tiles > div {
-              flex: 0 1 calc(50% - 16px);
-            }
-            .elevateli-overlay .zero-state-tiles > div:nth-child(3) {
-              flex: 0 1 100%;
-              max-width: 300px;
-            }
-          }
-        }
-        
-        @media (max-width: 480px) {
-          .elevateli-overlay .zero-state-tiles {
-            grid-template-columns: 1fr;
-          }
-          
-          .elevateli-overlay .zero-state-tiles > div:nth-child(3) {
-            grid-column: auto;
-            max-width: none;
-            margin: 0;
-          }
-          
-          /* Flexbox fallback for mobile */
-          @supports not (display: grid) {
-            .elevateli-overlay .zero-state-tiles > div {
-              flex: 0 1 100%;
-            }
-          }
-        }
-        
-        /* Container query support for more accurate responsiveness */
-        @supports (container-type: inline-size) {
-          .elevateli-overlay-wrapper {
-            container-type: inline-size;
-          }
-          
-          @container (max-width: 700px) {
-            .elevateli-overlay .zero-state-tiles {
-              grid-template-columns: repeat(2, 1fr);
-            }
-            .elevateli-overlay .zero-state-tiles > div:nth-child(3) {
-              grid-column: 1 / -1;
-              max-width: 300px;
-              margin: 0 auto;
-            }
-          }
-          
-          @container (max-width: 450px) {
-            .elevateli-overlay .zero-state-tiles {
-              grid-template-columns: 1fr;
-            }
-            .elevateli-overlay .zero-state-tiles > div:nth-child(3) {
-              grid-column: auto;
-              max-width: none;
-              margin: 0;
-            }
-          }
-        }
-      </style>
-      <div class="elevateli-overlay-wrapper elevateli-card" ${hidden ? 'style="display: none;"' : ''}>
+      <div class="elevateli-overlay-wrapper" ${hidden ? 'style="display: none;"' : ''}>
         <div id="elevateli-overlay" class="elevateli-overlay unified-ui" data-state="${this.currentState}" data-view-state="${this.viewState}">
           <!-- Collapsed view (new default) -->
           <div class="overlay-collapsed-view">
@@ -296,7 +176,12 @@ const OverlayManager = {
     if (!topCard) {
       return;
     }
-    topCard.insertAdjacentHTML('afterend', wrapperHtml);
+    const wrapper = new DOMParser().parseFromString(wrapperHtml, 'text/html').body.firstElementChild;
+    // LinkedIn's dark theme shows as light text on the top card (a text colour is always opaque; its
+    // background can be transparent). Checked on every inject, so a theme switch applies on the next one.
+    const [r = 0, g = 0, b = 0] = (getComputedStyle(topCard).color.match(/[\d.]+/g) || []).map(Number);
+    wrapper.classList.toggle('eli-dark', 0.2126 * r + 0.7152 * g + 0.0722 * b > 128);
+    topCard.after(wrapper);
     
     this.overlayElement = document.getElementById('elevateli-overlay');
     
@@ -312,7 +197,6 @@ const OverlayManager = {
    */
   keepAttached() {
     const wrapper = this.overlayElement.closest('.elevateli-overlay-wrapper');
-    const nodes = [wrapper.previousElementSibling, wrapper]; // inline <style>, wrapper
     const overlay = this.overlayElement;
     const path = location.pathname;
     
@@ -326,7 +210,7 @@ const OverlayManager = {
         return;
       }
       
-      BaseExtractor.topCard()?.after(...nodes);
+      BaseExtractor.topCard()?.after(wrapper);
     });
     this.reattachObserver.observe(document.body, { childList: true, subtree: true });
   },
@@ -705,7 +589,7 @@ const OverlayManager = {
 
     collapsedTimestamp.textContent = `Last analyzed: ${formatted}${isStale ? ' (outdated)' : ''}`;
     collapsedTimestamp.title = isStale ? 'Analysis is older than 7 days - consider re-analyzing' : '';
-    // Also drops an earlier error state; the stale colour (#b45309) passes 4.5:1 on white
+    // Also drops an earlier error state
     collapsedTimestamp.className = `last-analyzed-collapsed${isStale ? ' is-stale' : ''}`;
   },
   
@@ -794,11 +678,6 @@ const OverlayManager = {
     if (!elapsedDisplay) {
       elapsedDisplay = document.createElement('span');
       elapsedDisplay.className = 'elapsed-time-display';
-      elapsedDisplay.style.cssText = `
-        font-size: 13px;
-        color: #666;
-        margin-left: 12px;
-      `;
       
       const statusText = this.overlayElement.querySelector('.status-text');
       if (statusText && statusText.parentNode) {
@@ -1345,6 +1224,8 @@ const OverlayManager = {
 
     const toast = document.createElement('div');
     toast.className = 'elevateli-toast';
+    // On <body>, outside the wrapper: take the overlay's theme
+    toast.classList.toggle('eli-dark', !!this.overlayElement?.closest('.eli-dark'));
     toast.setAttribute('role', 'status');
     toast.addEventListener('click', () => toast.remove());
     document.body.appendChild(toast);
