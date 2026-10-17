@@ -437,7 +437,7 @@ const OverlayManager = {
    */
   aiFix(data) {
     const type = data.aiError?.type;
-    if (['AUTH', 'validation_failed', 'RESPONSE_PARSE_ERROR'].includes(type)) return { text: 'Open ElevateLI settings to check it.', settings: true };
+    if (['AUTH', 'validation_failed', 'RESPONSE_PARSE_ERROR', 'MODEL_NOT_FOUND'].includes(type)) return { text: 'Open ElevateLI settings to check it.', settings: true };
     if (type === 'RATE_LIMIT') return { text: 'Wait a minute, then click Analyze.' };
     if (type === 'NETWORK' && data.settings?.aiBaseUrl) return { text: "Check that it's running, then click Analyze.", settings: true };
     return { text: 'Click Analyze to retry.' };
@@ -447,7 +447,7 @@ const OverlayManager = {
    * Why a card or the badge has blank stars, when nothing failed for that card alone
    */
   noRatingText(data) {
-    if (this.aiFailed(data)) return `No AI rating this time: ${this.reason(data.aiError, data.settings)}. Click Analyze to retry.`;
+    if (this.aiFailed(data)) return `No AI rating this time: ${this.reason(data.aiError, data.settings)}. ${this.aiFix(data).text}`;
     return {
       on: 'No AI rating yet. Click Analyze to get one.',
       off: 'No AI rating yet. Turn on AI analysis in ElevateLI settings, then click Analyze.',

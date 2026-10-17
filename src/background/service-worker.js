@@ -600,7 +600,9 @@ function providerError(provider, baseUrl, status, body, { timeout, offline, noAc
     : status >= 500 ? [`${name} is unavailable right now${local ? quoted : ''}`, `${Name} is unavailable right now${local && quoted ? quoted : '. Try again in a few minutes.'}`]
     : [`${name} returned an error${quoted}`, `${Name} returned an error (${status})${quoted || '.'}`];
   return {
-    errorType: !status ? 'NETWORK' : auth ? 'AUTH' : rateLimit ? 'RATE_LIMIT' : status >= 500 ? 'SERVICE_UNAVAILABLE' : 'PROVIDER_ERROR',
+    // 404: the saved model (or a local server's URL) is gone; a retry can't fix it, the quoted text names it
+    errorType: !status ? 'NETWORK' : auth ? 'AUTH' : rateLimit ? 'RATE_LIMIT' : status >= 500 ? 'SERVICE_UNAVAILABLE'
+      : status === 404 ? 'MODEL_NOT_FOUND' : 'PROVIDER_ERROR',
     status, reason, error, retryAfter
   };
 }
