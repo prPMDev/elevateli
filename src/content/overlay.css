@@ -260,12 +260,6 @@
   }
 }
 
-/* Spin animation for analyzing state */
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
 /* View state visibility rules */
 [data-view-state="collapsed"] .overlay-collapsed-view {
   display: flex;
@@ -404,7 +398,7 @@
 }
 
 .eli-advice li::before {
-  content: "→";
+  content: "→" / "";
   position: absolute;
   left: -8px;
 }
@@ -530,13 +524,18 @@
   min-height: 40px;
 }
 
-.status-icon {
-  font-size: 20px;
+/* Progress spinner: a ring in the text colour (updateStatus toggles it on .status-icon) */
+.eli-spinner {
+  display: inline-block;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
   margin-right: 8px;
-}
-
-.status-icon.spinning {
-  animation: spin 1s linear infinite;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: eli-spin 0.8s linear infinite;
 }
 
 .status-text {
@@ -561,24 +560,28 @@
 /* ============================================
  * ANIMATIONS
  * ============================================ */
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+/* Prefixed: content-script keyframes share the page's namespace with LinkedIn's */
+@keyframes eli-spin {
+  to { transform: rotate(360deg); }
 }
 
 @keyframes eli-fade {
   from { opacity: 0; }
 }
 
-/* Only the spinner keeps moving (it is the progress signal); the toast and the panel fade just appear */
+/* Only the spinner keeps moving, slower (it is the progress signal); the toast and the panel fade just appear */
 @media (prefers-reduced-motion: reduce) {
   .elevateli-overlay-wrapper *,
   .elevateli-toast {
     transition: none !important;
   }
 
-  .elevateli-overlay-wrapper *:not(.spinning) {
+  .elevateli-overlay-wrapper *:not(.eli-spinner) {
     animation: none !important;
+  }
+
+  .elevateli-overlay-wrapper .eli-spinner {
+    animation-duration: 2.5s;
   }
 }
 

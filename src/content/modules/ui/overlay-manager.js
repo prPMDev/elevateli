@@ -153,7 +153,7 @@ const OverlayManager = {
           <!-- Expanded view -->
           <div class="overlay-expanded-view">
             <div class="status-indicator">
-              <span class="status-icon"></span>
+              <span class="status-icon" aria-hidden="true"></span>
               <span class="status-text">Initializing...</span>
             </div>
             <div class="unified-section hidden"></div>
@@ -309,7 +309,7 @@ const OverlayManager = {
       [this.states.SCANNING]: () => {
         // COMPLETE (incl. every cache restore) hides the indicator; the status and elapsed counter live in it
         this.overlayElement.querySelector('.status-indicator').style.display = '';
-        this.updateStatus('Scanning profile sections...', '⏳');
+        this.updateStatus('Scanning profile sections...', true);
         this.startElapsedTimeDisplay();
         this.overlayElement.querySelector('.unified-section').replaceChildren();
         // Lower sections mount only when <main> scrolls to them, which carries the overlay out of view.
@@ -318,14 +318,14 @@ const OverlayManager = {
       },
 
       [this.states.CALCULATING]: () => {
-        this.updateStatus('Calculating completeness...', '⏳');
+        this.updateStatus('Calculating completeness...', true);
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
         }
       },
 
       [this.states.AI_ANALYZING]: () => {
-        this.updateStatus('AI analyzing profile sections...', '⏳');
+        this.updateStatus('AI analyzing profile sections...', true);
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
         }
@@ -367,7 +367,7 @@ const OverlayManager = {
         // The provider's own message (e.g. rate limit wait) is the useful part
         const errorMessage = data.aiError?.message || data.message || 'Analysis failed';
 
-        this.updateStatus(errorMessage, '❌');
+        this.updateStatus(errorMessage);
 
         // Show completeness if available (analysis partially succeeded)
         if (data.completeness !== undefined) {
@@ -407,22 +407,15 @@ const OverlayManager = {
   /**
    * Update status indicator
    * @param {string} text - Status message
-   * @param {string} icon - Status icon
+   * @param {boolean} [busy] - Show the spinner; an error needs no icon (the line turns red)
    */
-  updateStatus(text, icon = '') {
+  updateStatus(text, busy = false) {
     const statusText = this.overlayElement.querySelector('.status-text');
-    const statusIcon = this.overlayElement.querySelector('.status-icon');
 
     // Synchronous, so a later per-section write (updateAIProgress) always wins
     if (statusText) statusText.textContent = text;
-    
-    if (statusIcon && icon) {
-      statusIcon.textContent = icon;
-      statusIcon.className = 'status-icon';
-      if (icon === '⏳' || icon === '⣾') {
-        statusIcon.classList.add('spinning');
-      }
-    }
+
+    this.overlayElement.querySelector('.status-icon')?.classList.toggle('eli-spinner', busy);
   },
   
   /**
