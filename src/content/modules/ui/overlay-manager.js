@@ -703,9 +703,10 @@ const OverlayManager = {
     const isStale = (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24) > 7;
     const formatted = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
 
-    collapsedTimestamp.textContent = `Last Analyzed: ${formatted}${isStale ? ' ⚠️' : ''}`;
+    collapsedTimestamp.textContent = `Last analyzed: ${formatted}${isStale ? ' (outdated)' : ''}`;
     collapsedTimestamp.title = isStale ? 'Analysis is older than 7 days - consider re-analyzing' : '';
-    collapsedTimestamp.style.color = isStale ? '#f59e0b' : '';
+    // Also drops an earlier error state; the stale colour (#b45309) passes 4.5:1 on white
+    collapsedTimestamp.className = `last-analyzed-collapsed${isStale ? ' is-stale' : ''}`;
   },
   
   /**

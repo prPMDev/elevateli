@@ -46,50 +46,32 @@
   margin-right: 6px;
 }
 
-.overlay-collapsed-view .score-badge.completeness {
-  background: #e7f3ff;
-  color: #0a66c2;
-}
-
-.overlay-collapsed-view .score-badge.completeness.high {
-  background: #e8f5e9;
-  color: #057642;
-}
-
-.overlay-collapsed-view .score-badge.completeness.medium {
-  background: #fff3cd;
-  color: #856404;
-}
-
-.overlay-collapsed-view .score-badge.completeness.low {
-  background: #fee;
-  color: #dc2626;
-}
-
+/* Unscored ("—"): neutral, so it can't be mistaken for a blue score */
+.overlay-collapsed-view .score-badge.completeness,
 .overlay-collapsed-view .score-badge.quality {
-  background: #f0f9ff;
-  color: #0369a1;
+  background: #f3f2ef;
+  color: rgba(0, 0, 0, 0.6);
 }
 
-.overlay-collapsed-view .score-badge.quality.high {
+/* Score colours from getScoreClass (90/70/50, 8.5/7/5): 5:1 or better at 12px. Good and excellent share green. */
+.overlay-collapsed-view .score-badge.score-excellent,
+.overlay-collapsed-view .score-badge.score-good {
   background: #e8f5e9;
   color: #057642;
 }
 
-.overlay-collapsed-view .score-badge.quality.medium {
-  background: #fff3cd;
-  color: #856404;
+.overlay-collapsed-view .score-badge.score-moderate {
+  background: #fef3c7;
+  color: #92400e;
 }
 
-.overlay-collapsed-view .score-badge.quality.low {
-  background: #fee;
-  color: #dc2626;
+.overlay-collapsed-view .score-badge.score-poor {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .overlay-collapsed-view .score-badge.quality.ai-disabled {
-  background: #f3f4f6;
-  color: #6b7280;
-  font-size: 12px;
+  color: #4b5563;
 }
 
 /* AI was on but failed: "No score", reason in the title */
@@ -112,6 +94,10 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.overlay-collapsed-view .last-analyzed-collapsed.is-stale {
+  color: #b45309;
 }
 
 /* Errors stay visible at every width, unlike the date (hidden on narrow bars below) */
@@ -216,6 +202,16 @@
 .overlay-collapsed-view .analyze-btn-collapsed:hover:not(:disabled) {
   background: #0856a0;
   border-color: #0856a0;
+}
+
+/* Once results show, the score leads and Analyze steps back to an outlined button */
+.elevateli-overlay[data-state="complete"] .analyze-btn-collapsed:not(:disabled) {
+  background: #fff;
+  color: #0a66c2;
+}
+
+.elevateli-overlay[data-state="complete"] .analyze-btn-collapsed:hover:not(:disabled) {
+  background: #ebf4fd;
 }
 
 /* Disabled only while analyzing, and then it carries the progress ("Analyzing 2/5"), so keep it readable */
@@ -390,35 +386,6 @@
 }
 
 /* ============================================
- * NEW COLOR SYSTEM (REDESIGN SPEC)
- * ============================================ */
-.score-excellent { color: #10b981 !important; }  /* 90-100% or 8.5-10 */
-.score-good { color: #3b82f6 !important; }      /* 70-89% or 7-8.4 */
-.score-moderate { color: #f59e0b !important; }  /* 50-69% or 5-6.9 */
-.score-poor { color: #ef4444 !important; }      /* <50% or <5 */
-
-/* Background colors for badges */
-.overlay-collapsed-view .score-badge.score-excellent {
-  background: #d1fae5;
-  color: #10b981;
-}
-
-.overlay-collapsed-view .score-badge.score-good {
-  background: #dbeafe;
-  color: #3b82f6;
-}
-
-.overlay-collapsed-view .score-badge.score-moderate {
-  background: #fef3c7;
-  color: #f59e0b;
-}
-
-.overlay-collapsed-view .score-badge.score-poor {
-  background: #fee2e2;
-  color: #ef4444;
-}
-
-/* ============================================
  * FEATURE FLAG CONTROL
  * ============================================ */
 /* Classic UI (old) - hide collapsed view and show header */
@@ -453,67 +420,15 @@
 .unified-section {
   display: block;
   margin-top: 16px;
-  animation: fadeInUp 0.4s ease-out;
+  animation: eli-fade 0.2s ease-out;
 }
 
 .unified-section.hidden {
   display: none !important;
 }
 
-/* Coaching summary styling */
-.unified-section > div > div:first-child {
-  animation: slideInLeft 0.5s ease-out;
-}
-
-/* Section cards animation */
-.unified-section > div > div > div {
-  animation: fadeInUp 0.3s ease-out;
-  animation-fill-mode: both;
-}
-
-/* Stagger section animations */
-.unified-section > div > div > div:nth-child(1) { animation-delay: 0.1s; }
-.unified-section > div > div > div:nth-child(2) { animation-delay: 0.2s; }
-.unified-section > div > div > div:nth-child(3) { animation-delay: 0.3s; }
-.unified-section > div > div > div:nth-child(4) { animation-delay: 0.4s; }
-.unified-section > div > div > div:nth-child(5) { animation-delay: 0.5s; }
-.unified-section > div > div > div:nth-child(6) { animation-delay: 0.6s; }
-
-/* Star rating animations */
-@keyframes starPop {
-  0% { transform: scale(0); opacity: 0; }
-  50% { transform: scale(1.2); }
-  100% { transform: scale(1); opacity: 1; }
-}
-
-/* Apply star animation in JS when rendered */
 .star-rating {
   display: inline-block;
-}
-
-.star-rating > span {
-  display: inline-block;
-  animation: starPop 0.3s ease-out;
-  animation-fill-mode: both;
-}
-
-/* Section hover effects */
-.unified-section > div > div > div {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.unified-section > div > div > div:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-/* Recommendation list item hover */
-.unified-section ul li {
-  transition: padding-left 0.2s ease;
-}
-
-.unified-section ul li:hover {
-  padding-left: 12px;
 }
 
 /* Results: banner with the next step, caption, one row per section. The advice is the main text. */
@@ -606,14 +521,11 @@
  * BASE OVERLAY STYLES
  * ============================================ */
 .elevateli-overlay-wrapper {
-  /* Custom card styling without LinkedIn classes */
+  /* Custom card styling without LinkedIn classes; the inline .elevateli-card ring is the only edge */
   background: #fff;
-  border: 1px solid #e0e0e0;
   border-radius: 8px;
   margin: 16px 0;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   overflow: hidden;
-  transition: all 0.3s ease;
   max-width: 100%;
   box-sizing: border-box;
   
@@ -629,7 +541,6 @@
 .elevateli-card {
   /* Mimic LinkedIn card appearance */
   background: #fff;
-  border: 1px solid #e0e0e0;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -761,36 +672,19 @@
   100% { transform: rotate(360deg); }
 }
 
-@keyframes fadeInUp {
-  0% { 
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  100% { 
-    opacity: 1;
-    transform: translateY(0);
-  }
+@keyframes eli-fade {
+  from { opacity: 0; }
 }
 
-@keyframes slideInLeft {
-  0% { 
-    opacity: 0;
-    transform: translateX(-20px);
+/* Only the spinner keeps moving (it is the progress signal); the toast and the panel fade just appear */
+@media (prefers-reduced-motion: reduce) {
+  .elevateli-overlay-wrapper *,
+  .elevateli-toast {
+    transition: none !important;
   }
-  100% { 
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
 
-@keyframes expandCollapse {
-  0% {
-    max-height: 0;
-    opacity: 0;
-  }
-  100% {
-    max-height: 2000px;
-    opacity: 1;
+  .elevateli-overlay-wrapper *:not(.spinning) {
+    animation: none !important;
   }
 }
 
@@ -800,11 +694,6 @@
 /* Ensure overlay matches LinkedIn's visual hierarchy */
 .pvs-list__paged-list-item + .elevateli-overlay-wrapper {
   margin-top: 24px;
-}
-
-/* Match LinkedIn's card hover behavior */
-.elevateli-overlay-wrapper:hover {
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
 /* Prevent LinkedIn's grid layout from placing overlay in sidebar */
