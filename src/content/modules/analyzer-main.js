@@ -115,6 +115,9 @@
     activeAnalyzer.cancelled = true;
     activeAnalyzer = null;
     OverlayManager.resetButtons();
+    // The cancelled run paints nothing more: don't leave its spinner and elapsed counter running
+    OverlayManager.stopElapsedTimeDisplay();
+    if (OverlayManager.overlayElement) OverlayManager.hideStatusIndicator();
   }
 
   // Start analysis when requested
@@ -167,14 +170,9 @@
         });
 
         if (!compliance?.hasAcknowledged) {
-
-          // Show error in overlay
-          if (typeof OverlayManager !== 'undefined' && OverlayManager.overlayElement) {
-            OverlayManager.setState(OverlayManager.states.ERROR, {
-              message: 'Please complete setup in the extension popup before analyzing.'
-            });
-          }
-
+          // Setup was reset elsewhere (Factory Reset in another tab): back to first-run, where Analyze offers setup
+          OverlayManager.hasCompliance = false;
+          OverlayManager.setState(OverlayManager.states.INITIALIZING);
           return;
         }
       } catch (error) {
@@ -236,6 +234,8 @@
       if (activeAnalyzer === analyzer) {
         activeAnalyzer = null;
         OverlayManager.resetButtons();
+        // A no-op after a final state; stops the counter of a run that ended without one (aborted, left the profile)
+        OverlayManager.stopElapsedTimeDisplay();
       }
     }
   }
@@ -284,22 +284,10 @@
       if (request.action === 'triggerAnalysis') {
         // Handle cache clear - update overlay to show reset state
         cancelAnalysis(); // a running analysis would save the cache right back
+        // EMPTY_CACHE also moves currentState off the cancelled run's AI_ANALYZING and clears the error styling.
+        // Safe without an overlay (setState returns early).
+        OverlayManager.setState(OverlayManager.states.EMPTY_CACHE);
 
-        // Show zero state UI with reset-appropriate text
-        if (typeof OverlayManager !== 'undefined') {
-          if (OverlayManager.showZeroState) {
-            OverlayManager.showZeroState(true);
-          }
-          // Also show the analyze button
-          if (OverlayManager.showActionButtons) {
-            OverlayManager.showActionButtons({ 
-              showAnalyze: true,
-              showRefresh: false,
-              showDetails: false 
-            });
-          }
-        }
-        
         sendResponse({ success: true });
         return true;
       }

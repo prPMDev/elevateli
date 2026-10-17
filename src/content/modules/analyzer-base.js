@@ -177,6 +177,11 @@ class Analyzer {
       const { compliance } = await chrome.storage.local.get('compliance');
       if (this.cancelled || !compliance?.hasAcknowledged) {
         clearTimeout(analysisTimeout);
+        // Factory Reset from another tab (only the active tab is told): leave 'AI analyzing...' for first-run setup
+        if (!this.cancelled) {
+          OverlayManager.hasCompliance = false;
+          OverlayManager.setState(OverlayManager.states.INITIALIZING);
+        }
         return { success: false, cancelled: true };
       }
 
