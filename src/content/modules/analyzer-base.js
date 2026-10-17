@@ -101,7 +101,7 @@ class Analyzer {
       
       // Run AI analysis if enabled
       const hasApiKey = this.settings.encryptedApiKey;
-      // Sections the AI could not score this run (named in the completion toast)
+      // Sections the AI could not score this run (named in the bar)
       let failedSections = [];
 
       if (this.settings.enableAI && hasApiKey && this.settings.aiProvider) {
@@ -184,8 +184,12 @@ class Analyzer {
       };
 
       OverlayManager.setState(finalState, overlayData);
-      // COMPLETE announces the run's end and any AI error. Sections that kept an earlier rating look unchanged, so name them.
-      if (failedSections.length) OverlayManager.showToast(`AI could not analyze ${failedSections.join(', ')} this time.`);
+      // COMPLETE announces the run's end and any AI error. Sections that kept an earlier rating look unchanged, so the
+      // bar names them (not a toast: the scroll notice is the only one)
+      if (failedSections.length) {
+        const list = new Intl.ListFormat('en-GB', { type: 'conjunction' }).format(failedSections); // "A, B and C"
+        OverlayManager.showError(`No new AI rating for your ${list} this time. Click Analyze to retry.`);
+      }
     } catch (error) {
       console.error('[Analyzer] Analysis failed:', error);
       // An extension reload orphans this run (chrome.storage throws); the new script's overlay is not its to paint
@@ -434,7 +438,10 @@ class Analyzer {
     let result;
     let scored = false;
     const failed = [];
-    
+    // How the status line and the bar name each section: "Rating your skills (4 of 5)…"
+    const label = { first_impression: 'headline', about: 'About section', experience_overall: 'experience',
+      experience: 'experience', skills: 'skills', recommendations: 'recommendations' };
+
     // Analyze sections sequentially
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
@@ -444,7 +451,7 @@ class Analyzer {
       // Two failures in a row: stop calling the provider; the remaining sections fail with the same error
       if (consecutiveFailures < MAX_CONSECUTIVE_FAILURES) {
         try {
-          OverlayManager.updateAIProgress('analyzing', section.name, i + 1, sections.length);
+          OverlayManager.updateAIProgress('analyzing', label[section.type], i + 1, sections.length);
 
           // Above the SW's 180 s per AI call, so the SW's own error is the one reported
           result = await Promise.race([
@@ -465,7 +472,7 @@ class Analyzer {
         sectionResults[section.type] = result;
       } else {
         consecutiveFailures++;
-        failed.push(section.name.replace(/ \(.*\)$/, ''));
+        failed.push(label[section.type]);
         // Keep the section's last good result, as a whole-run failure keeps them all. Otherwise record
         // the failure so the overlay says this section failed instead of "Enable AI"
         const prev = prevScores?.[section.type];
@@ -481,7 +488,7 @@ class Analyzer {
 
     // 6. Synthesize all results
     if (this.cancelled) return { success: false, cancelled: true };
-    OverlayManager.updateAIProgress('synthesizing', 'Synthesizing results...');
+    OverlayManager.updateAIProgress('synthesizing');
 
     return { ...this.synthesizeResults(sectionResults), failed };
   }
