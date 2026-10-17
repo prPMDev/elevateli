@@ -168,7 +168,7 @@
     }
   });
 
-  // Setup, Reset all and Show analysis reach every open tab through storage, whichever tab or popup changed them
+  // Setup, Reset all, Show analysis and the AI settings reach every open tab through storage, whichever tab or popup changed them
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || !chrome.runtime?.id) return;
     const has = !!changes.compliance?.newValue?.hasAcknowledged;
@@ -179,6 +179,10 @@
       // Setup and Reset all both leave no cached results: the zero state, with or without the consent card.
       // setState is safe without an overlay.
       OverlayManager.setState(has ? OverlayManager.states.EMPTY_CACHE : OverlayManager.states.INITIALIZING);
+    } else if (OverlayManager.overlayElement
+      && ['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey'].some(key => key in changes)) {
+      // The AI copy (bar, tooltips, zero state) names the current setup; restore skips a running analysis
+      OverlayManager.restoreAppropriateState();
     }
     if (changes.showAnalysis) {
       if (changes.showAnalysis.newValue === false) OverlayManager.hide();

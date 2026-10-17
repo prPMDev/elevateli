@@ -1236,9 +1236,9 @@ const OverlayManager = {
       const settings = { enableAI: stored.enableAI, aiProvider: stored.aiProvider, aiModel: stored.aiModel, aiBaseUrl: stored.aiBaseUrl,
         hasKey: !!stored.encryptedApiKey };
       const aiOn = this.aiState(settings) === 'on';
-      // ponytail: AI-agnostic, since nothing re-renders this when the AI settings change after setup;
-      // the WEL-6/BAR-12 per-setting variants can return once analyzer-main re-renders on those changes
-      const time = 'Under 30 seconds, or up to a few minutes with AI analysis on.';
+      // analyzer-main re-renders this when the AI settings change
+      const time = !aiOn ? 'Under 30 seconds.'
+        : `Up to a few minutes with AI analysis on.${settings.aiBaseUrl ? ' Local models can take longer.' : ''}`;
       const scroll = 'Your page will scroll by itself while ElevateLI reads each section.';
       // The overlay renders only on the user's own profile: the name is the top card's, as saveUserProfileId reads it
       const name = BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim();
@@ -1255,7 +1255,8 @@ const OverlayManager = {
           </div>`);
 
       const slot = overlay.querySelector('.last-analyzed-collapsed');
-      slot.textContent = this.hasCompliance ? 'Under 30 seconds, or a few minutes with AI. Your page will scroll.' : 'Setup needed';
+      slot.textContent = !this.hasCompliance ? 'Setup needed'
+        : aiOn ? 'Up to a few minutes with AI. Your page will scroll.' : 'Under 30 seconds. Your page will scroll.';
       // The slot cuts long text with an ellipsis
       slot.title = slot.textContent;
       slot.className = 'last-analyzed-collapsed';
