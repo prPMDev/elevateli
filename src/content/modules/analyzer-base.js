@@ -356,6 +356,12 @@ class Analyzer {
    */
   async runExtractors() {
     const results = {};
+    // Leaving this profile cancels the run right away: the scan's own scrolling keeps analyzer-main's
+    // debounced navigation observer from firing until it ends
+    const stop = () => {
+      if (extractProfileIdFromUrl() !== this.profileId) this.cancelled = true;
+      return this.cancelled;
+    };
     
     // Update scan progress
     const sections = Object.keys(this.extractors).map(name => ({
@@ -366,8 +372,16 @@ class Analyzer {
     
     OverlayManager.updateScanProgress(sections);
     
-    // Lower profile sections render only once scrolled into view
-    await BaseExtractor.loadLazySections();
+    // Lower profile sections render only once scrolled into view. The page jumps meanwhile, and the
+    // overlay scrolls away with it, so explain it from the fixed-position toast
+    const toast = OverlayManager.showToast('Scrolling through your profile so LinkedIn loads every section…', 'info', 60000);
+    try {
+      await BaseExtractor.loadLazySections(stop);
+    } finally {
+      toast.remove();
+    }
+    // A cancelled run must not scan the next page or paint EXTRACTING over a reset overlay
+    if (stop()) return results;
     
     // Run extractors in parallel
     const promises = Object.entries(this.extractors).map(async ([name, extractor]) => {
