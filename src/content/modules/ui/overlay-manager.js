@@ -10,9 +10,7 @@ const OverlayManager = {
     INITIALIZING: 'initializing',
     EMPTY_CACHE: 'empty_cache',
     SCANNING: 'scanning',
-    EXTRACTING: 'extracting',
     CALCULATING: 'calculating',
-    ANALYZING: 'analyzing',
     AI_ANALYZING: 'ai_analyzing',
     COMPLETE: 'complete',
     ERROR: 'error',
@@ -277,73 +275,12 @@ const OverlayManager = {
           
           <!-- Expanded view -->
           <div class="overlay-expanded-view">
-          <!-- Header removed - branding already in collapsed bar -->
-        
-        <div class="scores-container">
-          <div class="score-block completeness">
-            <label>Profile Completeness</label>
-            <div class="score-display">
-              <span class="score-value skeleton">--</span>
-              <span class="score-suffix">%</span>
+            <div class="status-indicator">
+              <span class="status-icon"></span>
+              <span class="status-text">Initializing...</span>
             </div>
-            <div class="score-bar">
-              <div class="score-bar-fill skeleton" style="width: 0%"></div>
-            </div>
-          </div>
-          
-          <div class="score-block quality">
-            <label>Content Quality (AI)</label>
-            <div class="score-display">
-              <span class="score-value skeleton">--</span>
-              <span class="score-suffix"></span>
-            </div>
-            <div class="score-bar">
-              <div class="score-bar-fill skeleton" style="width: 0%"></div>
-            </div>
-            <div class="ai-status"></div>
-          </div>
-        </div>
-        
-        <div class="status-indicator">
-          <span class="status-icon"></span>
-          <span class="status-text">Initializing...</span>
-        </div>
-        
-        <div class="scan-progress hidden">
-          <h4>Scanning Profile Sections</h4>
-          <div class="scan-items"></div>
-        </div>
-        
-        <div class="missing-items-section hidden">
-          <h4>To Reach 100% Completeness</h4>
-          <div class="missing-items-list"></div>
-        </div>
-        
-        <div class="recommendations-section hidden">
-          <h4>Top Recommendations</h4>
-          <ul class="recommendations-list"></ul>
-        </div>
-        
-        <div class="insights-section hidden">
-          <h4>Key Insights</h4>
-          <div class="insights-content"></div>
-        </div>
-        
-        <div class="overlay-actions">
-          <button class="action-button analyze-button hidden">
-            <span class="button-icon">🚀</span>
-            Analyze Profile
-          </button>
-          <button class="action-button refresh-button hidden">
-            <span class="button-icon">🔄</span>
-            Refresh
-          </button>
-          <button class="action-button details-button hidden">
-            <span class="button-icon">📊</span>
-            View Details
-          </button>
-        </div>
-        </div><!-- Close expanded view -->
+            <div class="unified-section hidden"></div>
+          </div><!-- Close expanded view -->
       </div>
       </div><!-- Close wrapper -->
     `;
@@ -396,32 +333,6 @@ const OverlayManager = {
    * Attach event listeners to overlay elements
    */
   attachEventListeners() {
-    // Analyze button (for first-time analysis)
-    const analyzeBtn = this.overlayElement.querySelector('.analyze-button');
-    if (analyzeBtn) {
-      if (!this.hasCompliance) {
-        analyzeBtn.disabled = true;
-        analyzeBtn.title = 'Please complete setup in extension popup first';
-      } else {
-        analyzeBtn.addEventListener('click', () => this.handleAnalyze());
-      }
-    }
-    
-    // Refresh button (for re-analysis)
-    const refreshBtn = this.overlayElement.querySelector('.refresh-button');
-    if (refreshBtn) {
-      if (!this.hasCompliance) {
-        refreshBtn.disabled = true;
-        refreshBtn.title = 'Please complete setup in extension popup first';
-      } else {
-        refreshBtn.addEventListener('click', () => this.handleRefresh());
-      }
-    }
-    
-    // Details button
-    const detailsBtn = this.overlayElement.querySelector('.details-button');
-    detailsBtn?.addEventListener('click', () => this.handleViewDetails());
-    
     // Analyze button (collapsed view) - always attach listener
     const analyzeBtnCollapsed = this.overlayElement.querySelector('.analyze-btn-collapsed');
     if (analyzeBtnCollapsed) {
@@ -470,60 +381,12 @@ const OverlayManager = {
     
     // State-specific updates
     const stateHandlers = {
-      [this.states.INITIALIZING]: () => {
-        // Check if we have compliance - if not, show zero state
-        if (!this.hasCompliance) {
-          this.clearEmptyStateMessage();
-          this.hideStatusIndicator();
-          this.hideSkeletons();
-          this.showZeroState();
-          // Don't show analyze button until setup is complete
-          this.showActionButtons({ 
-            showAnalyze: false,
-            showRefresh: false,
-            showDetails: false 
-          });
-        } else {
-          this.updateStatus('Initializing analysis...', '⣾');
-          this.showSkeletons();
-          // Show analyze button for first-time analysis
-          this.showActionButtons({ showAnalyze: true, showDetails: false });
-        }
-      },
-      
+      // Set before injection (a no-op then) and after a factory reset: the zero state handles both setup cases
+      [this.states.INITIALIZING]: () => this.showZeroState(),
+
       [this.states.EMPTY_CACHE]: () => {
         this.updateStatus('No previous analysis found', 'ℹ️');
-        this.hideSkeletons();
-        
-        // Clear score values and stars
-        const completenessValue = this.overlayElement.querySelector('.completeness .score-value');
-        const qualityValue = this.overlayElement.querySelector('.quality .score-value');
-        const qualitySuffix = this.overlayElement.querySelector('.quality .score-suffix');
-        
-        if (completenessValue) {
-          completenessValue.textContent = '--';
-          completenessValue.classList.add('skeleton');
-        }
-        if (qualityValue) {
-          qualityValue.textContent = '--';
-          qualityValue.classList.add('skeleton');
-        }
-        if (qualitySuffix) {
-          qualitySuffix.textContent = '';
-        }
-        
-        // Reset progress bars
-        const completenessBar = this.overlayElement.querySelector('.completeness .score-bar-fill');
-        const qualityBar = this.overlayElement.querySelector('.quality .score-bar-fill');
-        if (completenessBar) {
-          completenessBar.style.width = '0%';
-          completenessBar.classList.add('skeleton');
-        }
-        if (qualityBar) {
-          qualityBar.style.width = '0%';
-          qualityBar.classList.add('skeleton');
-        }
-        
+
         // Clear collapsed view badges
         const completenessBadge = this.overlayElement.querySelector('.score-badge.completeness');
         const qualityBadge = this.overlayElement.querySelector('.score-badge.quality');
@@ -590,75 +453,25 @@ const OverlayManager = {
         
         // Show welcome message in unified section
         this.showZeroState();
-        
-        // Show prominent analyze button
-        this.showActionButtons({ 
-          showAnalyze: true,
-          showRefresh: false,
-          showDetails: false 
-        });
       },
-      
+
       [this.states.SCANNING]: () => {
-        this.clearEmptyStateMessage();
         // COMPLETE (incl. every cache restore) hides the indicator; the status and elapsed counter live in it
-        const statusIndicator = this.overlayElement.querySelector('.status-indicator');
-        if (statusIndicator) statusIndicator.style.display = '';
+        this.overlayElement.querySelector('.status-indicator').style.display = '';
         this.updateStatus('Scanning profile sections...', '⏳');
-        this.showScanProgress();
         this.startElapsedTimeDisplay();
-        
-        // Clear recommendations when starting new analysis
-        const recommendationsList = this.overlayElement.querySelector('.recommendations-list');
-        if (recommendationsList) {
-          // Clear recommendations list safely
-          while (recommendationsList.firstChild) {
-            recommendationsList.removeChild(recommendationsList.firstChild);
-          }
-        }
-        
-        // Hide recommendations section during analysis
-        const recommendationsSection = this.overlayElement.querySelector('.recommendations-section');
-        if (recommendationsSection) {
-          recommendationsSection.classList.add('hidden');
-        }
-        
-        // Also clear unified section
-        const unifiedSection = this.overlayElement.querySelector('.unified-section');
-        if (unifiedSection) {
-          // Clear unified section safely
-          while (unifiedSection.firstChild) {
-            unifiedSection.removeChild(unifiedSection.firstChild);
-          }
-          // Keep the section visible but empty during analysis
-          unifiedSection.classList.remove('hidden');
-        }
+        this.overlayElement.querySelector('.unified-section').replaceChildren();
       },
-      
-      [this.states.EXTRACTING]: () => {
-        this.updateStatus('Extracting profile data...', '⏳');
-        this.hideScanProgress();
-        this.showProgressBar('extracting');
-      },
-      
+
       [this.states.CALCULATING]: () => {
         this.updateStatus('Calculating completeness...', '⏳');
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
         }
       },
-      
-      [this.states.ANALYZING]: () => {
-        this.updateStatus('Running AI analysis...', '⏳');
-        if (data.completeness !== undefined) {
-          this.updateCompleteness(data.completeness);
-        }
-        this.showProgressBar('analyzing');
-      },
-      
+
       [this.states.AI_ANALYZING]: () => {
         this.updateStatus('AI analyzing profile sections...', '⏳');
-        this.hideScanProgress();
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
         }
@@ -666,11 +479,9 @@ const OverlayManager = {
       },
       
       [this.states.COMPLETE]: () => {
-        this.clearEmptyStateMessage();
         // Hide status indicator after analysis
         this.hideStatusIndicator();
-        this.hideSkeletons();
-        
+
         // Always stop: cache-backed results (analyze()'s cache hit, AI failure with cached AI
         // fields) also arrive after SCANNING started the timer; a no-op on plain restores
         this.stopElapsedTimeDisplay();
@@ -682,8 +493,6 @@ const OverlayManager = {
         
         // Show unified view
         this.showUnifiedView(data);
-        // Don't show action buttons in expanded view
-        this.showActionButtons({ showRefresh: false });
 
         // Show timestamp
         if (data.timestamp) {
@@ -710,79 +519,33 @@ const OverlayManager = {
         // Stop elapsed time display if running
         this.stopElapsedTimeDisplay();
         
-        // Determine error icon and message based on type
-        let errorIcon = '❌';
-        let errorMessage = data.message || 'Analysis failed';
-        let showSettings = false;
-        let toastType = 'error';
-        
-        if (data.aiError) {
-          switch (data.aiError.type) {
-            case 'AUTH':
-              errorIcon = '🔑';
-              showSettings = true;
-              errorMessage = 'Invalid API key - please check your settings';
-              break;
-            case 'RATE_LIMIT':
-              errorIcon = '⏱️';
-              toastType = 'warning';
-              if (data.aiError.retryAfter) {
-                errorMessage = data.aiError.message;
-                // Start countdown timer
-                this.startRetryCountdown(data.aiError.retryAfter);
-              }
-              break;
-            case 'NETWORK':
-              errorIcon = '🌐';
-              break;
-            case 'SERVICE_UNAVAILABLE':
-              errorIcon = '🔧';
-              break;
-            default:
-              errorIcon = '⚠️';
-          }
-          errorMessage = data.aiError.message;
-        }
-        
-        this.updateStatus(errorMessage, errorIcon);
-        this.hideSkeletons();
-        
+        // The provider's own message (e.g. rate limit wait) is the useful part
+        const errorMessage = data.aiError?.message || data.message || 'Analysis failed';
+
+        this.updateStatus(errorMessage, '❌');
+
         // Show completeness if available (analysis partially succeeded)
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
         }
-        
-        // Show appropriate action button
-        if (showSettings) {
-          // Show button to open settings
-          this.showActionButtons({ showSettings: true, hasError: true });
-        } else {
-          // Show refresh button to retry
-          this.showActionButtons({ showRefresh: true, hasError: true });
-        }
-        
+
         // Show toast notification
-        this.showToast(errorMessage, toastType);
+        this.showToast(errorMessage, 'error');
       },
       
       [this.states.ANALYSIS_FAILED_CACHE_FALLBACK]: () => {
         // Stop elapsed time display if running
         this.stopElapsedTimeDisplay();
         
-        this.clearEmptyStateMessage();
-        this.hideSkeletons();
-        
         // Show cached data
         this.populateScores(data);
-        
+
         // Store the data with a flag indicating it's a fallback
         this.currentData = { ...data, isCacheFallback: true };
-        
+
         // Show unified view with cache fallback indicator
         this.showUnifiedView(data);
-        // Don't show action buttons in expanded view
-        this.showActionButtons({ showRefresh: false });
-        
+
         // Show timestamp
         if (data.timestamp) {
           this.showTimestamp(data.timestamp);
@@ -822,9 +585,6 @@ const OverlayManager = {
         
         // Update status
         this.updateStatus('Showing cached results', 'ℹ️');
-        
-        // Show refresh button
-        this.showActionButtons({ showRefresh: true });
       }
     };
     
@@ -867,124 +627,12 @@ const OverlayManager = {
   },
   
   /**
-   * Show skeleton loaders
-   */
-  showSkeletons() {
-    const skeletons = this.overlayElement.querySelectorAll('.skeleton');
-    skeletons.forEach(el => el.classList.add('loading'));
-  },
-  
-  /**
-   * Hide skeleton loaders
-   */
-  hideSkeletons() {
-    const skeletons = this.overlayElement.querySelectorAll('.skeleton');
-    skeletons.forEach(el => {
-      el.classList.remove('skeleton', 'loading');
-    });
-  },
-  
-  /**
-   * Update button content safely
-   */
-  updateButtonContent(button, iconText, labelText) {
-    // Clear existing content
-    while (button.firstChild) {
-      button.removeChild(button.firstChild);
-    }
-    
-    // Create icon span
-    const iconSpan = document.createElement('span');
-    iconSpan.className = 'button-icon';
-    iconSpan.textContent = iconText;
-    
-    // Add text node
-    const textNode = document.createTextNode(labelText);
-    
-    button.appendChild(iconSpan);
-    button.appendChild(textNode);
-  },
-  
-  /**
-   * Create a score block element safely
-   */
-  createScoreBlock(type, label, unit) {
-    const scoreBlock = document.createElement('div');
-    scoreBlock.className = `score-block ${type}`;
-    
-    const labelEl = document.createElement('label');
-    labelEl.textContent = label;
-    
-    const scoreValue = document.createElement('div');
-    scoreValue.className = 'score-value skeleton';
-    scoreValue.textContent = '--';
-    
-    const scoreBar = document.createElement('div');
-    scoreBar.className = 'score-bar';
-    
-    const scoreBarFill = document.createElement('div');
-    scoreBarFill.className = 'score-bar-fill skeleton';
-    scoreBar.appendChild(scoreBarFill);
-    
-    const scoreUnit = document.createElement('span');
-    scoreUnit.className = 'score-unit';
-    scoreUnit.textContent = unit;
-    
-    scoreBlock.appendChild(labelEl);
-    scoreBlock.appendChild(scoreValue);
-    scoreBlock.appendChild(scoreBar);
-    scoreBlock.appendChild(scoreUnit);
-    
-    return scoreBlock;
-  },
-  
-  /**
-   * Clear empty state message
-   */
-  clearEmptyStateMessage() {
-    const emptyMessage = this.overlayElement.querySelector('.empty-state-message');
-    if (emptyMessage) {
-      emptyMessage.remove();
-    }
-    
-    // Also restore scores container if it was cleared
-    const scoresContainer = this.overlayElement.querySelector('.scores-container');
-    if (scoresContainer && !scoresContainer.querySelector('.score-block')) {
-      // Clear any existing content
-      while (scoresContainer.firstChild) {
-        scoresContainer.removeChild(scoresContainer.firstChild);
-      }
-      
-      // Restore the score blocks structure using DOM methods
-      scoresContainer.appendChild(this.createScoreBlock('completeness', 'Profile Completeness', '%'));
-      scoresContainer.appendChild(this.createScoreBlock('quality', 'Content Quality (AI)', '★'));
-    }
-  },
-  
-  /**
    * Update completeness score
    * @param {number} score - Completeness percentage
    */
   updateCompleteness(score) {
-    const valueEl = this.overlayElement.querySelector('.completeness .score-value');
-    const barEl = this.overlayElement.querySelector('.completeness .score-bar-fill');
     const collapsedBadge = this.overlayElement.querySelector('.score-badge.completeness');
-    
-    if (valueEl) {
-      valueEl.textContent = Math.round(score);
-      valueEl.classList.remove('skeleton');
-    }
-    
-    if (barEl) {
-      barEl.style.width = `${score}%`;
-      barEl.classList.remove('skeleton');
-      
-      // Color based on score
-      if (score >= 80) barEl.style.backgroundColor = '#057642';
-      else if (score >= 60) barEl.style.backgroundColor = '#f59e0b';
-      else barEl.style.backgroundColor = '#dc2626';
-    }
-    
+
     // Update collapsed view badge
     if (collapsedBadge) {
       (() => {
@@ -1034,36 +682,6 @@ const OverlayManager = {
     qualityBadge?.classList.remove('ai-disabled', 'error', 'ai-error', 'high', 'medium', 'low', 'score-excellent', 'score-good', 'score-moderate', 'score-poor');
 
     if (data.aiDisabled || ((data.contentScore === undefined || data.contentScore === null) && data.fromCache !== true)) {
-      // Replace quality score block with AI disabled message
-      const qualityBlock = this.overlayElement.querySelector('.score-block.quality');
-      if (qualityBlock) {
-        let message = 'Configure AI in extension settings';
-        // AI is on but the run failed or timed out: say why instead of "Configure AI"
-        if (data.aiError && data.settings?.enableAI) message = data.aiError.message;
-        if (data.apiKeyError) {
-          message = data.apiKeyErrorMessage || 'Invalid Key - check settings';
-        }
-        // Clear and rebuild quality block safely
-        while (qualityBlock.firstChild) {
-          qualityBlock.removeChild(qualityBlock.firstChild);
-        }
-        
-        const label = document.createElement('label');
-        label.textContent = 'Content Quality (AI)';
-        
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'ai-disabled-message';
-        messageDiv.textContent = message;
-        
-        qualityBlock.appendChild(label);
-        qualityBlock.appendChild(messageDiv);
-        
-        // Clear the star suffix when AI is disabled
-        const suffixEl = this.overlayElement.querySelector('.quality .score-suffix');
-        if (suffixEl) {
-          suffixEl.textContent = '';
-        }
-      }
       // Update collapsed view badge
       if (qualityBadge) {
         if (data.contentScore === 0 && data.aiError && data.settings?.enableAI) {
@@ -1121,42 +739,6 @@ const OverlayManager = {
         }
       }
     } else if (data.contentScore !== undefined && data.contentScore !== null) {
-      // An earlier AI-off render replaced the quality block with a message; rebuild it before filling it
-      const qualityBlock = this.overlayElement.querySelector('.score-block.quality');
-      if (qualityBlock && !qualityBlock.querySelector('.score-value')) {
-        qualityBlock.replaceWith(this.createScoreBlock('quality', 'Content Quality (AI)', '★'));
-      }
-      // Update quality score normally
-      const valueEl = this.overlayElement.querySelector('.quality .score-value');
-      const barEl = this.overlayElement.querySelector('.quality .score-bar-fill');
-      const statusEl = this.overlayElement.querySelector('.ai-status');
-      
-      if (valueEl) {
-        // Convert 10-point scale to 5-star scale
-        valueEl.textContent = (data.contentScore / 2).toFixed(2);
-        valueEl.classList.remove('skeleton');
-        
-        // Add the star suffix
-        const suffixEl = this.overlayElement.querySelector('.quality .score-suffix');
-        if (suffixEl) {
-          suffixEl.textContent = '★';
-        }
-      }
-      
-      if (barEl) {
-        barEl.style.width = `${data.contentScore * 10}%`;
-        barEl.classList.remove('skeleton');
-        
-        // Color based on score
-        if (data.contentScore >= 8) barEl.style.backgroundColor = '#057642';
-        else if (data.contentScore >= 6) barEl.style.backgroundColor = '#f59e0b';
-        else barEl.style.backgroundColor = '#dc2626';
-      }
-      
-      if (statusEl) {
-        statusEl.textContent = data.fromCache ? 'Cached' : 'Fresh';
-      }
-      
       // Update collapsed view badge
       if (qualityBadge) {
         // Convert 10-point scale to 5-star scale
@@ -1237,230 +819,6 @@ const OverlayManager = {
   },
   
   /**
-   * Start retry countdown timer
-   * @param {number} seconds - Seconds to wait
-   */
-  startRetryCountdown(seconds) {
-    const analyzeBtn = this.overlayElement.querySelector('.analyze-button');
-    if (!analyzeBtn) return;
-    
-    // Clear any existing timer
-    if (this.countdownTimer) {
-      clearInterval(this.countdownTimer);
-    }
-    
-    let remaining = seconds;
-    analyzeBtn.classList.remove('hidden');
-    analyzeBtn.disabled = true;
-    
-    const updateButton = () => {
-      if (remaining > 0) {
-        this.updateButtonContent(analyzeBtn, '⏱️', `Retry in ${remaining}s`);
-        remaining--;
-      } else {
-        clearInterval(this.countdownTimer);
-        analyzeBtn.disabled = !this.hasCompliance;
-        this.updateButtonContent(analyzeBtn, '🔄', 'Retry Analysis');
-        // Restore original click handler
-        analyzeBtn.onclick = () => this.handleAnalyze();
-      }
-    };
-    
-    updateButton();
-    this.countdownTimer = setInterval(updateButton, 1000);
-  },
-  
-  /**
-   * Show action buttons based on current state
-   * @param {Object} options - Button visibility options
-   */
-  showActionButtons(options = {}) {
-    const analyzeBtn = this.overlayElement.querySelector('.analyze-button');
-    const refreshBtn = this.overlayElement.querySelector('.refresh-button');
-    const detailsBtn = this.overlayElement.querySelector('.details-button');
-    const actionsDiv = this.overlayElement.querySelector('.overlay-actions');
-    
-    // Always hide the actions div in expanded view
-    if (actionsDiv) {
-      actionsDiv.style.display = 'none';
-      return; // Don't show any buttons in expanded view
-    }
-    
-    // Hide all buttons first
-    [analyzeBtn, refreshBtn, detailsBtn].forEach(btn => {
-      if (btn) {
-        btn.classList.add('hidden');
-        btn.classList.remove('has-error');
-      }
-    });
-    
-    // Show appropriate buttons based on state
-    if (options.showAnalyze && analyzeBtn) {
-      analyzeBtn.classList.remove('hidden');
-      // Add error indicator if needed
-      if (options.hasError) {
-        analyzeBtn.classList.add('has-error');
-      }
-      // Update text based on current state
-      if (this.currentState === this.states.EMPTY_CACHE) {
-        this.updateButtonContent(analyzeBtn, '🚀', 'Analyze Profile');
-      } else {
-        this.updateButtonContent(analyzeBtn, '🔄', 'Refresh');
-      }
-    }
-    if (options.showRefresh && refreshBtn) {
-      refreshBtn.classList.remove('hidden');
-      // Add error indicator if needed
-      if (options.hasError) {
-        refreshBtn.classList.add('has-error');
-      }
-      // Reset button state after analysis completes
-      refreshBtn.disabled = false;
-      this.updateButtonContent(refreshBtn, '🔄', 'Refresh');
-    }
-    if (options.showSettings && analyzeBtn) {
-      // Repurpose analyze button for settings
-      analyzeBtn.classList.remove('hidden');
-      (() => {
-            const iconSpan = document.createElement('span');
-            iconSpan.className = 'button-icon';
-            iconSpan.textContent = '⚙️';
-            const textNode = document.createTextNode('Open Settings');
-            analyzeBtn.replaceChildren(iconSpan, textNode);
-          })();
-      // Change click handler temporarily
-      analyzeBtn.onclick = (e) => {
-        e.preventDefault();
-        // Open extension popup/settings
-        try {
-          if (chrome?.runtime?.id) {
-            chrome.runtime.sendMessage({ action: 'openPopup' }, () => {
-              // Check for errors but ignore them
-              if (chrome.runtime.lastError) {
-                // Silently ignore
-              }
-            });
-          }
-        } catch (error) {
-          // Silently ignore if extension context is invalid
-        }
-      };
-    }
-  },
-  
-  /**
-   * Show progress bar
-   * @param {string} phase - Current phase
-   */
-  showProgressBar(phase) {
-    // Could add a progress bar UI element if desired
-  },
-  
-  
-  /**
-   * Handle view details button click
-   */
-  handleViewDetails() {
-    const btn = this.overlayElement.querySelector('.details-button');
-    if (btn) {
-      btn.disabled = true;
-    }
-    // Open dashboard
-    try {
-      if (chrome?.runtime?.id) {
-        chrome.runtime.sendMessage({ action: 'openDashboard' }, (response) => {
-          if (chrome.runtime.lastError) {
-            if (btn) btn.disabled = false;
-          }
-        });
-      } else {
-        if (btn) btn.disabled = false;
-      }
-    } catch (error) {
-      if (btn) btn.disabled = false;
-    }
-  },
-  
-  /**
-   * Show scan progress UI
-   */
-  showScanProgress() {
-    const scanProgress = this.overlayElement.querySelector('.scan-progress');
-    if (scanProgress) {
-      scanProgress.classList.remove('hidden');
-    }
-  },
-  
-  /**
-   * Hide scan progress UI
-   */
-  hideScanProgress() {
-    const scanProgress = this.overlayElement.querySelector('.scan-progress');
-    if (scanProgress) {
-      scanProgress.classList.add('hidden');
-    }
-  },
-  
-  /**
-   * Update scan progress with section statuses
-   * @param {Array<Object>} sections - Array of {name, status, itemCount}
-   */
-  updateScanProgress(sections) {
-    const scanItems = this.overlayElement.querySelector('.scan-items');
-    if (!scanItems) return;
-    
-    // Clear existing items
-    scanItems.textContent = '';
-    
-    // Create progress items for each section
-    sections.forEach(section => {
-      const item = document.createElement('div');
-      item.className = 'scan-item';
-      item.setAttribute('data-status', section.status);
-      
-      const icon = document.createElement('span');
-      icon.className = 'scan-icon';
-      
-      // Set icon based on status
-      if (section.status === 'complete') {
-        icon.textContent = '✓';
-      } else if (section.status === 'scanning') {
-        icon.textContent = '⣾';
-        icon.classList.add('spinning');
-      } else {
-        icon.textContent = '○';
-      }
-      
-      const label = document.createElement('span');
-      label.className = 'scan-label';
-      label.textContent = this.formatSectionName(section.name);
-      
-      // Add item count if available
-      if (section.itemCount !== undefined && section.status === 'complete') {
-        const count = document.createElement('span');
-        count.className = 'scan-count';
-        count.textContent = `(${section.itemCount})`;
-        label.appendChild(count);
-      }
-      
-      item.appendChild(icon);
-      item.appendChild(label);
-      scanItems.appendChild(item);
-    });
-  },
-  
-  /**
-   * Update extraction progress
-   * @param {string} currentSection - Section currently being extracted
-   */
-  updateExtractionProgress(currentSection) {
-    const statusText = this.overlayElement.querySelector('.status-text');
-    if (statusText) {
-      statusText.textContent = `Extracting ${this.formatSectionName(currentSection)}...`;
-    }
-  },
-  
-  /**
    * Update AI analysis progress
    * @param {string} phase - Current AI phase
    * @param {string} section - Current section (optional)
@@ -1488,27 +846,6 @@ const OverlayManager = {
     } else {
       statusText.textContent = messages[phase] || `AI analyzing ${section || 'profile'}...`;
     }
-  },
-  
-  /**
-   * Format section name for display
-   * @param {string} name - Section name
-   * @returns {string} Formatted name
-   */
-  formatSectionName(name) {
-    const nameMap = {
-      'headline': 'Headline',
-      'about': 'About',
-      'experience': 'Experience',
-      'skills': 'Skills',
-      'education': 'Education',
-      'recommendations': 'Recommendations',
-      'certifications': 'Certifications',
-      'projects': 'Projects',
-      'featured': 'Featured'
-    };
-    
-    return nameMap[name] || name.charAt(0).toUpperCase() + name.slice(1);
   },
   
   /**
@@ -1545,40 +882,7 @@ const OverlayManager = {
   resetButtons() {
     
     if (!this.overlayElement) return;
-    
-    // Re-enable all action buttons
-    const buttons = this.overlayElement.querySelectorAll('.action-button');
-    buttons.forEach(btn => {
-      btn.disabled = false;
-      
-      // Reset button text to original
-      if (btn.classList.contains('analyze-button')) {
-        (() => {
-            const iconSpan = document.createElement('span');
-            iconSpan.className = 'button-icon';
-            iconSpan.textContent = '🚀';
-            const textNode = document.createTextNode('Analyze Profile');
-            btn.replaceChildren(iconSpan, textNode);
-          })();
-      } else if (btn.classList.contains('refresh-button')) {
-        (() => {
-            const iconSpan = document.createElement('span');
-            iconSpan.className = 'button-icon';
-            iconSpan.textContent = '🔄';
-            const textNode = document.createTextNode('Refresh');
-            btn.replaceChildren(iconSpan, textNode);
-          })();
-      } else if (btn.classList.contains('details-button')) {
-        (() => {
-            const iconSpan = document.createElement('span');
-            iconSpan.className = 'button-icon';
-            iconSpan.textContent = '📊';
-            const textNode = document.createTextNode('View Details');
-            btn.replaceChildren(iconSpan, textNode);
-          })();
-      }
-    });
-    
+
     // Reset collapsed view button
     const collapsedBtn = this.overlayElement.querySelector('.analyze-btn-collapsed');
     if (collapsedBtn) {
@@ -1609,17 +913,8 @@ const OverlayManager = {
       return;
     }
     
-    const btn = this.overlayElement.querySelector('.analyze-button');
     const collapsedBtn = this.overlayElement.querySelector('.analyze-btn-collapsed');
-    
-    if (btn) {
-      btn.disabled = true;
-      (() => {
-          btn.textContent = '';
-          btn.insertAdjacentHTML('afterbegin', '<span class="button-icon spinning">⏳</span><span class="btn-text-full">Analyzing</span><span class="btn-text-short">...</span>');
-        })();
-    }
-    
+
     if (collapsedBtn) {
       collapsedBtn.disabled = true;
       (() => {
@@ -1632,28 +927,6 @@ const OverlayManager = {
     this.setButtonFailsafeTimer();
     
     // Direct call in this isolated world; a window message could be posted by any page script
-    window.ElevateLI?.startAnalysis(true);
-  },
-  
-  /**
-   * Handle refresh button click (re-analysis)
-   */
-  handleRefresh() {
-    const btn = this.overlayElement.querySelector('.refresh-button');
-    if (btn) {
-      btn.disabled = true;
-      (() => {
-            const iconSpan = document.createElement('span');
-            iconSpan.className = 'button-icon';
-            iconSpan.textContent = '⏳';
-            const textNode = document.createTextNode('Re-analyzing...');
-            btn.replaceChildren(iconSpan, textNode);
-          })();
-    }
-    
-    // Set failsafe timer to re-enable button if the analyzer never reports back
-    this.setButtonFailsafeTimer();
-    
     window.ElevateLI?.startAnalysis(true);
   },
   
@@ -1825,61 +1098,11 @@ const OverlayManager = {
    * Show unified view with progressive improvement system
    */
   showUnifiedView(data) {
-    
-    // Hide the old sections
-    const missingSection = this.overlayElement.querySelector('.missing-items-section');
-    const recsSection = this.overlayElement.querySelector('.recommendations-section');
-    const insightsSection = this.overlayElement.querySelector('.insights-section');
-    
-    if (missingSection) missingSection.classList.add('hidden');
-    if (recsSection) recsSection.classList.add('hidden');
-    if (insightsSection) insightsSection.classList.add('hidden');
-    
-    // Only hide score blocks if we have actual analysis data and recommendations to show
-    // This keeps the score blocks visible during analysis and for completeness-only results
-    const scoresContainer = this.overlayElement.querySelector('.scores-container');
-    const hasRecommendations = data.recommendations && data.recommendations.length > 0;
-    const hasInsights = data.insights && Object.keys(data.insights).length > 0;
-    
-    if (scoresContainer && hasRecommendations && hasInsights) {
-      scoresContainer.style.display = 'none';
-    } else if (scoresContainer) {
-      scoresContainer.style.display = '';
-    }
-    
-    // Create or update unified section
-    let unifiedSection = this.overlayElement.querySelector('.unified-section');
-    if (!unifiedSection) {
-      unifiedSection = document.createElement('div');
-      unifiedSection.className = 'unified-section';
-      // Insert in the expanded view section
-      const expandedView = this.overlayElement.querySelector('.overlay-expanded-view');
-      if (expandedView) {
-        // Find a good insertion point - after header or status indicator
-        const header = expandedView.querySelector('.overlay-header');
-        const statusIndicator = expandedView.querySelector('.status-indicator');
-        
-        if (header && header.nextSibling) {
-          header.parentNode.insertBefore(unifiedSection, header.nextSibling);
-        } else if (statusIndicator && statusIndicator.parentNode) {
-          // Insert after status indicator's parent container
-          if (statusIndicator.nextSibling) {
-            statusIndicator.parentNode.insertBefore(unifiedSection, statusIndicator.nextSibling);
-          } else {
-            statusIndicator.parentNode.appendChild(unifiedSection);
-          }
-        } else {
-          // Fallback: append to expanded view
-          expandedView.appendChild(unifiedSection);
-        }
-      }
-    }
-    
+    const unifiedSection = this.overlayElement.querySelector('.unified-section');
+
     // Transform recommendations into progressive improvement format
     const progressiveData = this.transformToProgressiveFormat(data);
-    
-    
-    
+
     // Build HTML with progressive improvements
     (() => {
         const parser = new DOMParser();
@@ -1891,25 +1114,16 @@ const OverlayManager = {
             ${this.escapeHtml(progressiveData.unifiedMessage)}
           </p>
         </div>
-        
+
         <!-- Progressive Improvements by Section -->
         <div style="margin-bottom: 16px;">
-          ${progressiveData.sections && progressiveData.sections.length > 0 
+          ${progressiveData.sections && progressiveData.sections.length > 0
             ? progressiveData.sections.map(section => this.renderSection(section)).join('')
             : `<div style="padding: 20px; text-align: center; color: #666;">
                 <p style="margin: 0 0 8px 0; font-size: 14px;">No specific improvements needed for profile completeness.</p>
                 <p style="margin: 0; font-size: 13px;">Enable AI analysis for personalized content quality insights.</p>
               </div>`}
         </div>
-        
-        <!-- AI Coaching Summary (only if available) -->
-        ${progressiveData.coachingSummary ? `
-          <div style="background: #f0f8ff; border-left: 3px solid #0a66c2; padding: 12px 16px; border-radius: 0 6px 6px 0;">
-            <p style="font-size: 14px; line-height: 1.5; margin: 0; color: #333;">
-              ${this.escapeHtml(progressiveData.coachingSummary)}
-            </p>
-          </div>
-        ` : ''}
       </div>
     `;
         const doc = parser.parseFromString(htmlContent, 'text/html');
@@ -1947,18 +1161,13 @@ const OverlayManager = {
     // Every gap, not the top-5 'recommendations' slice - smaller gaps would get a false ✓
     const missingItems = data.completenessData?.allRecommendations || [];
 
-    // Generate coaching summary
-    const coachingSummary = this.generateCoachingSummary(completeness, contentScore, data);
-
     // Analyze sections and create improvements
     const sections = this.analyzeSections(data, missingItems);
-    
+
     // Generate unified message
     const unifiedMessage = this.generateUnifiedMessage(completeness, contentScore, sections, data);
-    
-    
+
     return {
-      coachingSummary,
       sections,
       unifiedMessage
     };
@@ -2000,19 +1209,6 @@ const OverlayManager = {
     return 0;
   },
 
-  /**
-   * Generate coaching summary
-   */
-  generateCoachingSummary(completeness, contentScore, data) {
-    // Only show coaching summary from AI analysis
-    if (data.insights?.coachingSummary) {
-      return data.insights.coachingSummary;
-    }
-    
-    // No coaching summary without AI - avoid duplicate messaging
-    return null;
-  },
-  
   /**
    * Analyze sections and create improvements
    */
@@ -2655,18 +1851,7 @@ const OverlayManager = {
   showZeroState(isAfterReset = false) {
     // Keep current view state - don't force expansion
     // Users can expand if they want to see the welcome message
-    
-    // Hide old sections
-    const missingSection = this.overlayElement.querySelector('.missing-items-section');
-    const recsSection = this.overlayElement.querySelector('.recommendations-section');
-    
-    if (missingSection) missingSection.classList.add('hidden');
-    if (recsSection) recsSection.classList.add('hidden');
-    
-    // Hide score blocks
-    const scoresContainer = this.overlayElement.querySelector('.scores-container');
-    if (scoresContainer) scoresContainer.style.display = 'none';
-    
+
     // Determine text based on context AND compliance
     let actionText = "Click the extension icon to get started";
     let timeText = "⏱️ Setup takes 30 seconds";
@@ -2679,22 +1864,8 @@ const OverlayManager = {
       afterText = "After analysis, you'll get:";
     }
     
-    // Create or update unified section with welcome message
-    let unifiedSection = this.overlayElement.querySelector('.unified-section');
-    if (!unifiedSection) {
-      unifiedSection = document.createElement('div');
-      unifiedSection.className = 'unified-section';
-      const expandedView = this.overlayElement.querySelector('.overlay-expanded-view');
-      if (expandedView) {
-        const header = expandedView.querySelector('.overlay-header');
-        if (header && header.nextSibling) {
-          header.parentNode.insertBefore(unifiedSection, header.nextSibling);
-        } else {
-          expandedView.appendChild(unifiedSection);
-        }
-      }
-    }
-    
+    const unifiedSection = this.overlayElement.querySelector('.unified-section');
+
     (() => {
         const parser = new DOMParser();
         const htmlContent = `
@@ -3033,9 +2204,7 @@ const OverlayManager = {
       // Don't interrupt active analysis - unless the running analysis itself asks for its error fallback
       if (!context.isErrorFallback &&
           (this.currentState === this.states.AI_ANALYZING ||
-           this.currentState === this.states.ANALYZING ||
            this.currentState === this.states.SCANNING ||
-           this.currentState === this.states.EXTRACTING ||
            this.currentState === this.states.CALCULATING)) {
         return false;
       }
@@ -3107,9 +2276,8 @@ const OverlayManager = {
       
       // Only fallback to empty cache if we're not already in a good state
       // Don't overwrite COMPLETE state with EMPTY_CACHE
-      if (this.currentState !== this.states.COMPLETE && 
-          this.currentState !== this.states.AI_ANALYZING &&
-          this.currentState !== this.states.ANALYZING) {
+      if (this.currentState !== this.states.COMPLETE &&
+          this.currentState !== this.states.AI_ANALYZING) {
         try {
           this.setState(this.states.EMPTY_CACHE);
         } catch (fallbackError) {
