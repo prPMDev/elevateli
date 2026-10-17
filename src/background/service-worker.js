@@ -881,9 +881,11 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   }
   
   // Handle popup open request
+  // Reply with the real result: openPopup rejects when no window is focused (and throws before Chrome 127),
+  // so the caller can fall back to its own hint
   if (action === 'openPopup') {
-    chrome.action.openPopup();
-    sendResponse({ success: true });
+    Promise.resolve().then(() => chrome.action.openPopup())
+      .then(() => sendResponse({ success: true }), error => sendResponse({ success: false, error: error.message }));
     return true;
   }
   
@@ -1001,8 +1003,10 @@ async function testApiKey(provider, apiKey, baseUrl) {
         .filter(m => m.capabilities?.structured_outputs?.supported !== false && m.lifecycle !== 'deprecated' && !m.shutdown_date)
         .sort((a, b) => (b.created || 0) - (a.created || 0)); // OpenAI newest first; Anthropic already is
   // ponytail: OpenAI/Gemini lists don't say which models can chat, so drop the non-chat ones by name. A wrong pick only errors on analysis.
+  // Also dropped: Gemma on the Gemini API (no JSON-schema output) and OpenAI families not served on /chat/completions.
+  const unusable = provider === 'gemini' ? /gemma/ : provider === 'openai' && baseUrl === OPENAI_URL ? /codex|-pro\b|computer-use|^o1/ : null;
   const models = list.map(m => m.id)
-    .filter(id => !/embed|tts|whisper|dall-e|davinci|babbage|moderation|audio|realtime|transcribe|image|search|sora/.test(id));
+    .filter(id => !/embed|tts|whisper|dall-e|davinci|babbage|moderation|audio|realtime|transcribe|image|search|sora/.test(id) && !unusable?.test(id));
   // A 200 can still be no list: LM Studio answers a wrong path with 200 + an error, Ollama with nothing pulled sends []
   if (!models.length) {
     return { success: false, errorType: 'PROVIDER_ERROR', error: bodyError(data) || (provider === 'openai' && baseUrl !== OPENAI_URL
