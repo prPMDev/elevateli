@@ -3,8 +3,25 @@
  * Calculates profile completeness score based on section data
  */
 
+/**
+ * The target role and level as copy reads them ("Senior Product Manager"), always followed by "roles", "work" or
+ * "job posts". '' for no role (blank or the old "general"). Founder and custom roles get no level prefix.
+ * Top-level so the overlay can reuse it (this file loads first).
+ */
+function roleLabel(settings) {
+  const { targetRole, seniorityLevel, customRole } = settings || {};
+  if (targetRole === 'entrepreneur') return 'Founder';
+  if (targetRole === 'other') return (customRole || '').trim();
+  const role = { 'product-manager': 'Product Manager', 'software-engineer': 'Software Engineer', 'data-scientist': 'Data Scientist',
+    designer: 'Designer', marketing: 'Marketing', sales: 'Sales', consultant: 'Consultant' }[targetRole];
+  const level = { entry: 'Entry-level', mid: 'Mid-level', senior: 'Senior', lead: 'Lead', director: 'Director-level' }[seniorityLevel];
+  return role ? (level ? `${level} ${role}` : role) : '';
+}
+
 class ProfileCompletenessCalculator {
   constructor() {
+    const fmt = n => n.toLocaleString('en-US');
+
     // Section weights (total = 100)
     this.weights = {
       photo: 5,
@@ -20,10 +37,11 @@ class ProfileCompletenessCalculator {
     
     // Section-specific rules. Character thresholds are shares of LinkedIn's limits:
     // headline 220 (75/50/30%), About 2600 (60/40/20/10%), role description 2000 (40/25/15%).
+    // getMessage(data, role) gets roleLabel() ('' for no role). Tips carry no closing period: the overlay adds the gain after them.
     this.rules = {
       photo: {
         check: (data) => data.exists, // throws on null (extractor error), so the catch skips the gap
-        getMessage: () => "Add a professional photo"
+        getMessage: () => 'Add a clear, recent headshot as your profile photo'
       },
       
       headline: {
@@ -32,9 +50,15 @@ class ProfileCompletenessCalculator {
           const n = data.charCount;
           return n >= 165 ? 1.0 : n >= 110 ? 0.8 : n >= 66 ? 0.5 : 0.2;
         },
-        getMessage: (data) => {
-          if (!data || !data.exists || !data.charCount) return "Add a professional headline";
-          return `Headline is ${data.charCount} characters. 165+ gets full credit.`;
+        getMessage: (data, role) => {
+          const result = role ? `a result that matters for ${role} roles` : "a result you're known for";
+          // LinkedIn requires a headline, so none usually means it wasn't read
+          if (!data || !data.exists || !data.charCount) {
+            return `ElevateLI couldn't read your headline. If it's empty, add one with your focus area and ${result}`;
+          }
+          const n = data.charCount;
+          if (165 - n < 20) return `Add a few more words to your headline (${fmt(n)} characters now; 165+ gets full credit)`;
+          return `Expand your headline from ${fmt(n)} to 165+ characters: add your focus area and ${result}`;
         }
       },
       
@@ -44,9 +68,13 @@ class ProfileCompletenessCalculator {
           const n = data.charCount;
           return n >= 1560 ? 1.0 : n >= 1040 ? 0.75 : n >= 520 ? 0.4 : n >= 260 ? 0.2 : 0;
         },
-        getMessage: (data) => {
-          if (!data || !data.exists || !data.charCount) return "Add an About section";
-          return `About is ${data.charCount} characters. 1560+ gets full credit.`;
+        getMessage: (data, role) => {
+          if (!data || !data.exists || !data.charCount) {
+            return `Add an About section: what you do, 2–3 results, and the ${role ? `${role} ` : ''}work you want to be known for`;
+          }
+          const n = data.charCount;
+          if (1560 - n < 150) return `Add a sentence or two to your About section (${fmt(n)} characters now; 1,560+ gets full credit)`;
+          return `Expand your About section from ${fmt(n)} to 1,560+ characters with 2–3 results ${role ? `that fit ${role} roles` : 'from your recent work'}`;
         }
       },
       
@@ -123,12 +151,11 @@ class ProfileCompletenessCalculator {
   /**
    * Calculate completeness for all sections
    * @param {Object} sectionData - Data for all sections
+   * @param {Object} [settings] - { targetRole, seniorityLevel, customRole }: tips name the target role when one is set
    * @returns {Object} Complete scoring result
    */
-  calculate(sectionData) {
-    
-    
-    
+  calculate(sectionData, settings) {
+    const role = roleLabel(settings);
     const breakdown = {};
     const recommendations = [];
     let earnedPoints = 0;
@@ -161,7 +188,7 @@ class ProfileCompletenessCalculator {
           recommendations.push({
             section,
             priority: this.getPriority(section, weight, scoreMultiplier),
-            message: rule.getMessage(data),
+            message: rule.getMessage(data, role),
             impact: weight * (1 - scoreMultiplier),
             weight: weight,
             currentScore: scoreMultiplier
