@@ -111,51 +111,31 @@ function keepAliveWhile(promise) {
   return promise.finally(() => { if (!--inFlight) clearInterval(keepAliveTimer); });
 }
 
-// Create section-specific prompt
+// Content sends an object for every section; about's text is in .text
+const PROMPTS = {
+  experience_overall: createExperienceOverallPrompt,
+  experience: createExperienceSectionPrompt, // fallback when roles were not extracted
+  recommendations: createRecommendationsPrompt,
+  first_impression: createFirstImpressionPrompt,
+  about: (content, config) => createAboutPrompt(content?.text, config),
+  skills: createSkillsPrompt
+};
 function createSectionPrompt(sectionName, content, config, context = {}) {
-  // Add current date to config for all prompts
-  const enhancedConfig = {
-    ...config,
-    currentDate: new Date().toISOString().split('T')[0] // Format: "2025-01-19"
-  };
-  
-  // Special handling for overall experience analysis
-  if (sectionName === 'experience_overall' && typeof content === 'object') {
-    return createExperienceOverallPrompt(content, enhancedConfig);
-  }
-  
-  // Special handling for experience section (fallback)
-  if (sectionName === 'experience' && typeof content === 'object') {
-    return createExperienceSectionPrompt(content, config);
-  }
-  
-  // Special handling for recommendations
-  if (sectionName === 'recommendations' && typeof content === 'object') {
-    return createRecommendationsPrompt(content, enhancedConfig, context);
-  }
-  
-  // Special handling for first impression (headline + photo)
-  if (sectionName === 'first_impression' && typeof content === 'object') {
-    return createFirstImpressionPrompt(content, enhancedConfig);
-  }
-  
-  // Special handling for standalone about section
-  // Content script sends an object ({ text, charCount, ... })
-  if (sectionName === 'about') {
-    return createAboutPrompt(content?.text, enhancedConfig);
-  }
-  
-  // Special handling for skills
-  if (sectionName === 'skills' && typeof content === 'object') {
-    return createSkillsPrompt(content, enhancedConfig, context);
-  }
-  
-  throw new Error(`No prompt for section: ${sectionName}`);
+  if (!Object.hasOwn(PROMPTS, sectionName)) throw new Error(`No prompt for section: ${sectionName}`);
+  return PROMPTS[sectionName](content, { ...config, currentDate: new Date().toISOString().split('T')[0] }, context);
 }
+
+// The <context> block every section prompt but the experience fallback starts with
+const contextBlock = (config, extra = '') => `<context>
+Analysis Date: ${config.currentDate}
+Target Role: ${config.targetRole}
+Seniority Level: ${config.seniorityLevel}
+${extra}Custom Instructions: ${config.customInstructions || 'None provided'}
+</context>`;
 
 // Create prompt for experience section (when not broken into individual roles)
 function createExperienceSectionPrompt(experienceData, config) {
-  const prompt = `You are a LinkedIn profile optimization expert. Analyze this experience section overview.
+  return `You are a LinkedIn profile optimization expert. Analyze this experience section overview.
 
 TARGET ROLE: ${config.targetRole}
 SENIORITY LEVEL: ${config.seniorityLevel}
@@ -175,8 +155,6 @@ Reply with JSON, filling in these fields: score, positiveInsight (what works, qu
 specificFeedback (one weak line and its rewrite), actionItems (specific improvements).
 
 NOTE: This is a fallback analysis. Individual role analysis would provide better insights.`;
-
-  return prompt;
 }
 
 // Create specialized prompt for overall experience analysis
@@ -187,14 +165,9 @@ function createExperienceOverallPrompt(experienceData, config) {
   // Older roles behind "Show all" are never read, so the totals below are then only a lower bound
   const partial = !!experienceData.hasMoreItems;
 
-  const prompt = `You are an expert career coach analyzing LinkedIn profiles for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+  return `You are an expert career coach analyzing LinkedIn profiles for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
-<context>
-Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
-Target Role: ${config.targetRole}  
-Seniority Level: ${config.seniorityLevel}
-Custom Instructions: ${config.customInstructions || 'None provided'}
-</context>
+${contextBlock(config)}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
@@ -269,8 +242,6 @@ Analyze the OVERALL career trajectory and experience section:
 </analysis_task>
 
 Reply with JSON: fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above), gapAnalysis, specificFeedback and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or '10/10 Optimization').`;
-
-  return prompt;
 }
 
 // Create specialized prompt for recommendations using Anthropic best practices
@@ -283,14 +254,9 @@ function createRecommendationsPrompt(recommendationsData, config, context = {}) 
     ? `\nContent shown below: ${shown} of ${received} received (only those visible on the profile page were read). Judge content quality and who wrote them only from the shown ones; do not report a perspective (manager, peer, report, client) as missing, because the unread ones may cover it.`
     : '';
 
-  const prompt = `You are an expert LinkedIn profile optimizer analyzing recommendations for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+  return `You are an expert LinkedIn profile optimizer analyzing recommendations for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
-<context>
-Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
-Target Role: ${config.targetRole}
-Seniority Level: ${config.seniorityLevel}
-Custom Instructions: ${config.customInstructions || 'None provided'}
-</context>
+${contextBlock(config)}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
@@ -360,23 +326,15 @@ Analyze the recommendations section:
 </analysis_task>
 
 Reply with JSON: fill in score, positiveInsight (what they have, even if it's 0), gapAnalysis, specificFeedback (quote a recommendation or describe the gap) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or '10/10 Optimization'; name people and companies when possible).`;
-
-  return prompt;
 }
 
 // [CRITICAL_PATH:FIRST_IMPRESSION_AI] - P0: AI analysis for unified first impression
 // Create specialized prompt for first impression (headline + photo). Only these are extracted, so the
 // prompt states nothing about the banner, Open to Work, Creator Mode or connections.
 function createFirstImpressionPrompt(firstImpressionData, config) {
-  
-  const prompt = `You are an expert LinkedIn profile optimizer analyzing first impressions for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+  return `You are an expert LinkedIn profile optimizer analyzing first impressions for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
-<context>
-Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
-Target Role: ${config.targetRole}
-Seniority Level: ${config.seniorityLevel}
-Custom Instructions: ${config.customInstructions || 'None provided'}
-</context>
+${contextBlock(config)}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
@@ -412,22 +370,14 @@ Analyze the first impression elements:
 </analysis_task>
 
 Reply with JSON: fill in score, positiveInsight, gapAnalysis (quote their actual headline), specificFeedback and actionItems (category: 'Profile Photo', 'Headline Enhancement' or '10/10 Optimization'; element: 'photo' or 'headline').`;
-
-  return prompt;
 }
 
 // [CRITICAL_PATH:ABOUT_SECTION_AI] - P0: Standalone About section analysis
 // Create specialized prompt for About section only using Anthropic best practices
 function createAboutPrompt(aboutContent, config) {
-  
-  const prompt = `You are an expert LinkedIn profile optimizer analyzing About sections for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+  return `You are an expert LinkedIn profile optimizer analyzing About sections for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
-<context>
-Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
-Target Role: ${config.targetRole}
-Seniority Level: ${config.seniorityLevel}
-Custom Instructions: ${config.customInstructions || 'None provided'}
-</context>
+${contextBlock(config)}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
@@ -477,16 +427,10 @@ Analyze the About section for strategic positioning:
 </analysis_task>
 
 Reply with JSON: fill in score, positiveInsight, gapAnalysis, specificFeedback (their weakest sentence) and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or '10/10 Refinement').`;
-
-  return prompt;
 }
 
 // Create specialized prompt for skills section
 function createSkillsPrompt(skillsData, config, context = {}) {
-  
-  
-  
-  
   // Add completeness context for conditional generic advice
   const completenessScore = context.completenessScore || 100;
   const hasCompletenessIssues = completenessScore < 95;
@@ -496,15 +440,9 @@ function createSkillsPrompt(skillsData, config, context = {}) {
   const totalSkills = skillsData.count || readSkills.length;
   const unreadSkills = Math.max(0, totalSkills - readSkills.length);
 
-  const prompt = `You are an expert LinkedIn profile optimizer analyzing skills for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+  return `You are an expert LinkedIn profile optimizer analyzing skills for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
-<context>
-Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
-Target Role: ${config.targetRole}
-Seniority Level: ${config.seniorityLevel}
-Profile Completeness: ${completenessScore}%
-Custom Instructions: ${config.customInstructions || 'None provided'}
-</context>
+${contextBlock(config, `Profile Completeness: ${completenessScore}%\n`)}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
@@ -596,8 +534,6 @@ Analyze the skills section for quality and relevance:
 </analysis_task>
 
 Reply with JSON: fill in score, positiveInsight (their actual skills and endorsement counts), gapAnalysis, specificFeedback (their actual top 3 skills and how to position them) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or '10/10 Refinement'; name their actual skills).`;
-
-  return prompt;
 }
 
 // Parse section analysis response. Providers return SECTION_SCHEMA JSON; slicing to the outer
