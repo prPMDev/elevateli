@@ -248,8 +248,13 @@ Reply with JSON: fill in score, positiveInsight (their actual career progression
 // Create specialized prompt for recommendations using Anthropic best practices
 function createRecommendationsPrompt(recommendationsData, config, context = {}) {
   const recommendationCount = recommendationsData.count || recommendationsData.receivedCount || 0;
-  
-  
+  // Only the cards shown on the profile page are read (/details/recommendations is client-rendered)
+  const shown = recommendationsData.recommendationChunks?.length || 0;
+  const received = recommendationsData.receivedCount || 0;
+  const partialNote = shown < received
+    ? `\nContent shown below: ${shown} of ${received} received (only those visible on the profile page were read). Judge content quality and who wrote them only from the shown ones; do not report a perspective (manager, peer, report, client) as missing, because the unread ones may cover it.`
+    : '';
+
   const prompt = `You are an expert LinkedIn profile optimizer analyzing recommendations for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
 <context>
@@ -280,8 +285,8 @@ Years of Experience: ${context.yearsOfExperience || 0}
 
 <recommendations_overview>
 Total Recommendations: ${recommendationCount}
-Received: ${recommendationsData.receivedCount || 0}
-Given: ${recommendationsData.givenCount || 0}
+Received: ${received}
+Given: ${recommendationsData.givenCount || 0}${partialNote}
 </recommendations_overview>
 
 <recommendation_content>
@@ -458,7 +463,11 @@ function createSkillsPrompt(skillsData, config, context = {}) {
   const completenessScore = context.completenessScore || 100;
   const hasCompletenessIssues = completenessScore < 95;
   const visibleSkillsCount = skillsData.visibleCount || 0;
-  
+  // Only the skills shown on the profile page are read (/details/skills is client-rendered); the AI must not treat them as the whole list
+  const readSkills = skillsData.skills || [];
+  const totalSkills = skillsData.count || readSkills.length;
+  const unreadSkills = Math.max(0, totalSkills - readSkills.length);
+
   const prompt = `You are an expert LinkedIn profile optimizer analyzing skills for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
 <context>
@@ -471,8 +480,8 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
-1. READ THE FULL SKILLS LIST FIRST - Identify what skills ARE already present AND their endorsement status
-2. NEVER suggest adding skills that already exist in their list
+1. READ THE VISIBLE SKILLS FIRST - Identify what skills ARE present AND their endorsement status${unreadSkills ? '. Only the visible skills were read; the rest of their list is unknown' : ''}
+2. ${unreadSkills ? `NEVER claim a skill is missing or tell them to add one: ${unreadSkills} of their skills were not read. Phrase it as "if X isn't already among your skills, add it" or as "move X into your top skills"` : 'NEVER suggest adding skills that already exist in their list'}
 3. ENDORSEMENT REALITY CHECK:
    - Having ANY endorsements with recency (< 6 months) = OUTSTANDING validation, top tier
    - Having ANY endorsements (even 1) = EXCELLENT credibility signal
@@ -516,21 +525,15 @@ ${skillsData.skills?.slice(0, 3).map((s, i) =>
 ).join('\n') || 'No skills data available'}
 </top_3_most_visible_skills>
 
-<all_skills_full_list>
-${skillsData.skills ? 
-  skillsData.skills.slice(0, 30).map((s, i) => {
-    const visibility = i < 3 ? '[MOST PROMINENT]' : i < visibleSkillsCount ? '[VISIBLE]' : '[REQUIRES EXPANSION]';
-    return `"${s.name}" ${visibility} - ${s.endorsementCount || 0} endorsements`;
-  }).join('\n') :
-  'No detailed skills data available'}
-${skillsData.skills?.length > 30 ? `\n... and ${skillsData.skills.length - 30} more skills` : ''}
-
-</all_skills_full_list>
+<visible_skills>
+Only these ${readSkills.length} of ${totalSkills} skills were read${unreadSkills ? `; the other ${unreadSkills} are unknown` : ''}.
+${readSkills.map((s, i) => `"${s.name}" ${i < 3 ? '[MOST PROMINENT]' : '[VISIBLE]'} - ${s.endorsementCount || 0} endorsements`).join('\n') || 'No detailed skills data available'}
+</visible_skills>
 
 <analysis_task>
 Analyze the skills section for quality and relevance:
 
-1. FIRST, identify from the full list above:
+1. FIRST, identify from the visible skills above:
    - What skills ARE already present (don't suggest adding them)
    - Which skills have endorsements vs which don't
    - How well the most prominent skills align with ${config.targetRole}
@@ -557,7 +560,7 @@ Analyze the skills section for quality and relevance:
 4. For action items:
    - CRITICAL: Check if score >= 9. If yes, provide 0-1 improvements MAX (or none if perfect)
    - DO NOT suggest repositioning skills that are already most prominent
-   - Focus on: Adding missing critical skills, getting endorsements for unendorsed skills, or highlighting hidden gems
+   - Focus on: critical skills to add (worded as rule 2 says), getting endorsements for unendorsed skills, or highlighting hidden gems
    - If skills are well-positioned and endorsed, suggest strategic additions instead
    - Avoid mechanical position swapping - focus on strategic improvements
    - Example good feedback: "Consider highlighting your 'Data Analysis' skill more prominently"
