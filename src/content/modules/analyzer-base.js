@@ -1,7 +1,6 @@
 /**
  * ElevateLI Analyzer Base
  * Main orchestrator for LinkedIn profile analysis
- * Expects these modules to be available: Logger, CacheManager, OverlayManager, extractors, scorers
  */
 
 
@@ -29,7 +28,6 @@ class Analyzer {
     this.profileId = null;
     this.isOwn = false;
     this.settings = {};
-    this.cacheManager = null;
   }
   
   /**
@@ -42,11 +40,6 @@ class Analyzer {
     this.profileId = profileId;
     this.isOwn = isOwn;
     this.settings = settings;
-    
-    // Initialize cache manager (infinite persistence)
-    this.cacheManager = new CacheManager();
-    
-    
   }
   
   /**
@@ -78,7 +71,7 @@ class Analyzer {
       
       // Check cache first (unless forced refresh)
       if (!forceRefresh) {
-        cachedData = await this.cacheManager.get(this.profileId);
+        cachedData = await OverlayManager.getCachedData(this.profileId);
         if (cachedData && cachedData.completeness !== undefined) {
           
           clearTimeout(analysisTimeout);
@@ -100,7 +93,7 @@ class Analyzer {
         }
       } else {
         // Even on force refresh, get cached data for fallback
-        cachedData = await this.cacheManager.get(this.profileId);
+        cachedData = await OverlayManager.getCachedData(this.profileId);
       }
       
       // Run extractors
@@ -191,8 +184,9 @@ class Analyzer {
         return { success: false, cancelled: true };
       }
 
-      // Save to cache
-      await this.cacheManager.save(this.profileId, result, extractedData);
+      // Save to cache (result.extractedData is extractedData); stamped with the save time
+      await chrome.storage.local.set({ [`cache_${this.profileId}`]: { ...result, timestamp: new Date().toISOString() } })
+        .catch(error => console.error('[Analyzer] Cache save failed:', error));
       
       // Clear timeout on success
       clearTimeout(analysisTimeout);
