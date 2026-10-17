@@ -1,10 +1,41 @@
 /* Background Service Worker for ElevateLI */
 
-// Import crypto manager module
-importScripts('../common/crypto-manager.js');
+// [CRITICAL_PATH:API_KEY_ENCRYPTION] - P0: API key security
+// The key is stored only as encryptedApiKey: base64 of salt (16 bytes) + iv (12 bytes) + AES-GCM ciphertext,
+// under a PBKDF2 key from a random per-install installationId
+async function getOrCreatePassphrase() {
+  const { installationId } = await chrome.storage.local.get('installationId');
+  if (installationId) return installationId;
+  const newId = crypto.randomUUID() + '-' + Date.now();
+  await chrome.storage.local.set({ installationId: newId });
+  return newId;
+}
 
-// Use shared crypto manager instead of local class
-const cryptoUtils = CryptoManager;
+async function generateKey(passphrase, salt) {
+  const passphraseKey = await crypto.subtle.importKey('raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+    passphraseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encryptApiKey(apiKey) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await generateKey(await getOrCreatePassphrase(), salt);
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(apiKey));
+  return btoa(String.fromCharCode(...salt, ...iv, ...new Uint8Array(encrypted)));
+}
+
+// Corrupt data or a changed installationId throws (atob or subtle.decrypt)
+async function decryptApiKey(encryptedData) {
+  const bytes = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
+  const key = await generateKey(await getOrCreatePassphrase(), bytes.slice(0, 16));
+  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(16, 28) }, key, bytes.slice(28)));
+}
 
 // [CRITICAL_PATH:API_KEY_RETRIEVAL] - P0: Decrypts API key for all AI operations
 // Callers read encryptedApiKey in the same storage get as the provider, model and base URL,
@@ -12,12 +43,9 @@ const cryptoUtils = CryptoManager;
 async function getDecryptedApiKey(encryptedApiKey) {
   if (!encryptedApiKey) return null;
   try {
-    return await cryptoUtils.decryptApiKey(encryptedApiKey);
+    return await decryptApiKey(encryptedApiKey);
   } catch (error) {
-    console.error('AI.PROMPTS', 'Failed to decrypt API key', error);
-
-    // DO NOT auto-delete the key on decryption failure
-    // This was causing keys to disappear from settings
+    console.error('Failed to decrypt API key', error); // never delete the key here: that made saved keys vanish
     return null;
   }
 }
@@ -799,7 +827,7 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   // [CRITICAL_PATH:API_KEY_ENCRYPTION_HANDLER] - P0: Handles API key encryption requests from popup
   // Handle API key encryption with better error handling
   if (action === 'encryptApiKey') {
-    cryptoUtils.encryptApiKey(request.apiKey).then(async (encryptedKey) => {
+    encryptApiKey(request.apiKey).then(async (encryptedKey) => {
       // Get installationId from storage
       const { installationId } = await chrome.storage.local.get('installationId');
       sendResponse({ 
