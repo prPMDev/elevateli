@@ -831,79 +831,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true;
 });
 
-// API Rate Limiter
-class RateLimiter {
-  constructor() {
-    this.requests = new Map();
-    this.limits = {
-      'api': { limit: 10, window: 60000 },        // 10 API calls per minute
-      // Counted per section call; an analysis makes about 10. ponytail: send a run id from content if per-run limits matter
-      'analysis': { limit: 300, window: 300000 }  // ~30 analyses per 5 minutes
-    };
-  }
-
-  canMakeRequest(type, identifier = 'global') {
-    const config = this.limits[type] || this.limits['api'];
-    const key = `${type}:${identifier}`;
-    const now = Date.now();
-    
-    // Get request history
-    const requests = this.requests.get(key) || [];
-    
-    // Filter to requests within the time window
-    const recentRequests = requests.filter(t => now - t < config.window);
-    
-    // Check if under limit
-    if (recentRequests.length >= config.limit) {
-      const oldestRequest = recentRequests[0];
-      const waitTime = Math.ceil((config.window - (now - oldestRequest)) / 1000);
-      return { allowed: false, waitTime };
-    }
-    
-    // Add current request
-    recentRequests.push(now);
-    this.requests.set(key, recentRequests);
-    
-    // Clean old entries periodically
-    if (Math.random() < 0.1) { // 10% chance to clean
-      this.cleanOldEntries();
-    }
-    
-    return { allowed: true };
-  }
-
-  cleanOldEntries() {
-    const now = Date.now();
-    for (const [key, requests] of this.requests.entries()) {
-      const [type] = key.split(':');
-      const config = this.limits[type] || this.limits['api'];
-      const recentRequests = requests.filter(t => now - t < config.window);
-      
-      if (recentRequests.length === 0) {
-        this.requests.delete(key);
-      } else {
-        this.requests.set(key, recentRequests);
-      }
-    }
-  }
-
-  reset(type = null, identifier = null) {
-    if (type && identifier) {
-      this.requests.delete(`${type}:${identifier}`);
-    } else if (type) {
-      for (const key of this.requests.keys()) {
-        if (key.startsWith(`${type}:`)) {
-          this.requests.delete(key);
-        }
-      }
-    } else {
-      this.requests.clear();
-    }
-  }
+// ElevateLI's own limit: ~30 analyses (about 10 section calls each) per 5 minutes.
+// ponytail: send a run id from content if per-run limits matter
+let analysisCalls = [];
+function checkRateLimit(now = Date.now()) {
+  analysisCalls = analysisCalls.filter(t => now - t < 300000);
+  if (analysisCalls.length >= 300) return { allowed: false, waitTime: Math.ceil((300000 - (now - analysisCalls[0])) / 1000) };
+  analysisCalls.push(now);
+  return { allowed: true };
 }
-
-// Create rate limiter instance
-const rateLimiter = new RateLimiter();
 
 // List the provider's models. Doubles as the key check: a GET, so no tokens are spent.
 async function testApiKey(provider, apiKey, baseUrl) {
@@ -965,7 +901,7 @@ async function handleSectionAnalysis({ section, data, context }) {
   const apiKey = await getDecryptedApiKey(encryptedApiKey);
   if (!aiProvider || !apiKey) return { success: false, error: 'API key or provider not configured' };
 
-  const rateCheck = rateLimiter.canMakeRequest('analysis');
+  const rateCheck = checkRateLimit();
   if (!rateCheck.allowed) {
     return {
       success: false,
