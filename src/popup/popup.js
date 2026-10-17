@@ -150,7 +150,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     targetRoleStatus.textContent = roleLabel() || 'Not set';
     // A local model counts as set up: its stored key is the stand-in 'local'
     aiAnalysisStatus.textContent = !(settings.encryptedApiKey && settings.aiProvider && settings.aiModel) ? 'Not set up'
-      : !settings.enableAI ? 'Off' : `On (${settings.aiBaseUrl ? 'local model' : PROVIDER_NAMES[settings.aiProvider]})`;
+      : !settings.enableAI ? 'Off' : `On (${isLocalUrl(settings.aiBaseUrl) ? 'local model' : PROVIDER_NAMES[settings.aiProvider]})`;
     const profileId = settings.userProfile?.profileId;
     const name = displayName(settings.userProfile);
     activeProfileName.textContent = (name ? `Your profile: ${name}` : 'Your profile') +
@@ -159,13 +159,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const onProfile = !!profileId && tabProfileId === profileId;
     openProfileBtn.classList.toggle('hidden', onProfile);
     onProfileText.classList.toggle('hidden', !onProfile);
-    onProfileText.textContent = settings.showAnalysis === false
-      ? 'Turn on "Show the ElevateLI bar on my profile" in Settings to see your results here.'
-      : 'Your results are in the ElevateLI bar on this page.';
+    const barOff = settings.showAnalysis === false;
+    onProfileText.textContent = barOff
+      ? `Turn on "Show the ElevateLI bar on my profile" in Settings to ${result ? 'see your results here' : 'get your score'}.`
+      : result ? 'Your results are in the ElevateLI bar on this page.'
+      : 'Click Analyze in the ElevateLI bar on this page to get your score.';
     const changed = openedWith !== null && openedWith !== rerunSnapshot();
     openedWith = null;
-    ctaNote.textContent = result && changed ? 'Settings saved. Click Analyze on your profile to apply them.'
-      : onProfile ? ''
+    // With the bar off there is no Analyze button to point at; the status row says to turn it on
+    ctaNote.textContent = result && changed && !barOff ? 'Settings saved. Click Analyze on your profile to apply them.'
+      : onProfile || (!result && barOff) ? ''
       : result ? `Last analyzed: ${new Date(result.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
       : 'Click Analyze in the ElevateLI bar to get your score.';
     ctaNote.classList.toggle('hidden', !ctaNote.textContent);
@@ -185,7 +188,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     settingsCustomRoleInput.value = settings.customRole || '';
     settingsSeniorityLevelSelect.value = settings.seniorityLevel || '';
     settingsCustomInstructionsTextarea.value = settings.customInstructions || '';
-    settingsClearApiKeyBtn.classList.toggle('hidden', !settings.encryptedApiKey);
+    // A local model's stored key is the stand-in 'local', not an API key the user entered
+    settingsClearApiKeyBtn.classList.toggle('hidden', !settings.encryptedApiKey || isLocalUrl(settings.aiBaseUrl));
   }
 
   // Setup: on a LinkedIn profile the button saves it; anywhere else (subpages too) it opens the user's profile
@@ -279,8 +283,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   settingsCustomInstructionsTextarea.addEventListener('input', (e) => saveSettings({ customInstructions: e.target.value.trim() }));
 
   settingsClearApiKeyBtn.addEventListener('click', async () => {
-    // A local model's stored key is the stand-in 'local', so it names no provider
-    const provider = !settings.aiBaseUrl && PROVIDER_NAMES[settings.aiProvider];
+    const provider = !isLocalUrl(settings.aiBaseUrl) && PROVIDER_NAMES[settings.aiProvider];
     if (!await showConfirmDialog(`Remove your saved ${provider ? `${provider} ` : ''}API key?`, 'AI analysis will turn off.', 'Remove key', true)) return;
     await chrome.storage.local.remove(['encryptedApiKey', 'installationId']);
     delete settings.encryptedApiKey; // or Settings shows the saved-key placeholder and 'On' again
@@ -318,9 +321,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   settingsApiKeyInput.addEventListener('input', () => clearFieldError(settingsApiKeyInput, apiKeyError));
 
   // Ollama / LM Studio on this machine
+  // A function declaration, not a const: the main view calls it before this line runs
+  function isLocalUrl(url) {
+    return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(url || '');
+  }
   function isLocalBaseUrl() {
-    return settingsAiProviderSelect.value === 'openai' &&
-      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(settingsBaseUrlInput.value.trim());
+    return settingsAiProviderSelect.value === 'openai' && isLocalUrl(settingsBaseUrlInput.value.trim());
   }
 
   // localhost is an optional host permission. Asking needs a user gesture, and Chrome's prompt closes the popup,
@@ -361,7 +367,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   function modelPrompt() {
     const name = PROVIDER_NAMES[settingsAiProviderSelect.value];
     return isLocalBaseUrl() ? `Couldn't load models from ${localHost()}`
-      : name ? `Paste your ${name} API key to load models` : 'Choose a provider first';
+      : !name ? 'Choose a provider first'
+      : keyIsSaved() ? `Couldn't load ${name} models` : `Paste your ${name} API key to load models`;
   }
 
   // Fill the model list from the provider. The same call validates the key; a typed key that works is stored.
@@ -418,7 +425,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       await chrome.storage.local.remove('settingsDraft');
       settingsApiKeyInput.value = '';
       settingsApiKeyInput.placeholder = keyPlaceholder();
-      settingsClearApiKeyBtn.classList.remove('hidden');
+      settingsClearApiKeyBtn.classList.toggle('hidden', isLocalUrl(settings.aiBaseUrl));
     }
     listedFor = [provider, settingsApiKeyInput.value.trim(), baseUrl].join('|');
     if (!settingsAiModelSelect.value) showFieldError(settingsAiModelSelect, modelError, 'Choose a model');
