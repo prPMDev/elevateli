@@ -7,32 +7,17 @@ importScripts('../common/crypto-manager.js');
 const cryptoUtils = CryptoManager;
 
 // [CRITICAL_PATH:API_KEY_RETRIEVAL] - P0: Decrypts API key for all AI operations
-// Helper function to get decrypted API key
-async function getDecryptedApiKey() {
+// Callers read encryptedApiKey in the same storage get as the provider, model and base URL,
+// so a settings save in between can't pair the old key with the new server
+async function getDecryptedApiKey(encryptedApiKey) {
+  if (!encryptedApiKey) return null;
   try {
-    // Check if Chrome storage is available
-    if (!chrome || !chrome.storage || !chrome.storage.local) {
-      return null;
-    }
-    
-    const { encryptedApiKey } = await chrome.storage.local.get('encryptedApiKey');
-
-  // If we have an encrypted key, decrypt it
-  if (encryptedApiKey) {
-    try {
-      return await cryptoUtils.decryptApiKey(encryptedApiKey);
-    } catch (error) {
-      console.error('AI.PROMPTS', 'Failed to decrypt API key', error);
-
-      // DO NOT auto-delete the key on decryption failure
-      // This was causing keys to disappear from settings
-      return null;
-    }
-  }
-
-  return null;
+    return await cryptoUtils.decryptApiKey(encryptedApiKey);
   } catch (error) {
-    console.error('AI.PROMPTS', 'getDecryptedApiKey error', error);
+    console.error('AI.PROMPTS', 'Failed to decrypt API key', error);
+
+    // DO NOT auto-delete the key on decryption failure
+    // This was causing keys to disappear from settings
     return null;
   }
 }
@@ -612,10 +597,10 @@ function parseSectionAnalysis(response) {
   throw Object.assign(new Error('AI response could not be read'), { errorType: 'RESPONSE_PARSE_ERROR' });
 }
 
-// The openai provider talks to any OpenAI-compatible server; the user can point it at Ollama or LM Studio
+// The openai provider talks to any OpenAI-compatible server; the user can point it at Ollama or LM Studio.
+// '' means OpenAI. Callers pass the URL that goes with their key; this never reads storage on its own.
 const OPENAI_URL = 'https://api.openai.com/v1';
-const openaiBaseUrl = async (url) =>
-  (url || (await chrome.storage.local.get('aiBaseUrl')).aiBaseUrl || OPENAI_URL).replace(/\/+$/, '');
+const openaiBaseUrl = url => (url || OPENAI_URL).replace(/\/+$/, '');
 
 // Trim and strip the non-printable characters a pasted key can carry
 const cleanKey = apiKey => typeof apiKey === 'string' ? apiKey.trim().replace(/[^\x20-\x7E]/g, '') : '';
@@ -672,11 +657,11 @@ const SECTION_SCHEMA = {
 };
 
 // Call AI provider
-async function callAIProvider(provider, apiKey, prompt, model) {
+async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
   const cleanApiKey = cleanKey(apiKey);
   if (!cleanApiKey) throw new Error('API key is required');
   if (!model) throw new Error('No AI model selected');
-  const baseUrl = await openaiBaseUrl();
+  baseUrl = openaiBaseUrl(baseUrl);
   // Local servers may never show response_format's schema to the model; Ollama's docs put it in the prompt too
   if (provider === 'openai' && baseUrl !== OPENAI_URL) prompt += `\n\nReply with JSON matching: ${JSON.stringify(SECTION_SCHEMA)}`;
 
@@ -778,9 +763,14 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   
   
   // Handle test API key
-  // No apiKey in the request = reload models with the saved key, which only ever goes to the saved base URL
+  // A typed key goes only to the typed base URL ('' = OpenAI). No apiKey in the request = reload models
+  // with the saved key, which only ever goes to the saved base URL.
   if (action === 'testApiKey') {
-    (async () => testApiKey(request.provider, request.apiKey || await getDecryptedApiKey(), request.apiKey && request.baseUrl))().then(result => {
+    (async () => {
+      if (request.apiKey) return testApiKey(request.provider, request.apiKey, request.baseUrl);
+      const { encryptedApiKey, aiBaseUrl } = await chrome.storage.local.get(['encryptedApiKey', 'aiBaseUrl']);
+      return testApiKey(request.provider, await getDecryptedApiKey(encryptedApiKey), aiBaseUrl);
+    })().then(result => {
       sendResponse(result);
     }).catch(error => {
       sendResponse({ success: false, error: error.message });
@@ -845,28 +835,21 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   if (action === 'validateApiKey') {
     (async () => {
       try {
-        // Use provider and API key from request (during setup)
-        // OR fall back to storage (for later validation)
-        let provider = request.provider;
-        let apiKey = request.apiKey;
-        
-        // If not provided in request, get from storage
-        if (!provider || !apiKey) {
-          const stored = await chrome.storage.local.get('aiProvider');
-          provider = provider || stored.aiProvider;
-          apiKey = apiKey || await getDecryptedApiKey();
-        }
-        
-        if (!provider || !apiKey) {
-          sendResponse({ 
-            success: false, 
-            error: 'API key or provider not configured' 
+        // The saved provider, base URL and key, from one read
+        const { aiProvider, aiBaseUrl, encryptedApiKey } = await chrome.storage.local.get(['aiProvider', 'aiBaseUrl', 'encryptedApiKey']);
+        const apiKey = await getDecryptedApiKey(encryptedApiKey);
+
+        if (!aiProvider || !apiKey) {
+          sendResponse({
+            success: false,
+            error: 'API key or provider not configured',
+            errorType: 'AUTH'
           });
           return;
         }
-        
+
         // Use the existing testApiKey function
-        const result = await testApiKey(provider, apiKey);
+        const result = await testApiKey(aiProvider, apiKey, aiBaseUrl);
         sendResponse(result);
       } catch (error) {
         console.error('AI.PROMPTS', 'API key validation error', error);
@@ -969,7 +952,7 @@ const rateLimiter = new RateLimiter();
 async function testApiKey(provider, apiKey, baseUrl) {
   const key = cleanKey(apiKey);
   if (!key) return { success: false, error: 'API key is required' };
-  baseUrl = await openaiBaseUrl(baseUrl);
+  baseUrl = openaiBaseUrl(baseUrl);
 
   const url = {
     openai: `${baseUrl}/models`,
@@ -1012,11 +995,12 @@ async function handleSectionAnalysis(request, sendResponse) {
   const sectionStartTime = Date.now();
 
   try {
-    // Read settings at call time, not from the content script's snapshot: provider, key and model then always match
-    const { aiProvider, aiModel, targetRole, customRole, seniorityLevel, customInstructions } = await chrome.storage.local.get(
-      ['aiProvider', 'aiModel', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions']
+    // Read settings at call time, not from the content script's snapshot, and in one get: provider, model,
+    // base URL and key then always match
+    const { aiProvider, aiModel, aiBaseUrl, encryptedApiKey, targetRole, customRole, seniorityLevel, customInstructions } = await chrome.storage.local.get(
+      ['aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions']
     );
-    const apiKey = await getDecryptedApiKey();
+    const apiKey = await getDecryptedApiKey(encryptedApiKey);
     
     if (!aiProvider || !apiKey) {
       sendResponse({ 
@@ -1049,7 +1033,7 @@ async function handleSectionAnalysis(request, sendResponse) {
     const prompt = createSectionPrompt(section, data, config, context);
 
     // Regular text-only analysis
-    const response = await callAIProvider(aiProvider, apiKey, prompt, aiModel);
+    const response = await callAIProvider(aiProvider, apiKey, prompt, aiModel, aiBaseUrl);
     
     
     
