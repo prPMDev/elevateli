@@ -253,17 +253,6 @@ const ExperienceExtractor = {
   },
   
   /**
-   * Extract keywords from text
-   * @param {string} text - Description text
-   * @returns {Array<string>}
-   */
-  extractKeywords(text) {
-    const techPattern = /\b(React|Angular|Vue|Node|Python|Java|JavaScript|AWS|Azure|Docker|Kubernetes|SQL|API)\b/gi;
-    const matches = text.match(techPattern) || [];
-    return [...new Set(matches.map(k => k.toLowerCase()))];
-  },
-  
-  /**
    * Parse duration string to months
    * @param {string} duration - Duration text
    * @returns {number} Total months
@@ -410,50 +399,6 @@ const ExperienceExtractor = {
   },
   
   /**
-   * Parse company details from LinkedIn data
-   * @param {string} text - Company details text
-   * @returns {Object} Parsed company details
-   */
-  parseCompanyDetails(text) {
-    const details = {
-      size: '',
-      industry: '',
-      type: ''
-    };
-    
-    // Extract employee count
-    const sizeMatch = text.match(/(\d[\d,\+\s-]*) employees?/i);
-    if (sizeMatch) {
-      details.size = sizeMatch[1].trim();
-    }
-    
-    // Extract company type
-    const typePatterns = [
-      /Public Company/i,
-      /Private Company/i,
-      /Nonprofit/i,
-      /Government Agency/i,
-      /Educational Institution/i,
-      /Self-Employed/i
-    ];
-    
-    for (const pattern of typePatterns) {
-      if (pattern.test(text)) {
-        details.type = text.match(pattern)[0];
-        break;
-      }
-    }
-    
-    // Extract industry (usually after ·)
-    const industryMatch = text.match(/·\s*([^\u00b7]+)(?:\s*·|$)/);
-    if (industryMatch && !industryMatch[1].match(/employees?/i)) {
-      details.industry = industryMatch[1].trim();
-    }
-    
-    return details;
-  },
-  
-  /**
    * Parse date information from duration text
    * @param {string} text - Duration text (e.g., "Jan 2022 - Present · 2 yrs")
    * @returns {Object} Parsed date info
@@ -485,38 +430,5 @@ const ExperienceExtractor = {
     }
     
     return info;
-  },
-  
-  /**
-   * Extract mentioned skills from text
-   * @param {string} text - Content to analyze
-   * @returns {Array<string>}
-   */
-  extractMentionedSkills(text) {
-    // Comprehensive list of technical and professional skills
-    const skillPatterns = [
-      // Programming languages
-      /\b(Python|Java|JavaScript|TypeScript|C\+\+|C#|Ruby|Go|Swift|Kotlin|PHP|R|Scala|Rust)\b/gi,
-      // Frameworks and libraries
-      /\b(React|Angular|Vue|Node\.js|Django|Flask|Spring|Rails|Express|Next\.js)\b/gi,
-      // Databases
-      /\b(SQL|MySQL|PostgreSQL|MongoDB|Redis|Elasticsearch|DynamoDB|Cassandra)\b/gi,
-      // Cloud and DevOps
-      /\b(AWS|Azure|GCP|Docker|Kubernetes|Jenkins|CI\/CD|Terraform|Ansible)\b/gi,
-      // Data and ML
-      /\b(Machine Learning|Deep Learning|TensorFlow|PyTorch|Pandas|NumPy|Spark|Hadoop)\b/gi,
-      // Professional skills
-      /\b(Agile|Scrum|Project Management|Leadership|Strategy|Analytics|Communication)\b/gi
-    ];
-    
-    const skills = new Set();
-    skillPatterns.forEach(pattern => {
-      const matches = text.match(pattern);
-      if (matches) {
-        matches.forEach(skill => skills.add(skill));
-      }
-    });
-    
-    return Array.from(skills);
   }
 };
