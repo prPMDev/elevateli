@@ -103,7 +103,7 @@ if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
   });
 }
 
-// Keep the SW alive only while a provider request is in flight: a slow local model can outlast the 30 s idle timer.
+// Keep the SW alive only while a message handler runs: a slow local model can outlast the 30 s idle timer.
 // A permanent ping would keep it alive forever, and Chrome installs updates only once the SW is unloaded.
 let inFlight = 0, keepAliveTimer;
 function keepAliveWhile(promise) {
@@ -796,107 +796,38 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
   }
 }
 
-// Message handler
-if (chrome && chrome.runtime && chrome.runtime.onMessage) {
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // SECURITY: Validate message sender
-  if (!sender || sender.id !== chrome.runtime.id) {
-    return false;
-  }
-  
-  const { action } = request;
-  
-  
-  // Handle test API key
+// Message handlers. Each returns its reply; a throw replies { success: false, error, errorType }.
+const handlers = {
   // A typed key goes only to the typed base URL ('' = OpenAI). No apiKey in the request = reload models
   // with the saved key, which only ever goes to the saved base URL.
-  if (action === 'testApiKey') {
-    keepAliveWhile((async () => {
-      if (request.apiKey) return testApiKey(request.provider, request.apiKey, request.baseUrl);
-      const { encryptedApiKey, aiBaseUrl } = await chrome.storage.local.get(['encryptedApiKey', 'aiBaseUrl']);
-      return testApiKey(request.provider, await getDecryptedApiKey(encryptedApiKey), aiBaseUrl);
-    })()).then(result => {
-      sendResponse(result);
-    }).catch(error => {
-      sendResponse({ success: false, error: error.message });
-    });
-    return true;
-  }
-  
-  
+  async testApiKey({ provider, apiKey, baseUrl }) {
+    if (apiKey) return testApiKey(provider, apiKey, baseUrl);
+    const { encryptedApiKey, aiBaseUrl } = await chrome.storage.local.get(['encryptedApiKey', 'aiBaseUrl']);
+    return testApiKey(provider, await getDecryptedApiKey(encryptedApiKey), aiBaseUrl);
+  },
   // [CRITICAL_PATH:API_KEY_ENCRYPTION_HANDLER] - P0: Handles API key encryption requests from popup
-  // Handle API key encryption with better error handling
-  if (action === 'encryptApiKey') {
-    encryptApiKey(request.apiKey).then(async (encryptedKey) => {
-      // Get installationId from storage
-      const { installationId } = await chrome.storage.local.get('installationId');
-      sendResponse({ 
-        success: true, 
-        encryptedApiKey: encryptedKey,
-        installationId: installationId || null
-      });
-    }).catch(error => {
-      console.error('AI.PROMPTS', 'Encryption failed', error);
-      sendResponse({ 
-        success: false, 
-        error: error.message || 'Failed to encrypt API key',
-        details: {
-          errorName: error.name,
-          errorStack: error.stack
-        }
-      });
-    });
-    return true;
-  }
-  
-  // Handle individual section analysis
-  if (action === 'analyzeSection') {
-    keepAliveWhile(handleSectionAnalysis(request, sendResponse));
-    return true;
-  }
-  
-  // Handle API key validation
-  if (action === 'validateApiKey') {
-    keepAliveWhile((async () => {
-      try {
-        // The saved provider, base URL and key, from one read
-        const { aiProvider, aiBaseUrl, encryptedApiKey } = await chrome.storage.local.get(['aiProvider', 'aiBaseUrl', 'encryptedApiKey']);
-        const apiKey = await getDecryptedApiKey(encryptedApiKey);
-
-        if (!aiProvider || !apiKey) {
-          sendResponse({
-            success: false,
-            error: 'API key or provider not configured',
-            errorType: 'AUTH'
-          });
-          return;
-        }
-
-        // Use the existing testApiKey function
-        const result = await testApiKey(aiProvider, apiKey, aiBaseUrl);
-        sendResponse(result);
-      } catch (error) {
-        console.error('AI.PROMPTS', 'API key validation error', error);
-        sendResponse({ 
-          success: false, 
-          error: error.message || 'Validation failed'
-        });
-      }
-    })());
-    return true;
-  }
-  
-  // Handle popup open request
-  // Reply with the real result: openPopup rejects when no window is focused (and throws before Chrome 127),
+  encryptApiKey: async ({ apiKey }) => ({ success: true, encryptedApiKey: await encryptApiKey(apiKey) }),
+  analyzeSection: handleSectionAnalysis,
+  validateApiKey,
+  // Reply with the real result: openPopup rejects when no window is focused (and is missing before Chrome 127),
   // so the caller can fall back to its own hint
-  if (action === 'openPopup') {
-    Promise.resolve().then(() => chrome.action.openPopup())
-      .then(() => sendResponse({ success: true }), error => sendResponse({ success: false, error: error.message }));
-    return true;
+  async openPopup() {
+    await chrome.action.openPopup();
+    return { success: true };
   }
-  
-  // Default response for unknown actions
-  sendResponse({ success: false, error: 'Unknown action' });
+};
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // SECURITY: Validate message sender
+  if (sender.id !== chrome.runtime.id) return false;
+  if (!Object.hasOwn(handlers, request.action)) {
+    sendResponse({ success: false, error: 'Unknown action' });
+    return false;
+  }
+  keepAliveWhile(handlers[request.action](request)).then(sendResponse, error => {
+    console.error(request.action, error);
+    sendResponse({ success: false, error: error.message, errorType: error.errorType });
+  });
   return true;
 });
 
@@ -1023,86 +954,51 @@ async function testApiKey(provider, apiKey, baseUrl) {
 }
 
 // Handle individual section analysis request
-async function handleSectionAnalysis(request, sendResponse) {
-  const { section, data, context } = request;
-  const sectionStartTime = Date.now();
+async function handleSectionAnalysis({ section, data, context }) {
+  // Read settings at call time, not from the content script's snapshot, and in one get: provider, model,
+  // base URL and key then always match
+  const { enableAI, aiProvider, aiModel, aiBaseUrl, encryptedApiKey, targetRole, customRole, seniorityLevel, customInstructions } = await chrome.storage.local.get(
+    ['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions']
+  );
+  // Turning AI off in the popup only writes storage; stop here so a running analysis sends no more profile text
+  if (!enableAI) return { success: false, error: 'AI analysis was turned off' };
+  const apiKey = await getDecryptedApiKey(encryptedApiKey);
+  if (!aiProvider || !apiKey) return { success: false, error: 'API key or provider not configured' };
 
-  try {
-    // Read settings at call time, not from the content script's snapshot, and in one get: provider, model,
-    // base URL and key then always match
-    const { enableAI, aiProvider, aiModel, aiBaseUrl, encryptedApiKey, targetRole, customRole, seniorityLevel, customInstructions } = await chrome.storage.local.get(
-      ['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions']
-    );
-    // Turning AI off in the popup only writes storage; stop here so a running analysis sends no more profile text
-    if (!enableAI) {
-      sendResponse({ success: false, error: 'AI analysis was turned off' });
-      return;
-    }
-    const apiKey = await getDecryptedApiKey(encryptedApiKey);
-    
-    if (!aiProvider || !apiKey) {
-      sendResponse({ 
-        success: false, 
-        error: 'API key or provider not configured' 
-      });
-      return;
-    }
-    
-    // Check rate limit
-    const rateCheck = rateLimiter.canMakeRequest('analysis');
-    if (!rateCheck.allowed) {
-      sendResponse({
-        success: false,
-        // ElevateLI's own limit, not the provider's
-        error: `Too many analyses in a few minutes. Wait ${rateCheck.waitTime} seconds, then click Analyze.`,
-        errorType: 'RATE_LIMIT',
-        retryAfter: rateCheck.waitTime
-      });
-      return;
-    }
-    
-    // Create section-specific prompt
-    const config = {
-      targetRole: (targetRole === 'other' ? customRole : targetRole) || 'general professional',
-      seniorityLevel: seniorityLevel || 'any level',
-      customInstructions: customInstructions || ''
-    };
-
-
-    const prompt = createSectionPrompt(section, data, config, context);
-
-    // Regular text-only analysis
-    const response = await callAIProvider(aiProvider, apiKey, prompt, aiModel, aiBaseUrl);
-    
-    
-    
-    // Parse the response
-    const analysis = parseSectionAnalysis(response);
-
-    sendResponse({
-      success: true,
-      section: section,
-      score: analysis.score,
-      insight: analysis.positiveInsight,
-      gapAnalysis: analysis.gapAnalysis,
-      actionItems: analysis.actionItems,
-      specificFeedback: analysis.specificFeedback
-    });
-    
-  } catch (error) {
-    const sectionElapsed = Date.now() - sectionStartTime;
-    console.error('SECTIONS.EXPERIENCE', 'Error analyzing section', error, {
-      section,
-      elapsedMs: sectionElapsed
-    });
-    sendResponse({
+  const rateCheck = rateLimiter.canMakeRequest('analysis');
+  if (!rateCheck.allowed) {
+    return {
       success: false,
-      error: error.message || 'Section analysis failed',
-      errorType: error.errorType
-    });
+      // ElevateLI's own limit, not the provider's
+      error: `Too many analyses in a few minutes. Wait ${rateCheck.waitTime} seconds, then click Analyze.`,
+      errorType: 'RATE_LIMIT',
+      retryAfter: rateCheck.waitTime
+    };
   }
+
+  const config = {
+    targetRole: (targetRole === 'other' ? customRole : targetRole) || 'general professional',
+    seniorityLevel: seniorityLevel || 'any level',
+    customInstructions: customInstructions || ''
+  };
+  const prompt = createSectionPrompt(section, data, config, context);
+  const analysis = parseSectionAnalysis(await callAIProvider(aiProvider, apiKey, prompt, aiModel, aiBaseUrl));
+  return {
+    success: true,
+    section,
+    score: analysis.score,
+    insight: analysis.positiveInsight,
+    gapAnalysis: analysis.gapAnalysis,
+    actionItems: analysis.actionItems,
+    specificFeedback: analysis.specificFeedback
+  };
 }
 
-
-
+// The saved provider, base URL and key, from one read
+async function validateApiKey() {
+  const { aiProvider, aiBaseUrl, encryptedApiKey } = await chrome.storage.local.get(['aiProvider', 'aiBaseUrl', 'encryptedApiKey']);
+  const apiKey = await getDecryptedApiKey(encryptedApiKey);
+  if (!aiProvider || !apiKey) return { success: false, error: 'API key or provider not configured' };
+  return testApiKey(aiProvider, apiKey, aiBaseUrl);
 }
+
