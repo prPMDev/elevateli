@@ -375,25 +375,11 @@ const RecommendationsExtractor = {
   /**
    * Extract company from title string
    * @param {string} title - Title like "Product Manager at CompanyName"
-   * @returns {string} Company name
+   * @returns {string} Company name, '' when the title names none
    */
   extractCompanyFromTitle(title) {
-    if (!title) return 'Unknown';
-    
-    // Check if title contains "at Company"
-    const atMatch = title.match(/at\s+(.+?)$/i);
-    if (atMatch) return atMatch[1].trim();
-    
-    // Check if title is just the role (no company mentioned)
-    // In this case, we might need to look elsewhere for company
-    const rolePatterns = ['Manager', 'Director', 'Engineer', 'Developer', 'Analyst', 'Lead', 'Specialist'];
-    const hasRoleOnly = rolePatterns.some(pattern => title.includes(pattern));
-    
-    if (hasRoleOnly && !title.includes(' at ')) {
-      return 'Company not specified in title';
-    }
-    
-    return 'Unknown';
+    // "at" as a whole word, so "great products" is not read as a company
+    return title?.match(/\bat\s+(.+)$/i)?.[1].trim() || '';
   },
 
   /**
@@ -408,6 +394,7 @@ const RecommendationsExtractor = {
       .map(exp => ({
         title: exp.title,
         company: exp.company,
+        startDate: exp.startDate,
         dateRange: exp.duration,
         fullText: `${exp.title} at ${exp.company}`
       }));
@@ -420,36 +407,41 @@ const RecommendationsExtractor = {
    * @returns {Array<Object>} Enhanced recommendations
    */
   matchRecommendationsToExperience(recommendations, experiences) {
+    const started = exp => new Date(/^\d{4}$/.test(exp.startDate) ? `Jan ${exp.startDate}` : exp.startDate);
+
     return recommendations.map(rec => {
       const enhanced = { ...rec };
-      
+      // Roles are newest first: the first one that had started by the recommendation date is the role then
+      const pick = matches => matches.find(exp => rec.date && started(exp) <= new Date(rec.date)) || matches[0];
+
       // Try to match by company name
       const recCompany = rec.recommenderCompany || this.extractCompanyFromTitle(rec.recommenderTitle);
-      
-      if (recCompany && recCompany !== 'Unknown') {
+
+      if (recCompany) {
         // Find matching experience by company
-        const matchedExp = experiences.find(exp => 
+        const matchedExp = pick(experiences.filter(exp =>
           exp.company.toLowerCase().includes(recCompany.toLowerCase()) ||
           recCompany.toLowerCase().includes(exp.company.toLowerCase())
-        );
-        
+        ));
+
         if (matchedExp) {
           enhanced.relatedRole = `${matchedExp.title} at ${matchedExp.company}`;
           enhanced.relatedCompany = matchedExp.company;
           enhanced.experienceContext = matchedExp;
         }
       }
-      
-      // Also check recommendation text for company mentions
+
+      // Also check recommendation text for company mentions, as whole words ("Intuit" is not in "intuitive").
+      // Lookarounds instead of \b so names that start or end with a symbol ("C++") still match.
       if (!enhanced.relatedRole && rec.text) {
-        const textLower = rec.text.toLowerCase();
-        for (const exp of experiences) {
-          if (textLower.includes(exp.company.toLowerCase())) {
-            enhanced.relatedRole = `${exp.title} at ${exp.company}`;
-            enhanced.relatedCompany = exp.company;
-            enhanced.experienceContext = exp;
-            break;
-          }
+        const exp = pick(experiences.filter(exp => {
+          const escaped = exp.company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          return new RegExp(`(?<!\\w)${escaped}(?!\\w)`, 'i').test(rec.text);
+        }));
+        if (exp) {
+          enhanced.relatedRole = `${exp.title} at ${exp.company}`;
+          enhanced.relatedCompany = exp.company;
+          enhanced.experienceContext = exp;
         }
       }
       
