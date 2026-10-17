@@ -55,19 +55,13 @@ const RecommendationsExtractor = {
     
     // ponytail: only the cards shown on the profile; /details/recommendations is client-rendered,
     // so fetching it returns no cards. Open that page in a tab if all of them are needed.
-    let received = this.visibleCards(BaseExtractor.findSection('Recommendations'))
+    const received = this.visibleCards(BaseExtractor.findSection('Recommendations'))
       .map(card => this.extractRecommendationItem(card))
       .filter(rec => rec.recommenderName);
-    
-    // Get experience data from the page to match recommendations
-    const experienceData = await this.getExperienceDataForMatching();
-    
-    // Enhance recommendations with matched experience data
-    if (experienceData.length > 0) {
-      received = this.matchRecommendationsToExperience(received, experienceData);
-    }
-    
-    return { ...basicData, recommendationChunks: this.prepareForAI(received) };
+    // Roles on the page, to tell the AI which role each recommendation is about
+    const experiences = (await ExperienceExtractor.extractDetailedExperiences()).filter(exp => exp.company);
+
+    return { ...basicData, recommendationChunks: this.prepareForAI(this.matchRecommendationsToExperience(received, experiences)) };
   },
   
   /**
@@ -195,7 +189,7 @@ const RecommendationsExtractor = {
       date: rec.date || 'Date not available',
       text: rec.text || '', // Keep original text, don't chunk here
       keywords: this.extractKeywords([rec]),
-      company: rec.recommenderCompany || this.extractCompanyFromTitle(rec.recommenderTitle),
+      company: this.extractCompanyFromTitle(rec.recommenderTitle),
       relatedRole: rec.relatedRole || 'Not specified'
     }));
   },
@@ -211,69 +205,29 @@ const RecommendationsExtractor = {
   },
 
   /**
-   * Get experience data from the page for matching
-   * @returns {Array<Object>} Experience data
-   */
-  async getExperienceDataForMatching() {
-    const experiences = await ExperienceExtractor.extractDetailedExperiences();
-    
-    return experiences
-      .filter(exp => exp.company)
-      .map(exp => ({
-        title: exp.title,
-        company: exp.company,
-        startDate: exp.startDate,
-        dateRange: exp.duration,
-        fullText: `${exp.title} at ${exp.company}`
-      }));
-  },
-
-  /**
-   * Match recommendations to user's experience timeline
+   * Set relatedRole ("Title at Company") on each recommendation that matches one of the user's roles
    * @param {Array<Object>} recommendations - Recommendations
-   * @param {Array<Object>} experiences - User's experiences
-   * @returns {Array<Object>} Enhanced recommendations
+   * @param {Array<Object>} experiences - User's roles that name a company, newest first
+   * @returns {Array<Object>} Recommendations
    */
   matchRecommendationsToExperience(recommendations, experiences) {
     const started = exp => new Date(/^\d{4}$/.test(exp.startDate) ? `Jan ${exp.startDate}` : exp.startDate);
 
     return recommendations.map(rec => {
-      const enhanced = { ...rec };
       // Roles are newest first: the first one that had started by the recommendation date is the role then
       const pick = matches => matches.find(exp => rec.date && started(exp) <= new Date(rec.date)) || matches[0];
+      const recCompany = this.extractCompanyFromTitle(rec.recommenderTitle).toLowerCase();
 
-      // Try to match by company name
-      const recCompany = rec.recommenderCompany || this.extractCompanyFromTitle(rec.recommenderTitle);
-
-      if (recCompany) {
-        // Find matching experience by company
-        const matchedExp = pick(experiences.filter(exp =>
-          exp.company.toLowerCase().includes(recCompany.toLowerCase()) ||
-          recCompany.toLowerCase().includes(exp.company.toLowerCase())
-        ));
-
-        if (matchedExp) {
-          enhanced.relatedRole = `${matchedExp.title} at ${matchedExp.company}`;
-          enhanced.relatedCompany = matchedExp.company;
-          enhanced.experienceContext = matchedExp;
-        }
-      }
-
-      // Also check recommendation text for company mentions, as whole words ("Intuit" is not in "intuitive").
-      // Lookarounds instead of \b so names that start or end with a symbol ("C++") still match.
-      if (!enhanced.relatedRole && rec.text) {
-        const exp = pick(experiences.filter(exp => {
-          const escaped = exp.company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // By the company in the recommender's title, else by a company the text names as a whole word
+      // ("Intuit" is not in "intuitive"). Lookarounds instead of \b so names that start or end with a symbol ("C++") still match.
+      const exp = (recCompany && pick(experiences.filter(e =>
+          e.company.toLowerCase().includes(recCompany) || recCompany.includes(e.company.toLowerCase())))) ||
+        pick(experiences.filter(e => {
+          const escaped = e.company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           return new RegExp(`(?<!\\w)${escaped}(?!\\w)`, 'i').test(rec.text);
         }));
-        if (exp) {
-          enhanced.relatedRole = `${exp.title} at ${exp.company}`;
-          enhanced.relatedCompany = exp.company;
-          enhanced.experienceContext = exp;
-        }
-      }
-      
-      return enhanced;
+
+      return exp ? { ...rec, relatedRole: `${exp.title} at ${exp.company}` } : rec;
     });
   }
 };
