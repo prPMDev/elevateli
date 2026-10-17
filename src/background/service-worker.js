@@ -855,12 +855,6 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
     return true;
   }
   
-  // Handle synthesis of section scores
-  if (action === 'synthesizeAnalysis') {
-    handleSynthesisAnalysis(request, sendResponse);
-    return true;
-  }
-  
   // Handle API key validation
   if (action === 'validateApiKey') {
     keepAliveWhile((async () => {
@@ -1109,36 +1103,6 @@ async function handleSectionAnalysis(request, sendResponse) {
   }
 }
 
-// Handle synthesis analysis request: the content score is the weighted average of the section scores
-function handleSynthesisAnalysis(request, sendResponse) {
-  const { sectionScores } = request;
-  let totalScore = 0;
-  let totalWeight = 0;
-  const weights = {
-    first_impression: 0.20,   // 20% - First impression (headline + photo)
-    about: 0.25,              // 25% - Standalone about section
-    experience_overall: 0.30, // 30% - Overall experience
-    skills: 0.15,             // 15% - Skills
-    recommendations: 0.10     // 10% - Recommendations
-  };
-
-  Object.entries(sectionScores || {}).forEach(([sectionType, result]) => {
-    if (result && result.score !== undefined && result.score !== null) {
-      const weight = weights[sectionType] || 0.1;
-      totalScore += result.score * weight;
-      totalWeight += weight;
-    }
-  });
-
-  // No section scored: fail instead of inventing a 5 that would be shown and cached as the content score
-  if (!totalWeight) {
-    sendResponse({ success: false, error: 'AI could not score any section' });
-    return;
-  }
-  const finalScore = Math.round((totalScore / totalWeight) * 10) / 10;
-  
-  sendResponse({ success: true, finalScore, sectionScores });
-}
 
 
 }
