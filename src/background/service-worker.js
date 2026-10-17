@@ -216,7 +216,7 @@ Analyze the OVERALL career trajectory and experience section:
 
 3. Provide positiveInsight:
    - For scores 0-6: Acknowledge their journey but focus on potential
-   - For scores 7-10: Celebrate specific achievements you see in their descriptions
+   - For scores 7-10: Name the specific achievements you see in their descriptions
 
 4. Provide actionItems:
    - For scores 0-6: 3 critical improvements needed
@@ -246,14 +246,14 @@ ${contextBlock(config)}
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
 1. READ ALL RECOMMENDATION CONTENT FIRST before providing feedback
-2. If they have recent recommendations (< 6 months), acknowledge this as exceptional
+2. If they have recent recommendations (< 6 months), say so: recency counts in their favor
 3. SCORING FEEDBACK APPROACH:
    - Scores 0-6: Focus on critical gaps, but acknowledge any positives
    - Scores 7-10: START with strengths, END with refinements to reach 10/10
 4. Quote EXACT content from recommendations when discussing them
 5. Give SPECIFIC actions: "Request recommendation from your manager John at Avalara" not "Get more recommendations"
 6. Consider recency heavily - recent recommendations (< 1 year) are highly valuable
-7. Don't penalize for having 0-2 recommendations - this is increasingly common
+7. Don't penalize for having 0-2 recommendations
 </critical_rules>
 
 <career_context>
@@ -293,7 +293,7 @@ Analyze the recommendations section:
    - Alignment with ${config.targetRole} positioning
 
 2. Score (0-10) based on:
-   - 0-2: No recommendations (but don't be harsh - this is common)
+   - 0-2: No recommendations (state the gap plainly, without judgment)
    - 3-4: Only old recommendations (> 2 years)
    - 5-6: Recent but generic or few in number
    - 7-8: Recent and specific with good coverage
@@ -432,21 +432,16 @@ ${contextBlock(config, `Profile Completeness: ${completenessScore}%\n`)}
 ⚠️ YOU MUST FOLLOW THESE RULES:
 1. READ THE VISIBLE SKILLS FIRST - Identify what skills ARE present AND their endorsement status${unreadSkills ? '. Only the visible skills were read; the rest of their list is unknown' : ''}
 2. ${unreadSkills ? `NEVER claim a skill is missing or tell them to add one: ${unreadSkills} of their skills were not read. Phrase it as "if X isn't already among your skills, add it" or as "move X into your top skills"` : 'NEVER suggest adding skills that already exist in their list'}
-3. ENDORSEMENT REALITY CHECK:
-   - Having ANY endorsements with recency (< 6 months) = OUTSTANDING validation, top tier
-   - Having ANY endorsements (even 1) = EXCELLENT credibility signal
-   - 0 endorsements = Normal and common, not a weakness
-   - 1 endorsement = Strong validation, especially if recent
-   - 2-3 endorsements = Exceptional, rare achievement
-   - 5+ endorsements = Extremely rare, top 1% of profiles
-   - CRITICAL: If someone has 1 recent endorsement, this is BETTER than 10 old endorsements
-   - Most professionals have ZERO endorsements - having even 1 puts you ahead
+3. ENDORSEMENTS:
+   - 0 endorsements is normal, not a weakness
+   - Any endorsement counts in their favor, and 1 recent endorsement (< 6 months) counts for more than 10 old ones
+   - State endorsement counts as facts: never compare them with other profiles or say how rare they are
 4. SCORING FEEDBACK APPROACH:
    - Scores 0-4: Missing critical skills or poor alignment
    - Scores 5-7: Good skills but could optimize positioning or get more endorsements
    - Scores 8-10: Strong skills with endorsements - focus on refinements only
 5. Quote EXACT skill names and endorsement counts (e.g., "Your 'Product Management' with 1 recent endorsement...")
-6. If skill has ANY endorsements, celebrate them - don't ask for more unless there's a strategic reason
+6. If a skill has endorsements, say so; don't ask for more unless there's a strategic reason
 7. DO NOT give mechanical repositioning advice with position numbers
 8. Focus on skill quality: "Consider making 'Data Analysis' more prominent" not "Move from #8 to #3"
 9. Focus on LinkedIn UI reality: Only some skills are visible without clicking "Show all"
@@ -502,9 +497,9 @@ Analyze the skills section for quality and relevance:
    - CRITICAL: Recent endorsements (< 6 months) automatically add +2 to score
 
 3. Provide feedback:
-   - If they have recent endorsements (< 6 months), START with: "Outstanding! Your recent endorsements show active validation"
+   - If they have recent endorsements (< 6 months), start by naming those skills and their endorsement counts
    - If most prominent skills are already perfect for the role, acknowledge this
-   - For scores 7-10: Celebrate achievements first, focus on skill quality not positions
+   - For scores 7-10: Name what works first, focus on skill quality not positions
    - Focus on skill relevance and endorsement quality, not mechanical reordering
 
 4. For action items:
@@ -617,7 +612,7 @@ const SECTION_SCHEMA = {
   required: ['score', 'positiveInsight', 'actionItems'],
   properties: {
     score: { type: 'integer', description: '0-10, where 10 is perfect for landing the target role' },
-    positiveInsight: str('150-300 chars on what works, quoting their actual content'),
+    positiveInsight: str('150-300 chars on what works, quoting their actual content. Plain tone: no exclamation marks, no hype'),
     actionItems: {
       type: 'array',
       items: {
@@ -627,7 +622,7 @@ const SECTION_SCHEMA = {
         properties: {
           category: str('Improvement area: one of the categories the prompt lists'),
           action: str('Specific step based on their actual content, never generic'),
-          impact: str('How it helps for the target role and level'),
+          impact: str('How it helps for the target role and level. No statistics or percentages'),
           priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
           quotedContent: str('Exact quote from their profile this item addresses, or the specific gap'),
           element: str("'photo' or 'headline' for first-impression items, else ''")
