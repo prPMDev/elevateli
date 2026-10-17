@@ -3,9 +3,6 @@
  * Main orchestrator for LinkedIn profile analysis
  */
 
-
-// from previously loaded modules in the concatenated analyzer.js
-
 /* ============================================
  * ANALYZER CLASS
  * ============================================ */
@@ -47,25 +44,13 @@ class Analyzer {
    * @param {boolean} forceRefresh - Force refresh even if cached
    */
   async analyze(forceRefresh = false) {
-    // Development mode configuration
-    const TIMEOUTS = {
-      ANALYSIS_TOTAL: 1200000,  // 20 minutes: 5 sections x 190s section timeout, plus extraction and synthesis
-      SECTION_TIMEOUT: 60000,  // 60 seconds per section
-      SYNTHESIS_TIMEOUT: 60000, // 60 seconds for synthesis
-      DEVELOPMENT_MODE: true   // Enable extended timeouts
-    };
-    
-    
-    // Set analysis timeout
-    const analysisTimeout = setTimeout(() => {
-      this.handleAnalysisTimeout();
-    }, TIMEOUTS.ANALYSIS_TOTAL);
-    
-    // Store cached data for fallback (moved outside try block for catch block access)
+    // 20 minutes: 5 sections x 190s section timeout, plus extraction
+    const analysisTimeout = setTimeout(() => this.handleAnalysisTimeout(), 1200000);
+
+    // Cached data, also for the fallbacks in the catch block
     let cachedData = null;
-    
+
     try {
-      
       // Update overlay state
       OverlayManager.setState(OverlayManager.states.SCANNING);
       
@@ -97,8 +82,7 @@ class Analyzer {
       OverlayManager.setState(OverlayManager.states.CALCULATING);
 
       const completenessData = this.calculateCompleteness(extractedData);
-      
-      
+
       // Prepare result
       const result = {
         profileId: this.profileId,
@@ -115,10 +99,8 @@ class Analyzer {
       const hasApiKey = this.settings.encryptedApiKey;
       // Sections the AI could not score this run (named in the completion toast)
       let failedSections = [];
-      
-      
+
       if (this.settings.enableAI && hasApiKey && this.settings.aiProvider) {
-        
         // Pre-flight API key validation. A failed check takes the same
         // keep-previous-AI-results path as a failed AI run below.
         const validationResult = await this.validateApiKey();
@@ -176,8 +158,6 @@ class Analyzer {
       await chrome.storage.local.set({ [`cache_${this.profileId}`]: { ...result, timestamp: new Date().toISOString() } })
         .catch(error => console.error('[Analyzer] Cache save failed:', error));
 
-      // Log total analysis time
-      
       // Update overlay with final results. An AI failure keeps the completeness results and advice
       // (COMPLETE, as a reload shows them); earlier AI results come back with the cache-fallback banner.
       let finalState = OverlayManager.states.COMPLETE;
@@ -190,9 +170,7 @@ class Analyzer {
           result.apiKeyErrorMessage = result.aiError.message;
         }
       }
-      
-      
-      // Log what we're passing to overlay manager
+
       const overlayData = {
         ...result,
         // Previous AI results kept after an AI failure
@@ -204,9 +182,7 @@ class Analyzer {
         // The overlay's 'AI failed' contract (aiError + settings.enableAI), as the cache restore passes it
         settings: { enableAI: this.settings.enableAI }
       };
-      
-      
-      
+
       OverlayManager.setState(finalState, overlayData);
       // Announce the end of the run from the fixed-position toast, wherever the page is scrolled
       const aiNote = result.aiError ? ` AI analysis failed: ${result.aiError.message}`
