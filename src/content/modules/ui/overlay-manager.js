@@ -596,9 +596,9 @@ const OverlayManager = {
   /**
    * AI progress: the status line, and the step on the collapsed Analyze button (visible in both views)
    * @param {string} phase - 'analyzing' or 'synthesizing'
-   * @param {string} section - Section name, e.g. "Skills (58 total)"
-   * @param {number} [step] - 1-based number of the section being analyzed
-   * @param {number} [total] - Number of sections
+   * @param {string} section - The section as copy names it, e.g. "skills" or "About section"
+   * @param {number} step - 1-based number of the section being analyzed
+   * @param {number} total - Number of sections
    */
   updateAIProgress(phase, section, step, total) {
     const statusText = this.overlayElement?.querySelector('.status-text');
@@ -607,10 +607,8 @@ const OverlayManager = {
       statusText.textContent = 'Finishing up…';
       return;
     }
-    const name = String(section).replace(/ \(.*\)$/, '');
-    const label = { 'First Impression': 'headline', About: 'About section', 'Overall Experience': 'experience' }[name] || name.toLowerCase();
-    statusText.textContent = `Rating your ${label}${step ? ` (${step} of ${total})` : ''}…`;
-    if (step) this.setAnalyzeRunning(`Analyzing ${step} of ${total}`, `${step}/${total}`);
+    statusText.textContent = `Rating your ${section} (${step} of ${total})…`;
+    this.setAnalyzeRunning(`Analyzing ${step} of ${total}`, `${step}/${total}`);
   },
 
   /**
