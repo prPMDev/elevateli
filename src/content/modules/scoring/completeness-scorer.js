@@ -89,33 +89,19 @@ class ProfileCompletenessCalculator {
       
       experience: {
         getScore: function(data) {
-          if (!data || !data.exists || data.count === 0) return 0;
-          
-          // Base scoring components
-          const hasRoles = data.count >= 2 ? 0.3 : (data.count === 1 ? 0.15 : 0);
-          const hasCurrent = data.hasCurrentRole ? 0.2 : 0;
-          
-          // Content depth scoring
-          let contentScore = 0;
-          if (data.averageDescriptionLength !== undefined) {
-            const avgUtilization = data.averageDescriptionLength / this.characterLimits.experienceDescription;
-            if (avgUtilization >= this.contentDepthThresholds.experienceDescription.excellent) {
-              contentScore = 0.3;
-            } else if (avgUtilization >= this.contentDepthThresholds.experienceDescription.good) {
-              contentScore = 0.2;
-            } else if (avgUtilization >= this.contentDepthThresholds.experienceDescription.minimum) {
-              contentScore = 0.1;
-            }
-          }
-          
-          // Recency bonus - only for a current role
-          const recencyScore = data.hasCurrentRole ? 0.2 : 0;
-          
-          const score = hasRoles + hasCurrent + contentScore + recencyScore;
-          return Math.min(score, 1.0);
+          // An existing section has at least one role and always sets averageDescriptionLength
+          if (!data?.exists) return 0;
+          const utilization = data.averageDescriptionLength / this.characterLimits.experienceDescription;
+          const depth = this.contentDepthThresholds.experienceDescription;
+          // Roles, current role, description depth, then a recency bonus for the current role.
+          // Sums to at most 1.0; keep the order, since regrouping the two 0.2 terms changes the float result.
+          return (data.count >= 2 ? 0.3 : 0.15) +
+            (data.hasCurrentRole ? 0.2 : 0) +
+            (utilization >= depth.excellent ? 0.3 : utilization >= depth.good ? 0.2 : utilization >= depth.minimum ? 0.1 : 0) +
+            (data.hasCurrentRole ? 0.2 : 0);
         },
         getMessage: function(data) {
-          if (!data || !data.exists || data.count === 0) return "Add your work experience";
+          if (!data?.exists) return "Add your work experience";
           if (data.count === 1) return "Add more work experiences (at least 2)";
           if (!data.hasCurrentRole) return "Update with your current position";
           const empty = data.emptyRoles || [];
