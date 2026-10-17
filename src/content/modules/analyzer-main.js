@@ -131,28 +131,8 @@
       return false;
     }
 
-    // Reset Profile Analysis cleared the cache: show the not-analyzed state
-    if (request.action === 'triggerAnalysis') {
-      cancelAnalysis(); // a running analysis would save the cache right back
-      // EMPTY_CACHE also moves currentState off the cancelled run's AI_ANALYZING and clears the error styling.
-      // Safe without an overlay (setState returns early).
-      OverlayManager.setState(OverlayManager.states.EMPTY_CACHE);
-      sendResponse({ success: true });
-      return;
-    }
-
-    // Handle full extension reset
-    if (request.action === 'resetToZeroState') {
-      cancelAnalysis(); // a running analysis would write the profile back after storage is cleared
-      // Storage was cleared: INITIALIZING without compliance shows the zero state
-      OverlayManager.hasCompliance = false;
-      OverlayManager.setState(OverlayManager.states.INITIALIZING);
-      sendResponse({ success: true });
-      return;
-    }
-
-    // After setup in the popup (updateComplianceState has already set hasCompliance). show() initializes a
-    // missing overlay, and initialize() reads compliance and restores the cache itself
+    // After setup in the popup. show() initializes a missing overlay, and initialize() reads compliance and
+    // restores the cache itself
     if (request.action === 'showOverlay') {
       isOwnProfile().then(isOwn => {
         if (isOwn && isProfilePage()) OverlayManager.show();
@@ -176,37 +156,24 @@
       });
       return;
     }
+  });
 
-    if (request.action === 'updateOverlayVisibility') {
-      if (request.showAnalysis === false) {
-        // Hide the overlay without destroying it
-        OverlayManager.hide();
-      } else {
-        // Show the overlay if we're on own profile, as init() would: not on /details/ or /recent-activity/
-        isOwnProfile().then(isOwn => {
-          if (isOwn && isProfilePage()) {
-            // Show the existing overlay, or initialize one with automatic state management
-            if (OverlayManager.overlayElement) {
-              OverlayManager.show();
-            } else {
-              OverlayManager.initialize();
-            }
-          }
-        });
-      }
-      sendResponse({ success: true });
-      return;
+  // Setup, Reset all and Show analysis reach every open tab through storage, whichever tab or popup changed them
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !chrome.runtime?.id) return;
+    const has = !!changes.compliance?.newValue?.hasAcknowledged;
+    // In-page consent has already set hasCompliance, and its run may be under way
+    if (changes.compliance && has !== OverlayManager.hasCompliance) {
+      if (!has) cancelAnalysis(); // a running analysis would write the profile back after Reset all
+      OverlayManager.hasCompliance = has;
+      // Setup and Reset all both leave no cached results: the zero state, with or without the consent card.
+      // setState is safe without an overlay.
+      OverlayManager.setState(has ? OverlayManager.states.EMPTY_CACHE : OverlayManager.states.INITIALIZING);
     }
-
-    if (request.action === 'updateComplianceState') {
-      OverlayManager.hasCompliance = request.hasCompliance;
-      // The overlay was built before setup, so the collapsed Analyze button is disabled and the
-      // zero state says "click the extension icon". Redraw (EMPTY_CACHE or cache); both re-enable the button.
-      if (OverlayManager.overlayElement && request.hasCompliance) {
-        OverlayManager.restoreAppropriateState();
-      }
-      sendResponse({ success: true });
-      return;
+    if (changes.showAnalysis) {
+      if (changes.showAnalysis.newValue === false) OverlayManager.hide();
+      // As init() would: not on /details/ or /recent-activity/. show() initializes a missing overlay.
+      else if (isProfilePage()) isOwnProfile().then(own => own && OverlayManager.show());
     }
   });
 

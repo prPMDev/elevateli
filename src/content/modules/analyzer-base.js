@@ -146,7 +146,7 @@ class Analyzer {
       // Cancelled, or a factory reset during the run cleared storage: don't write this run back or show it
       const { compliance } = await chrome.storage.local.get('compliance');
       if (this.cancelled || !compliance?.hasAcknowledged) {
-        // Factory Reset from another tab (only the active tab is told): leave 'AI analyzing...' for first-run setup
+        // Reset all cleared storage before its onChanged event reached this tab: leave 'AI analyzing...' for first-run setup
         if (!this.cancelled) {
           OverlayManager.hasCompliance = false;
           OverlayManager.setState(OverlayManager.states.INITIALIZING);
@@ -184,10 +184,8 @@ class Analyzer {
       };
 
       OverlayManager.setState(finalState, overlayData);
-      // Announce the end of the run from the fixed-position toast, wherever the page is scrolled
-      const aiNote = result.aiError ? ` AI analysis failed: ${result.aiError.message}`
-        : failedSections.length ? ` AI could not analyze ${failedSections.join(', ')} this time.` : '';
-      OverlayManager.showToast(`Analysis done: profile ${result.completeness}% complete.${aiNote}`, aiNote ? 'warning' : 'success');
+      // COMPLETE announces the run's end and any AI error. Sections that kept an earlier rating look unchanged, so name them.
+      if (failedSections.length) OverlayManager.showToast(`AI could not analyze ${failedSections.join(', ')} this time.`);
     } catch (error) {
       console.error('[Analyzer] Analysis failed:', error);
       // An extension reload orphans this run (chrome.storage throws); the new script's overlay is not its to paint
@@ -283,63 +281,30 @@ class Analyzer {
    */
   async validateApiKey() {
     const response = await safeSendMessage({ action: 'validateApiKey' });
-    return response?.success ? { isValid: true } : { isValid: false, error: response?.error || 'API key validation failed' };
+    return response?.success ? { isValid: true } : { isValid: false, error: response?.error || 'ElevateLI could not reach its service worker. Reload the page and try again.' };
   }
   
   /**
    * Run all extractors
    */
   async runExtractors() {
-    // Leaving this profile cancels the run right away: the scan's own scrolling keeps analyzer-main's
-    // debounced navigation observer from firing until it ends
+    // Leaving this profile page (another profile, a /details/ subpage) cancels the run right away, as analyzer-main's
+    // leftProfile() would: the scan's own scrolling keeps that debounced observer from firing until it ends
     const stop = () => {
-      if (extractProfileIdFromUrl() !== this.profileId) this.cancelled = true;
+      if (extractProfileIdFromUrl() !== this.profileId || !isProfilePage()) this.cancelled = true;
       return this.cancelled;
     };
-    
-    // Update scan progress
-    const sections = Object.keys(this.extractors).map(name => ({
-      name,
-      status: 'pending',
-      itemCount: 0
-    }));
-    
-    OverlayManager.updateScanProgress(sections);
-    
-    // Lower profile sections render only once scrolled into view. The page jumps meanwhile, and the
-    // overlay scrolls away with it, so explain it from the fixed-position toast
-    const toast = OverlayManager.showToast('Scrolling through your profile so LinkedIn loads every section…', 'info', 60000);
-    try {
-      await BaseExtractor.loadLazySections(stop);
-    } finally {
-      toast.remove();
-    }
-    // A cancelled run must not scan the next page or paint EXTRACTING over a reset overlay
+
+    // Lower profile sections render only once scrolled into view; the overlay's SCANNING toast explains the motion
+    await BaseExtractor.loadLazySections(stop);
+    // A cancelled run must not scan the next page
     if (stop()) return {};
-    
-    // Run extractors in parallel
-    return Object.fromEntries(await Promise.all(Object.entries(this.extractors).map(async ([name, extractor], i) => {
-      const section = sections[i];
+
+    // Run extractors in parallel. A missing section returns its scan result, so the scorer gets exists: false
+    return Object.fromEntries(await Promise.all(Object.entries(this.extractors).map(async ([name, extractor]) => {
       try {
-        section.status = 'scanning';
-        OverlayManager.updateScanProgress(sections);
-        
         const scanResult = await extractor.scan();
-        
-        section.status = 'complete';
-        section.itemCount = scanResult.totalCount || scanResult.count || 0;
-        OverlayManager.updateScanProgress(sections);
-        
-        // A missing section returns its scan result, so the scorer gets exists: false
-        if (!scanResult.exists) return [name, scanResult];
-        
-        OverlayManager.setState(OverlayManager.states.EXTRACTING);
-        OverlayManager.updateExtractionProgress(name);
-        
-        // Small delay to ensure UI updates
-        await new Promise(resolve => setTimeout(resolve, 50));
-        
-        return [name, await extractor.extract()];
+        return [name, scanResult.exists ? await extractor.extract() : scanResult];
       } catch (error) {
         console.error(`[Analyzer] ${name} extraction failed:`, error);
         return [name, null];
@@ -476,7 +441,7 @@ class Analyzer {
       // Two failures in a row: stop calling the provider; the remaining sections fail with the same error
       if (consecutiveFailures < MAX_CONSECUTIVE_FAILURES) {
         try {
-          OverlayManager.updateAIProgress('analyzing', section.name);
+          OverlayManager.updateAIProgress('analyzing', section.name, i + 1, sections.length);
 
           // Above the SW's 180 s per AI call, so the SW's own error is the one reported
           result = await Promise.race([
