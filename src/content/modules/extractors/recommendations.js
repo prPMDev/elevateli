@@ -44,7 +44,7 @@ const RecommendationsExtractor = {
     
     const result = {
       exists: true,
-      count: received + given,
+      count: received, // Only received ones count; given ones are about other people
       receivedCount: received,
       givenCount: given,
       hasRecommendations: received > 0,
