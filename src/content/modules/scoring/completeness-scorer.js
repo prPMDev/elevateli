@@ -3,21 +3,6 @@
  * Calculates profile completeness score based on section data
  */
 
-/**
- * The target role and level as copy reads them ("Senior Product Manager"), always followed by "roles", "work" or
- * "job posts". '' for no role (blank or the old "general"). Founder and custom roles get no level prefix.
- * Top-level so the overlay can reuse it (this file loads first).
- */
-function roleLabel(settings) {
-  const { targetRole, seniorityLevel, customRole } = settings || {};
-  if (targetRole === 'entrepreneur') return 'Founder';
-  if (targetRole === 'other') return (customRole || '').trim();
-  const role = { 'product-manager': 'Product Manager', 'software-engineer': 'Software Engineer', 'data-scientist': 'Data Scientist',
-    designer: 'Designer', marketing: 'Marketing', sales: 'Sales', consultant: 'Consultant' }[targetRole];
-  const level = { entry: 'Entry-level', mid: 'Mid-level', senior: 'Senior', lead: 'Lead', director: 'Director-level' }[seniorityLevel];
-  return role ? (level ? `${level} ${role}` : role) : '';
-}
-
 class ProfileCompletenessCalculator {
   constructor() {
     const fmt = n => n.toLocaleString('en-US');
@@ -37,7 +22,7 @@ class ProfileCompletenessCalculator {
     
     // Section-specific rules. Character thresholds are shares of LinkedIn's limits:
     // headline 220 (75/50/30%), About 2600 (60/40/20/10%), role description 2000 (40/25/15%).
-    // getMessage(data, role) gets roleLabel() ('' for no role). Tips carry no closing period and no trailing parenthetical:
+    // getMessage(data, role) gets domUtils' targetRoleLabel() ('' for no role). Tips carry no closing period and no trailing parenthetical:
     // the overlay adds " ({gainText})." after them.
     this.rules = {
       photo: {
@@ -165,7 +150,7 @@ class ProfileCompletenessCalculator {
    * @returns {Object} Complete scoring result
    */
   calculate(sectionData, settings) {
-    const role = roleLabel(settings);
+    const role = targetRoleLabel(settings);
     const breakdown = {};
     const recommendations = [];
     let earnedPoints = 0;
