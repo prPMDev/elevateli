@@ -28,10 +28,9 @@ if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
     // Open LinkedIn tabs have no content script after an install, and a dead one after an update or
     // reload, so popup messages to them go nowhere. Inject the current one unless the tab already
     // loaded it; OverlayManager.initialize() replaces the overlay a dead script left behind.
-    // Tabs still loading get the manifest scripts on their own; injecting there would run them twice.
     if (details.reason === 'install' || details.reason === 'update') {
       const { js, css } = chrome.runtime.getManifest().content_scripts[0];
-      for (const { id } of await chrome.tabs.query({ url: 'https://www.linkedin.com/*', status: 'complete' })) {
+      const reinject = id => {
         const target = { tabId: id };
         chrome.scripting.executeScript({ target, func: () => typeof OverlayManager !== 'undefined' })
           .then(([probe]) => probe?.result || Promise.all([
@@ -39,6 +38,19 @@ if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
             chrome.scripting.executeScript({ target, files: js })
           ]))
           .catch(() => {}); // tab closed or not scriptable (error page)
+      };
+      for (const { id, status } of await chrome.tabs.query({ url: 'https://www.linkedin.com/*' })) {
+        if (status === 'complete') reinject(id);
+        // A tab still loading may already be past document_idle, where the new manifest scripts never run.
+        // Wait for it to finish; the probe then skips tabs that did get them. 'unloaded' tabs reload fresh.
+        else if (status === 'loading') {
+          const onUpdated = (tabId, info) => {
+            if (tabId !== id || info.status !== 'complete') return;
+            chrome.tabs.onUpdated.removeListener(onUpdated);
+            reinject(id);
+          };
+          chrome.tabs.onUpdated.addListener(onUpdated);
+        }
       }
     }
 
