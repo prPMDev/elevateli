@@ -113,7 +113,7 @@ const OverlayManager = {
         <div id="elevateli-overlay" class="elevateli-overlay" data-state="${this.currentState}" data-view-state="${this.viewState}">
           <!-- Collapsed view (new default) -->
           <div class="overlay-collapsed-view">
-            <img src="${chrome?.runtime?.id ? chrome.runtime.getURL('src/images/icon.png') : ''}" class="brand-logo" alt="" />
+            <img src="${chrome?.runtime?.id ? chrome.runtime.getURL('src/images/icon48.png') : ''}" class="brand-logo" alt="" />
             <span class="brand-name" role="heading" aria-level="2">ElevateLI</span>
             <span class="score-badge completeness"><span class="label-full">Completeness</span><span class="label-short">Complete</span>: —</span>
             <span class="score-badge quality"><span class="label-full">Content quality</span><span class="label-short">Quality</span>: —</span>
