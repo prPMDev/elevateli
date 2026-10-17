@@ -65,7 +65,8 @@ const SkillsExtractor = {
    */
   extractSkillItem(item, index = 0) {
     const [name = '', ...context] = BaseExtractor.fields(item);
-    const endorsements = context.map(field => field.match(/^(\d+) endorsements?/)).find(Boolean);
+    // "99+ endorsements" is LinkedIn's capped label
+    const endorsements = context.map(field => field.match(/^(\d+)\+? endorsements?/)).find(Boolean);
 
     return {
       name,
