@@ -367,7 +367,7 @@ const OverlayManager = {
         }
         // Only the fresh AI-failure producer has a current aiError; the others spread the cache's old one
         if (data.isErrorFallback || data.analysisError || !data.aiError) {
-          this.showError(`This analysis didn't finish. Showing your ${data.timestamp ? `results from ${this.fmtDate(data.timestamp)}` : 'earlier results'}.`);
+          this.showError(`This analysis didn't finish. Showing your ${data.timestamp ? `results from ${formatDate(data.timestamp)}` : 'earlier results'}.`);
         } else {
           const fix = this.aiFix(data);
           this.showError(`AI analysis failed (${this.reason(data.aiError, data.settings)}).${fix.settings ? '' : ' Click Analyze to retry.'}`, fix.settings);
@@ -468,13 +468,6 @@ const OverlayManager = {
    */
   gapWhy(rec) {
     return `${rec.section === 'experience' ? 'Up to ' : ''}+${Math.round(rec.impact)}% completeness`;
-  },
-
-  /**
-   * {date} in copy: "Oct 7, 2026"
-   */
-  fmtDate(timestamp) {
-    return new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   },
 
   /**
@@ -634,7 +627,7 @@ const OverlayManager = {
     const age = (Date.now() - new Date(timestamp).getTime()) / (1000 * 60 * 60 * 24);
     const isStale = age > 7;
 
-    const text = `Last analyzed: ${this.fmtDate(timestamp)}${isStale ? ' (outdated)' : ''}`;
+    const text = `Last analyzed: ${formatDate(timestamp)}${isStale ? ' (outdated)' : ''}`;
     collapsedTimestamp.textContent = text;
     // The full text too: a narrow bar cuts the date with an ellipsis
     collapsedTimestamp.title = isStale ? `${Math.floor(age)} days old. Click Analyze to include changes you've made since.` : text;
@@ -1175,16 +1168,18 @@ const OverlayManager = {
     const reason = this.reason(data.aiError, data.settings);
     const settings = this.aiFix(data).settings ? 'Open settings' : undefined;
     // A run that fell back to earlier results after an error: the analyzer's message says what failed.
-    // A fresh AI failure with earlier AI ratings (no isErrorFallback/analysisError) takes the aiFailed branch.
+    // A fresh AI failure with earlier AI ratings (no isErrorFallback/analysisError) takes the aiFailed branch,
+    // with the analyzer's dated message (ERR-2) on that run and the BAN-4 line on later restores.
     if (data.isCacheFallback && (data.isErrorFallback || data.analysisError || !this.aiFailed(data))) {
       return {
-        text: data.message || `This analysis didn't finish. Showing your ${data.timestamp ? `results from ${this.fmtDate(data.timestamp)}` : 'earlier results'}. Click Analyze to try again.`,
+        text: data.message || `This analysis didn't finish. Showing your ${data.timestamp ? `results from ${formatDate(data.timestamp)}` : 'earlier results'}. Click Analyze to try again.`,
         warn: true
       };
     }
     if (this.aiFailed(data)) {
       return data.aiFailedWithCache
-        ? { text: `Your AI ratings are from an earlier run. The latest one failed (${reason}). Click Analyze to retry.`, warn: true, button: settings }
+        ? { text: (data.isCacheFallback && data.message) || `Your AI ratings are from an earlier run. The latest one failed (${reason}). Click Analyze to retry.`,
+          warn: true, button: settings }
         : { text: `AI analysis failed (${reason}). Click Analyze to retry.`, warn: true, button: settings };
     }
 
