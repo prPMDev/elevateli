@@ -139,7 +139,10 @@ class Analyzer {
 
         let aiResult;
         if (!validationResult.isValid) {
-          aiResult = { success: false, error: validationResult.error || 'Invalid Key', errorType: 'validation_failed' };
+          // Only a key problem is a key error. Offline, 429/5xx or a stopped local server keep the SW's own
+          // message and are classified below.
+          const error = validationResult.error || 'Invalid Key';
+          aiResult = { success: false, error, errorType: /api key/i.test(error) ? 'validation_failed' : undefined };
         } else {
           // API key is valid, proceed with AI analysis
           OverlayManager.setState(OverlayManager.states.AI_ANALYZING, { completeness: completenessData.score });
