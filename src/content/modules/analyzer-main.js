@@ -52,7 +52,9 @@
         return;
       }
 
-      const settings = await chrome.storage.local.get(['compliance', 'enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel']);
+      // The base URL and target role shape the overlay's and scorer's copy ({provider}, {roleLabel})
+      const settings = await chrome.storage.local.get(['compliance', 'enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel',
+        'aiBaseUrl', 'targetRole', 'seniorityLevel', 'customRole']);
       if (!settings.compliance?.hasAcknowledged) {
         // Setup was reset elsewhere (Factory Reset in another tab): back to first-run, where Analyze offers setup
         OverlayManager.hasCompliance = false;
@@ -155,7 +157,8 @@
         success: true,
         userProfile: {
           profileId,
-          profileName: BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim() || profileId,
+          // '' when not found: copy has a no-name variant, never the URL slug
+          profileName: BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim() || '',
           profileUrl: window.location.href.split('?')[0],
           savedAt: Date.now(),
           verifiedOwnership: OwnershipDetector.hasOwnershipIndicators()

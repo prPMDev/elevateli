@@ -37,6 +37,9 @@ class Analyzer {
     this.profileId = profileId;
     this.isOwn = isOwn;
     this.settings = settings;
+    // What the overlay's copy reads ({provider}, setup state), never the key itself
+    this.uiSettings = { enableAI: settings.enableAI, aiProvider: settings.aiProvider, aiModel: settings.aiModel,
+      aiBaseUrl: settings.aiBaseUrl, hasKey: !!settings.encryptedApiKey };
   }
   
   /**
@@ -52,11 +55,13 @@ class Analyzer {
 
     try {
       // Update overlay state
-      OverlayManager.setState(OverlayManager.states.SCANNING);
-      
+      OverlayManager.setState(OverlayManager.states.SCANNING, { settings: this.uiSettings });
+
       // Use the cache unless forced refresh; a forced refresh keeps it for the fallbacks below
       const cacheKey = `cache_${this.profileId}`;
       cachedData = (await chrome.storage.local.get(cacheKey))[cacheKey];
+      // The earlier result's date, for the timeout fallback's "Showing your results from {date}"
+      this.previousTimestamp = cachedData?.timestamp;
       if (!forceRefresh && cachedData?.completeness !== undefined) {
         OverlayManager.setState(OverlayManager.states.COMPLETE, {
           ...cachedData,
@@ -64,7 +69,7 @@ class Analyzer {
           // Only mark AI as disabled if there's no content score
           aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
           // Pass current settings for UI logic
-          settings: { enableAI: this.settings.enableAI, aiProvider: this.settings.aiProvider, aiModel: this.settings.aiModel }
+          settings: this.uiSettings
         });
         return;
       }
@@ -75,7 +80,8 @@ class Analyzer {
       if (this.cancelled) return;
 
       // Calculate completeness
-      OverlayManager.setState(OverlayManager.states.CALCULATING);
+      // Its status line names the provider while the key pre-flight below runs
+      OverlayManager.setState(OverlayManager.states.CALCULATING, { settings: this.uiSettings });
 
       const completenessData = this.calculateCompleteness(extractedData);
 
@@ -85,6 +91,8 @@ class Analyzer {
         completeness: completenessData.score,
         completenessData: completenessData,
         extractedData: extractedData,
+        // The role the AI rates for, saved with the result: star text reads it, not today's settings
+        roleLabel: targetRoleLabel(this.settings),
         timestamp: new Date().toISOString()
       };
       
@@ -110,7 +118,8 @@ class Analyzer {
             errorType: validationResult.errorType === 'AUTH' ? 'validation_failed' : validationResult.errorType };
         } else {
           // API key is valid, proceed with AI analysis
-          OverlayManager.setState(OverlayManager.states.AI_ANALYZING, { completeness: completenessData.score });
+          OverlayManager.setState(OverlayManager.states.AI_ANALYZING,
+            { completeness: completenessData.score, settings: this.uiSettings, roleLabel: result.roleLabel });
 
           // Pass completeness score to AI analysis for conditional advice
           extractedData.completenessScore = completenessData?.score || 100;
@@ -127,6 +136,7 @@ class Analyzer {
           if (cachedData?.contentScore !== undefined) {
             result.contentScore = cachedData.contentScore;
             result.sectionScores = cachedData.sectionScores;
+            result.roleLabel = cachedData.roleLabel; // the role those ratings were for
             result.aiFailedWithCache = true;
           }
           
@@ -168,7 +178,9 @@ class Analyzer {
         // Only mark AI as disabled if there's no content score
         aiDisabled: result.contentScore === undefined || result.contentScore === null,
         // The overlay's 'AI failed' contract (aiError + settings.enableAI), as the cache restore passes it
-        settings: { enableAI: this.settings.enableAI }
+        settings: this.uiSettings,
+        // timestamp is this run's; the earlier results kept on screen are from this date
+        previousTimestamp: cachedData?.timestamp
       };
 
       OverlayManager.setState(finalState, overlayData);
@@ -231,7 +243,8 @@ class Analyzer {
             type: 'timeout',
             message: 'AI analysis took too long. Try again for full analysis.'
           },
-          settings: { enableAI: this.settings.enableAI },
+          settings: this.uiSettings,
+          roleLabel: this.analysisResults.roleLabel,
           timestamp: Date.now()
         };
         
@@ -306,7 +319,8 @@ class Analyzer {
    */
   calculateCompleteness(extractedData) {
     try {
-      return new ProfileCompletenessCalculator().calculate(extractedData);
+      // The settings carry the target role, which the scorer's tips name
+      return new ProfileCompletenessCalculator().calculate(extractedData, this.settings);
     } catch (error) {
       console.error('[Analyzer] Error calculating completeness:', error);
       // Return a basic result on error
