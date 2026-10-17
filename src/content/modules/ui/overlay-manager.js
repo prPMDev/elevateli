@@ -21,9 +21,7 @@ const OverlayManager = {
   currentState: null,
   overlayElement: null,
   viewState: 'collapsed', // Always start in collapsed view
-  currentData: null, // Store the full analysis data for reference
   isRestoringState: false, // Track restoration to prevent duplicates
-  lastRestoredProfile: null, // Track last restored profile to avoid redundant restoration
   
   /**
    * Get color class based on score value
@@ -54,15 +52,9 @@ const OverlayManager = {
     // Before any await: the profile this call was made for (another member's page must not get the overlay)
     const profileId = extractProfileIdFromUrl();
 
-    // Check if extension context is still valid
-    try {
-      if (!chrome?.runtime?.id) {
-        return this;
-      }
-    } catch (e) {
-      return this;
-    }
-    
+    // The extension context dies on reload
+    if (!chrome.runtime?.id) return this;
+
     // Check if user wants to show analysis and compliance
     try {
       const settings = await new Promise((resolve) => {
@@ -99,43 +91,25 @@ const OverlayManager = {
     }
     if (extractProfileIdFromUrl() !== profileId) return this;
     this.createAndInject();
-    
-    // CRITICAL: Restore cached data automatically after overlay is created
-    // This ensures returning users see their previous analysis immediately
-    // We need to handle two cases:
-    // 1. No compliance - zero state with the consent card (Analyze leads to it)
-    // 2. Has compliance but no cache - zero state pointing at Analyze
-    // 3. Has compliance and cache - restore cached data
+
+    // Set up: returning users see their cached results (or the zero state). Not set up: the consent card.
     if (this.overlayElement) {
-      if (this.hasCompliance) {
-        // Use setTimeout to ensure DOM is fully ready
-        setTimeout(async () => {
-          // Check if we already have scores displayed (from popup-triggered analysis)
-          const hasScores = this.overlayElement?.querySelector('.completeness-score')?.textContent;
-          if (hasScores && hasScores !== '0' && hasScores !== '') {
-            return;
-          }
-          // This will check for cache and either restore it or show EMPTY_CACHE state
-          await this.restoreAppropriateState();
-        }, 100);
-      } else {
-        // INITIALIZING ran before injection; every caller (init, show, Show analysis) needs the consent card
-        this.showZeroState();
-      }
+      if (this.hasCompliance) setTimeout(() => this.restoreAppropriateState(), 100);
+      // INITIALIZING ran before injection; every caller (init, show, Show analysis) needs the consent card
+      else this.showZeroState();
     }
-    
+
     return this;
   },
   
   
   /**
-   * Create overlay HTML with skeleton UI
-   * @param {boolean} hidden - Whether to create the overlay in hidden state
+   * Create the overlay and inject it after the profile top card
    */
-  createAndInject(hidden = false) {
+  createAndInject() {
     // Create wrapper for proper integration
     const wrapperHtml = `
-      <div class="elevateli-overlay-wrapper" role="region" aria-label="ElevateLI profile score" ${hidden ? 'style="display: none;"' : ''}>
+      <div class="elevateli-overlay-wrapper" role="region" aria-label="ElevateLI profile score">
         <div id="elevateli-overlay" class="elevateli-overlay" data-state="${this.currentState}" data-view-state="${this.viewState}">
           <!-- Collapsed view (new default) -->
           <div class="overlay-collapsed-view">
@@ -276,19 +250,6 @@ const OverlayManager = {
    * @param {Object} data - Data for the new state
    */
   setState(newState, data = {}) {
-    // Add null/undefined check for newState
-    if (!newState) {
-      // Default to EMPTY_CACHE if no state provided
-      newState = this.states.EMPTY_CACHE;
-    }
-    
-    // Validate that the state exists in our defined states
-    const validStates = Object.values(this.states);
-    if (!validStates.includes(newState)) {
-      // Default to EMPTY_CACHE for invalid states
-      newState = this.states.EMPTY_CACHE;
-    }
-    
     this.currentState = newState;
 
     // The scroll notice lasts only while SCANNING scrolls <main>
@@ -341,10 +302,7 @@ const OverlayManager = {
         this.stopElapsedTimeDisplay();
         
         this.populateScores(data);
-        
-        // Store the full data for reference by other methods
-        this.currentData = data;
-        
+
         // Show unified view
         this.showUnifiedView(data);
 
@@ -386,8 +344,7 @@ const OverlayManager = {
         this.populateScores(data);
 
         // The flag makes the results banner carry data.message (what failed) in amber
-        this.currentData = { ...data, isCacheFallback: true };
-        this.showUnifiedView(this.currentData);
+        this.showUnifiedView({ ...data, isCacheFallback: true });
 
         // Show timestamp
         if (data.timestamp) {
@@ -553,16 +510,6 @@ const OverlayManager = {
     if (step) this.overlayElement.querySelector('.analyze-btn-collapsed').textContent = `Analyzing ${step}/${total}`;
   },
 
-  /**
-   * Update section score progressively
-   * @param {string} section - Section name
-   * @param {number} score - Section score
-   */
-  updateSectionScore(section, score) {
-    // Section score details display disabled - not currently used
-    return;
-  },
-  
   /**
    * Show the last-analyzed date in the collapsed bar, flagged when older than 7 days
    * @param {string|number} timestamp - ISO string (cache) or epoch ms (timeout path)
@@ -1438,8 +1385,7 @@ const OverlayManager = {
         this.setState(state, data);
       }
 
-      // Update last restored profile and clear restoration flag
-      this.lastRestoredProfile = profileId;
+      // Clear restoration flag
       this.isRestoringState = false;
 
       return !!data;
