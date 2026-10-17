@@ -470,7 +470,7 @@ const OverlayManager = {
     // aiDisabled also marks the timeout path's placeholder contentScore 0
     if (typeof data.contentScore === 'number' && !data.aiDisabled) {
       // 10-point AI score as 5 stars
-      const badge = this.setBadge('quality', this.renderStars(Math.round(data.contentScore / 2), data.errorType));
+      const badge = this.setBadge('quality', this.renderStars(Math.round(data.contentScore / 2)));
       // These AI results are from an earlier run: this one's AI step failed
       if (data.aiFailedWithCache) {
         const asterisk = document.createElement('span');
@@ -784,22 +784,10 @@ const OverlayManager = {
   },
 
   /**
-   * Get improvement limit based on rating
+   * AI advice items per row: 1 at 5 stars, else 3 for Experience and 2 elsewhere
    */
-  getImprovementLimit(rating, sectionName = '') {
-    // Special case for Experience section - allow more recommendations
-    if (sectionName === 'Experience') {
-      if (rating >= 5) return 1;  // Only critical improvements for perfect scores
-      return 3; // Allow up to 3 for experience section for all other ratings
-    }
-
-    // Default limits for other sections
-    // 5 stars: Max 1 improvement (only if critical)
-    // 4 stars: 1-2 improvements
-    // 3 stars or below: 2 improvements
-    if (rating >= 5) return 1;
-    if (rating >= 4) return 2;
-    return 2;
+  getImprovementLimit(rating, sectionName) {
+    return rating >= 5 ? 1 : sectionName === 'Experience' ? 3 : 2;
   },
 
   /**
@@ -1069,8 +1057,6 @@ const OverlayManager = {
   getFailureTooltip(errorType) {
     const tooltipMap = {
       'ANALYSIS_FAILED': 'AI was unable to analyze this section',
-      'RESPONSE_PARSE_ERROR': 'AI response could not be read',
-      'DATA_READ_ERROR': 'AI was unable to read data for this section',
       'AI_READY': 'Click Analyze for AI content analysis',
       'NOT_RATED': 'Not rated by AI',
       'DEFAULT': 'No AI rating yet. Turn on AI in settings, then click Analyze.'
@@ -1083,7 +1069,7 @@ const OverlayManager = {
    * Banner text: what failed, or the completeness, the AI verdict and the next step
    */
   generateUnifiedMessage(data, sections) {
-    const percent = Math.round(Number(data.completeness) || 0);
+    const percent = Math.round(data.completeness || 0);
 
     // A run that just fell back to cached results: the analyzer's message says what failed
     if (data.isCacheFallback && data.message) return data.message;
