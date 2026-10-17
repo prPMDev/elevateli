@@ -213,15 +213,17 @@
   text-align: center;
 }
 
-.overlay-collapsed-view .analyze-btn-collapsed:hover {
+.overlay-collapsed-view .analyze-btn-collapsed:hover:not(:disabled) {
   background: #0856a0;
   border-color: #0856a0;
 }
 
+/* Disabled only while analyzing, and then it carries the progress ("Analyzing 2/5"), so keep it readable */
 .overlay-collapsed-view .analyze-btn-collapsed:disabled {
-  background: #ccc;
-  border-color: #ccc;
-  cursor: not-allowed;
+  background: rgba(0, 0, 0, 0.08);
+  border-color: transparent;
+  color: rgba(0, 0, 0, 0.6);
+  cursor: progress;
 }
 
 .overlay-collapsed-view .view-details-link {
@@ -232,28 +234,6 @@
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
-}
-
-/* Analyze section with cancel link */
-.overlay-collapsed-view .analyze-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin-right: 8px;
-}
-
-.overlay-collapsed-view .cancel-analysis-link {
-  margin-top: 2px;
-  font-size: 11px;
-  color: #666;
-  text-decoration: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.overlay-collapsed-view .cancel-analysis-link:hover {
-  color: #dc2626;
-  text-decoration: underline;
 }
 
 .overlay-collapsed-view .view-details-link:hover {
@@ -678,32 +658,12 @@
 /* ============================================
  * STATE-BASED STYLING
  * ============================================ */
-.elevateli-overlay[data-state="initializing"] .status-indicator {
-  background: #e3f2fd;
-}
-
-.elevateli-overlay[data-state="scanning"] .status-indicator {
-  background: #fff3cd;
-}
-
-.elevateli-overlay[data-state="extracting"] .status-indicator {
-  background: #d1ecf1;
-}
-
-.elevateli-overlay[data-state="calculating"] .status-indicator {
-  background: #d4edda;
-}
-
-.elevateli-overlay[data-state="ai_analyzing"] .status-indicator {
-  background: #e2e3ff;
-}
-
-.elevateli-overlay[data-state="complete"] .status-indicator {
-  background: #d4edda;
-}
-
+/* Progress stays on the neutral base background; only an error tints the status line */
 .elevateli-overlay[data-state="error"] .status-indicator {
   background: #f8d7da;
+}
+
+.elevateli-overlay[data-state="error"] .status-text {
   color: #721c24;
 }
 
@@ -773,20 +733,20 @@
   grid-column: unset !important;
 }
 
-/* Toast Notifications */
+/* Toast: top right, under LinkedIn's 52px nav and clear of the Messaging dock and chat windows at the bottom */
 .elevateli-toast {
   position: fixed;
-  bottom: 20px;
+  top: 64px;
   right: 20px;
   padding: 12px 20px;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #fff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.15);
   max-width: 400px;
   z-index: 10001;
+  font-size: 14px;
+  line-height: 1.4;
+  color: rgba(0, 0, 0, 0.9);
   transform: translateX(calc(100% + 20px));
   transition: transform 0.3s ease-out, opacity 0.3s ease-out;
   opacity: 0;
@@ -796,57 +756,4 @@
 .elevateli-toast-show {
   transform: translateX(0);
   opacity: 1;
-}
-
-.elevateli-toast-hide {
-  transform: translateX(calc(100% + 20px));
-  opacity: 0;
-}
-
-.elevateli-toast-icon {
-  font-size: 16px;
-  flex-shrink: 0;
-}
-
-.elevateli-toast-text {
-  font-size: 14px;
-  line-height: 1.4;
-  color: #333;
-}
-
-/* Toast types */
-.elevateli-toast-info {
-  background: #e7f3ff;
-  border: 1px solid #c2e0ff;
-}
-
-.elevateli-toast-success {
-  background: #d4edda;
-  border: 1px solid #c3e6cb;
-}
-
-.elevateli-toast-warning {
-  background: #fff3cd;
-  border: 1px solid #ffeaa7;
-}
-
-.elevateli-toast-error {
-  background: #f8d7da;
-  border: 1px solid #f5c6cb;
-}
-
-.elevateli-toast-error .elevateli-toast-text {
-  color: #721c24;
-}
-
-.elevateli-toast-warning .elevateli-toast-text {
-  color: #856404;
-}
-
-.elevateli-toast-success .elevateli-toast-text {
-  color: #155724;
-}
-
-.elevateli-toast-info .elevateli-toast-text {
-  color: #004085;
 }

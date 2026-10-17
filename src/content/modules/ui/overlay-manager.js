@@ -378,7 +378,7 @@ const OverlayManager = {
     if (!chrome.runtime?.id) return;
     chrome.storage.local.set({ showAnalysis: false });
     this.hide();
-    this.showToast('ElevateLI is hidden. Turn it back on from the ElevateLI icon.', 'info');
+    this.showToast('ElevateLI is hidden. Turn it back on from the ElevateLI icon.');
   },
 
   /**
@@ -411,7 +411,10 @@ const OverlayManager = {
     }
     
     this.currentState = newState;
-    
+
+    // The scroll notice lasts only while SCANNING scrolls <main>
+    if (newState !== this.states.SCANNING) this.scrollToast?.remove();
+
     if (!this.overlayElement) return;
     
     this.overlayElement.setAttribute('data-state', newState);
@@ -430,6 +433,9 @@ const OverlayManager = {
         this.updateStatus('Scanning profile sections...', '⏳');
         this.startElapsedTimeDisplay();
         this.overlayElement.querySelector('.unified-section').replaceChildren();
+        // Lower sections mount only when <main> scrolls to them, which carries the overlay out of view.
+        // The toast is fixed, so it explains the motion; 20 s is a backstop, the next state removes it.
+        this.scrollToast = this.showToast('Scrolling through your profile so LinkedIn loads every section…', 20000);
       },
 
       [this.states.CALCULATING]: () => {
@@ -469,8 +475,9 @@ const OverlayManager = {
         }
         
         // A run that just failed AI says so next to its date; a restore shows the amber "No score" badge
-        if (!data.fromCache && !data.cacheRestored && this.aiFailed(data)) {
-          this.showError('AI analysis failed', data.aiError);
+        if (!data.fromCache && !data.cacheRestored) {
+          if (this.aiFailed(data)) this.showError('AI analysis failed', data.aiError);
+          else this.announce(`Analysis complete. Profile ${Math.round(data.completeness)}% complete.`);
         }
       },
 
@@ -647,36 +654,26 @@ const OverlayManager = {
       this.setBadge('quality', this.renderStars(null, null)).classList.add('ai-disabled');
     }
   },
+
   /**
-   * Update AI analysis progress
-   * @param {string} phase - Current AI phase
-   * @param {string} section - Current section (optional)
+   * AI progress: the status line, and the step on the collapsed Analyze button (visible in both views)
+   * @param {string} phase - 'analyzing' or 'synthesizing'
+   * @param {string} section - Section name, e.g. "Skills (58 total)"
+   * @param {number} [step] - 1-based number of the section being analyzed
+   * @param {number} [total] - Number of sections
    */
-  updateAIProgress(phase, section) {
-    const statusText = this.overlayElement.querySelector('.status-text');
+  updateAIProgress(phase, section, step, total) {
+    const statusText = this.overlayElement?.querySelector('.status-text');
     if (!statusText) return;
-    
-    const messages = {
-      'generating': 'Generating AI insights...',
-      'analyzing-about': 'AI analyzing About section...',
-      'analyzing-experience': 'AI analyzing Experience...',
-      'analyzing-skills': 'AI analyzing Skills...',
-      'analyzing-headline': 'AI analyzing Headline...',
-      'analyzing-education': 'AI analyzing Education...',
-      'analyzing-recommendations': 'AI analyzing Recommendations...',
-      'analyzing-certifications': 'AI analyzing Certifications...',
-      'analyzing-projects': 'AI analyzing Projects...',
-      'synthesizing': 'Synthesizing results...'
-    };
-    
-    // If section includes step info (e.g., "Profile Intro (Step 1 of 8)"), use it directly
-    if (section && section.includes('Step')) {
-      statusText.textContent = `AI analyzing ${section}...`;
-    } else {
-      statusText.textContent = messages[phase] || `AI analyzing ${section || 'profile'}...`;
+    if (phase === 'synthesizing') {
+      statusText.textContent = 'Synthesizing results...';
+      return;
     }
+    const count = step ? ` (${step} of ${total})` : '';
+    statusText.textContent = `AI analyzing ${String(section).replace(/ \(.*\)$/, '')}${count}...`;
+    if (step) this.overlayElement.querySelector('.analyze-btn-collapsed').textContent = `Analyzing ${step}/${total}`;
   },
-  
+
   /**
    * Update section score progressively
    * @param {string} section - Section name
@@ -745,10 +742,8 @@ const OverlayManager = {
 
     if (collapsedBtn) {
       collapsedBtn.disabled = true;
-      (() => {
-          collapsedBtn.textContent = '';
-          collapsedBtn.insertAdjacentHTML('afterbegin', '<span style="display: inline-block; animation: spin 1s linear infinite;">⏳</span> <span class="btn-text-full">Analyzing</span><span class="btn-text-short">...</span>');
-        })();
+      // Plain text; resetButtons puts "Analyze" back on every exit path
+      collapsedBtn.textContent = 'Analyzing…';
     }
     
     // Set failsafe timer to re-enable button if the analyzer never reports back
@@ -806,16 +801,13 @@ const OverlayManager = {
       }
     }
     
-    // Update elapsed time every second; the hint is appended so the counter stays visible
-    // and the per-section status text (set by the analyzer) is never overwritten
+    // Its own span, so the per-section status text (set by the analyzer) is never overwritten.
+    // No time-based hints: they guessed ("Finalizing" at 90 s) while AI could be on section 2 of 5.
     const updateElapsed = () => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const minutes = Math.floor(elapsed / 60);
       const seconds = elapsed % 60;
-      const hint = elapsed > 90 ? ' (Finalizing...)' :
-                   elapsed > 60 ? ' (Complex analysis in progress)' :
-                   elapsed > 30 ? ' (This may take a moment...)' : '';
-      elapsedDisplay.textContent = `Elapsed: ${minutes > 0 ? `${minutes}m ` : ''}${seconds}s${hint}`;
+      elapsedDisplay.textContent = `Elapsed: ${minutes > 0 ? `${minutes}m ` : ''}${seconds}s`;
     };
     
     updateElapsed();
@@ -866,7 +858,8 @@ const OverlayManager = {
       wrapper.remove();
     }
     this.overlayElement = null;
-    
+    this.scrollToast?.remove();
+
     // Clear any timers
     if (this.buttonResetTimer) {
       clearTimeout(this.buttonResetTimer);
@@ -1706,61 +1699,27 @@ const OverlayManager = {
   },
 
   /**
-   * Show toast notification
+   * Fixed notice at the top right, clear of LinkedIn's Messaging dock, visible while <main> scrolls.
+   * role="status" with the text set after insertion, so screen readers announce it.
    * @param {string} message - Message to display
-   * @param {string} type - Type of toast: 'info', 'success', 'warning', 'error'
-   * @param {number} duration - Duration in milliseconds (default: 5000)
+   * @param {number} duration - Milliseconds before it removes itself (click removes it too)
+   * @returns {Element} The toast, for early removal
    */
-  showToast(message, type = 'info', duration = 5000) {
-    // Remove any existing toasts
-    const existingToasts = document.querySelectorAll('.elevateli-toast');
-    existingToasts.forEach(toast => toast.remove());
-    
-    // Create toast element
+  showToast(message, duration = 5000) {
+    document.querySelectorAll('.elevateli-toast').forEach(toast => toast.remove());
+
     const toast = document.createElement('div');
-    toast.className = `elevateli-toast elevateli-toast-${type}`;
-    
-    // Create icon based on type
-    const icons = {
-      info: 'ℹ️',
-      success: '✅',
-      warning: '⚠️',
-      error: '❌'
-    };
-    
-    // Create content
-    const icon = document.createElement('span');
-    icon.className = 'elevateli-toast-icon';
-    icon.textContent = icons[type] || icons.info;
-    
-    const text = document.createElement('span');
-    text.className = 'elevateli-toast-text';
-    text.textContent = message;
-    
-    toast.appendChild(icon);
-    toast.appendChild(text);
-    
-    // Add to body
+    toast.className = 'elevateli-toast';
+    toast.setAttribute('role', 'status');
+    toast.addEventListener('click', () => toast.remove());
     document.body.appendChild(toast);
-    
-    // Trigger animation
+
     requestAnimationFrame(() => {
+      toast.textContent = message;
       toast.classList.add('elevateli-toast-show');
     });
-    
-    // Auto-dismiss
-    const dismissTimer = setTimeout(() => {
-      toast.classList.add('elevateli-toast-hide');
-      setTimeout(() => toast.remove(), 300);
-    }, duration);
-    
-    // Click to dismiss
-    toast.addEventListener('click', () => {
-      clearTimeout(dismissTimer);
-      toast.classList.add('elevateli-toast-hide');
-      setTimeout(() => toast.remove(), 300);
-    });
-    
+    setTimeout(() => toast.remove(), duration);
+
     return toast;
   },
 
