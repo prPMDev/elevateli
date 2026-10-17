@@ -61,18 +61,20 @@
     <div id="activeMain" class="hidden">
       <p class="active-profile">
         <span class="active-checkmark" aria-hidden="true">✓</span>
-        <span>Your profile: <span id="activeProfileName"></span></span>
+        <span id="activeProfileName">Your profile</span>
       </p>
 
       <div class="linkedin-cta">
         <p id="onProfileText" class="cta-text hidden">Your results are in the ElevateLI bar on this page.</p>
         <button id="openProfileBtn" class="primary-button">Open my profile</button>
+        <p id="ctaNote" class="cost-hint hidden"></p>
       </div>
 
       <div class="current-settings">
         <h2>Current settings</h2>
         <ul class="settings-status">
-          <li>Show analysis on profile: <span id="analysisStatus">On</span></li>
+          <li>ElevateLI bar: <span id="analysisStatus">On</span></li>
+          <li>Target role: <span id="targetRoleStatus">Not set</span></li>
           <li>AI analysis: <span id="aiAnalysisStatus">Not set up</span></li>
         </ul>
       </div>

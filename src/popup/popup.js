@@ -32,9 +32,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Active main view elements
   const activeProfileName = document.getElementById('activeProfileName');
   const analysisStatus = document.getElementById('analysisStatus');
+  const targetRoleStatus = document.getElementById('targetRoleStatus');
   const aiAnalysisStatus = document.getElementById('aiAnalysisStatus');
   const openProfileBtn = document.getElementById('openProfileBtn');
   const onProfileText = document.getElementById('onProfileText');
+  const ctaNote = document.getElementById('ctaNote');
 
   // Other elements
   const complianceCheck = document.getElementById('complianceCheck');
@@ -79,6 +81,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   // The profile id when the tab is on a profile itself, not a /details/ or /recent-activity/ subpage
   const tabProfileId = activeTab?.url?.match(/linkedin\.com\/in\/([^\/?#]+)\/?(?:[?#]|$)/)?.[1];
+  // The latest result for the saved profile (analyzer-base writes it), for the main view's score and date
+  const cacheKey = `cache_${settings.userProfile?.profileId}`;
+  const cached = (await chrome.storage.local.get(cacheKey))[cacheKey];
+  const result = cached?.completeness !== undefined ? cached : null;
+
+  // Provider names in sentences ("Gemini", not "Google Gemini")
+  const PROVIDER_NAMES = { gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Claude' };
+  // {roleLabel}: level prefix + role name. Founder and typed roles get no prefix; blank or the old 'general' is no role.
+  const ROLE_NAMES = { 'product-manager': 'Product Manager', 'software-engineer': 'Software Engineer', 'data-scientist': 'Data Scientist',
+    designer: 'Designer', marketing: 'Marketing', sales: 'Sales', consultant: 'Consultant', entrepreneur: 'Founder' };
+  const LEVEL_PREFIXES = { entry: 'Entry-level', mid: 'Mid-level', senior: 'Senior', lead: 'Lead', director: 'Director-level' };
+  function roleLabel() {
+    if (settings.targetRole === 'other') return settings.customRole || '';
+    const role = ROLE_NAMES[settings.targetRole];
+    const level = settings.targetRole !== 'entrepreneur' && LEVEL_PREFIXES[settings.seniorityLevel];
+    return role && level ? `${level} ${role}` : role || '';
+  }
+  // saveProfile falls back to the URL slug when the page shows no name; never print the slug
+  const displayName = profile => profile?.profileName !== profile?.profileId ? profile?.profileName || '' : '';
+  // Saved settings only apply on the next run: Back says so once when one of these changed
+  const rerunSnapshot = () => JSON.stringify(['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'targetRole', 'customRole',
+    'seniorityLevel', 'customInstructions'].map(key => settings[key] || ''));
+  let openedWith = null;
 
   // View management functions
   function showView(viewName) {
@@ -88,6 +113,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     settingsGearBtn.classList.toggle('hidden', viewName !== 'activeMain');
     if (viewName === 'activeMain') updateActiveMainView();
     if (viewName === 'settings') {
+      openedWith = rerunSnapshot();
       settingsStatus.textContent = '';
       updateSettingsView();
       onProviderChange();
@@ -115,18 +141,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function updateActiveMainView() {
-    analysisStatus.textContent = settings.showAnalysis !== false ? 'On' : 'Off';
+    analysisStatus.textContent = settings.showAnalysis !== false ? 'On' : 'Off (turn it on in Settings)';
+    targetRoleStatus.textContent = roleLabel() || 'Not set';
+    // A local model counts as set up: its stored key is the stand-in 'local'
     aiAnalysisStatus.textContent = !(settings.encryptedApiKey && settings.aiProvider && settings.aiModel) ? 'Not set up'
-      : settings.enableAI ? 'On' : 'Off';
+      : !settings.enableAI ? 'Off' : `On (${settings.aiBaseUrl ? 'local model' : PROVIDER_NAMES[settings.aiProvider]})`;
     const profileId = settings.userProfile?.profileId;
-    activeProfileName.textContent = settings.userProfile?.profileName || profileId || '';
-    // On the profile itself the overlay is right there, unless Show analysis is off
+    const name = displayName(settings.userProfile);
+    activeProfileName.textContent = (name ? `Your profile: ${name}` : 'Your profile') +
+      (result ? ` · ${Math.round(result.completeness)}% complete` : '');
+    // On the profile itself the overlay is right there, unless the bar is turned off
     const onProfile = !!profileId && tabProfileId === profileId;
     openProfileBtn.classList.toggle('hidden', onProfile);
     onProfileText.classList.toggle('hidden', !onProfile);
     onProfileText.textContent = settings.showAnalysis === false
       ? 'Turn on "Show analysis on profile" in Settings to see your results here.'
       : 'Your results are in the ElevateLI bar on this page.';
+    const changed = openedWith !== null && openedWith !== rerunSnapshot();
+    openedWith = null;
+    ctaNote.textContent = result && changed ? 'Settings saved. Click Analyze on your profile to apply them.'
+      : onProfile ? ''
+      : result ? `Last analyzed: ${new Date(result.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+      : 'Click Analyze in the ElevateLI bar to get your score.';
+    ctaNote.classList.toggle('hidden', !ctaNote.textContent);
   }
 
   // Built from the id, not the saved URL, which can be the subpage setup ran on
