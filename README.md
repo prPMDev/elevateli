@@ -1,10 +1,9 @@
 # ElevateLI — LinkedIn Profile Optimizer
 
-> A Chrome extension that analyzes your LinkedIn profile and gives you a completeness score, AI-powered content quality rating, and section-by-section recommendations to strengthen your professional presence.
+> A Chrome extension that shows how complete your LinkedIn profile is and what to fix first, with optional AI ratings of your writing.
 
 ![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?logo=googlechrome&logoColor=white)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-34A853)
-![AI: GPT-4o](https://img.shields.io/badge/AI-GPT--4o-10a37f?logo=openai&logoColor=white)
 ![Status: v1.0.0](https://img.shields.io/badge/Status-v1.0.0-brightgreen)
 
 ---
@@ -22,20 +21,19 @@ ElevateLI sits directly on your LinkedIn profile page, reads what's actually the
 ## Features (v1.0.0)
 
 - **Completeness Score (0-100%)** — scans every profile section locally, no API needed
-- **Content Quality Score (1-10)** — AI-powered analysis using GPT-4o or GPT-4o-mini
-- **Section-by-section breakdown** — star ratings and specific recommendations for headline, about, experience, skills, education, and more
+- **Optional AI ratings** — 1–5 stars and writing tips for your headline, About, experience, skills and recommendations, judged against your target role and level
+- **Section-by-section breakdown** — a tip for each gap, with what it adds (for example "+12% completeness")
 - **Three-phase extraction** — scan, extract, deep extract for thorough data collection
-- **Encrypted API key storage** — AES-GCM encryption, keys never leave your browser
-- **Infinite cache** — results persist until you clear them, no re-analysis needed
+- **Encrypted API key storage** — AES-GCM encryption; the key goes only to the provider you chose
+- **Saved results** — your latest results show again without re-running
 - **Progressive UI** — real-time status updates as each section is analyzed
-- **Zero data collection** — no tracking, no analytics, no server calls (except OpenAI if you opt in)
+- **No servers and no account** — scoring runs in your browser; with AI analysis on, the sections being rated go straight to the provider you chose
 
 ## Roadmap (v2)
 
 - [ ] Vision API integration for photo and banner analysis
 - [ ] Streaming AI responses for faster feedback
 - [ ] Differential updates to reduce API calls
-- [ ] Anthropic Claude as an alternative AI provider
 - [ ] Comparison mode across profile snapshots over time
 - [ ] Chrome Web Store publication
 - [ ] Export analysis as PDF report
@@ -49,7 +47,7 @@ ElevateLI sits directly on your LinkedIn profile page, reads what's actually the
 |-------|-----------|
 | Platform | Chrome Extension (Manifest V3) |
 | Language | Vanilla JavaScript (no frameworks) |
-| AI Provider | OpenAI GPT-4o / GPT-4o-mini |
+| AI Provider | Gemini, OpenAI, Anthropic or a local model (Ollama, LM Studio) |
 | Security | Web Crypto API (AES-GCM) |
 | Storage | Chrome Storage API |
 | Architecture | Content scripts + Service Worker |
@@ -62,7 +60,7 @@ ElevateLI sits directly on your LinkedIn profile page, reads what's actually the
 ### Prerequisites
 
 - Google Chrome browser
-- (Optional) OpenAI API key for AI-powered analysis — [get one here](https://platform.openai.com/api-keys)
+- (Optional) For AI analysis: a Gemini, OpenAI or Anthropic API key, or a local model (Ollama, LM Studio)
 
 ### Installation
 
@@ -80,10 +78,10 @@ cd elevateli
 
 Click the ElevateLI icon in your toolbar, go to **Settings**, and:
 
-1. Enable **AI Enhancement**
-2. Paste your OpenAI API key
-3. Set your target role and career level
-4. Run the analysis — AI feedback costs ~$0.05 per full profile scan
+1. Turn on **AI analysis**
+2. Choose a provider and paste its API key (for a local model, set the server URL instead), then pick a model
+3. Set your target role and level
+4. Click **Analyze** on your profile. Your provider bills you directly for AI use; local models have no API cost
 
 ---
 
@@ -100,11 +98,11 @@ Visit your LinkedIn profile
         |
   Phase 3: SCORE — calculate completeness (local, instant)
         |
-  Phase 4: AI ANALYZE — send sections to GPT-4o for quality feedback
+  Phase 4: AI ANALYZE — send sections to Gemini, OpenAI, Anthropic or a local model (Ollama, LM Studio) for AI ratings
         |
-  Phase 5: DISPLAY — overlay results on your profile with recommendations
+  Phase 5: DISPLAY — show results and tips in the ElevateLI bar on your profile
         |
-  Results cached — no re-analysis needed until you change your profile
+  Results saved — they show again without re-running; click Analyze after you edit your profile
 ```
 
 ---
@@ -113,13 +111,11 @@ Visit your LinkedIn profile
 
 | Permission | Why |
 |------------|-----|
-| `storage` | Save settings and cached analysis results |
-| `activeTab` | Read your LinkedIn profile content |
-| `scripting` | Inject the analysis overlay |
-| `tabs` | Detect page navigation on LinkedIn |
-| `alarms` | Schedule periodic cache cleanup |
+| `storage` | Save settings, your encrypted API key and your latest results |
+| `activeTab` | Check that the current tab is your LinkedIn profile during setup |
+| `scripting` | Re-attach ElevateLI to LinkedIn tabs that were already open after an install or update |
 
-Host access is limited to `https://www.linkedin.com/*` only.
+Host access is limited to `https://www.linkedin.com/*`. `localhost` is requested only if you connect a local model.
 
 ---
 
@@ -135,7 +131,7 @@ Built as a real tool to solve a real problem — optimizing LinkedIn profiles wi
 Ensure you loaded the folder containing `manifest.json`, not a parent folder.
 
 **"Extension context invalidated" error**
-Reload the extension from `chrome://extensions` and refresh the LinkedIn page.
+Reload the extension from `chrome://extensions`, then reload the LinkedIn page.
 
 **AI analysis returns no results**
 Check that your API key is valid and has credits. Open DevTools console for error details.
