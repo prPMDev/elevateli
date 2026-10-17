@@ -72,26 +72,14 @@ async function getSavedProfile() {
  */
 async function saveUserProfileId() {
   let profileId = extractProfileIdFromUrl();
-  
-  // If it's /in/me/, wait for redirect to actual profile
-  if (profileId === 'me') {
-    
-    // Wait up to 3 seconds for redirect
-    let attempts = 0;
-    while (profileId === 'me' && attempts < 6) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      profileId = extractProfileIdFromUrl();
-      attempts++;
-    }
-    
-    // If still 'me' after waiting, can't save
-    if (profileId === 'me') {
-      return;
-    }
+  // /in/me/ redirects to the real profile URL: wait up to 3 seconds for it
+  for (let i = 0; i < 6 && profileId === 'me'; i++) {
+    await BaseExtractor.wait(500);
+    profileId = extractProfileIdFromUrl();
   }
-  
-  if (!profileId) return;
-  
+  // The extension context dies on reload
+  if (!profileId || profileId === 'me' || !chrome.runtime?.id) return;
+
   // Get profile name from the page
   const profileName = BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim() || profileId;
   
@@ -104,12 +92,8 @@ async function saveUserProfileId() {
   };
   
   try {
-    // Check if chrome storage is available
-    if (!chrome?.storage?.local) {
-      return;
-    }
-    
     await chrome.storage.local.set({ userProfile });
-  } catch (error) {
+  } catch {
+    // Not saved: the next visit runs the ownership check again
   }
 }
