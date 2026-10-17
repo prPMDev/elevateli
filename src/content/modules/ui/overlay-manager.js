@@ -332,7 +332,8 @@ const OverlayManager = {
           this.updateCompleteness(data.completeness);
         }
 
-        this.showError(errorMessage, data.aiError);
+        // Short label in the slot; showError puts the provider's reason in the title and announcement once
+        this.showError(data.aiError ? 'AI analysis failed' : errorMessage, data.aiError);
       },
 
       [this.states.ANALYSIS_FAILED_CACHE_FALLBACK]: () => {
@@ -350,7 +351,8 @@ const OverlayManager = {
         if (data.timestamp) {
           this.showTimestamp(data.timestamp);
         }
-        this.showError('Showing previous results', data.aiError || { message: data.message });
+        // Only the fresh AI-failure producer has a current aiError; the others spread the cache's old one
+        this.showError('Showing previous results', data.isErrorFallback || data.analysisError ? { message: data.message } : data.aiError);
       }
     };
     
