@@ -45,18 +45,20 @@ const ExperienceExtractor = {
     
     // Use totalCount from scan
     const totalCount = scanResult.totalCount || scanResult.visibleCount;
-    
+
     // Calculate total months and check for current role
     const basicInfo = await this.extractBasicInfo();
-    
+    // A company row can hold several roles (promotions), so count roles, not rows
+    const count = Math.max(totalCount, basicInfo.roleCount);
+
     // Calculate character count for completeness scoring
     // More experience entries = more content depth
     // Average description length is ~200 chars per role
-    const charCount = totalCount * 200;
-    
+    const charCount = count * 200;
+
     const result = {
       exists: true,
-      count: totalCount,
+      count,
       charCount: charCount, // Added for completeness scoring
       averageDescriptionLength: basicInfo.averageDescriptionLength, // Across visible roles, empty ones included
       totalMonths: basicInfo.totalMonths,
@@ -113,6 +115,7 @@ const ExperienceExtractor = {
     const experiences = await this.extractDetailedExperiences();
     
     return {
+      roleCount: experiences.length,
       totalMonths: this.coveredMonths(experiences),
       hasCurrentRole: experiences.some(exp => /present/i.test(exp.duration)),
       averageDescriptionLength: Math.round(
