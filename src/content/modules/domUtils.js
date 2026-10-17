@@ -34,25 +34,16 @@ async function isOwnProfile() {
   if (savedProfile?.profileId === currentProfileId) {
     return true;
   }
-  
-  // Second, check ownership indicators (for zero state/first-time users)
-  
-  if (typeof OwnershipDetector !== 'undefined') {
-    // The 2026 top card renders client-side, after document_idle: wait for its name heading,
-    // which renders together with the Edit intro link. Returns at once after SPA navigation.
-    await BaseExtractor.waitForElement('main section h2', 10000);
-    
-    if (OwnershipDetector.hasOwnershipIndicators()) {
-      // Save profile for future instant detection
-      await saveUserProfileId();
-      return true;
-    }
-  }
-  
-  
-  // The above two checks are sufficient for reliable ownership detection
-  
-  return false;
+
+  // Second, check ownership indicators (for zero state/first-time users).
+  // The 2026 top card renders client-side, after document_idle: wait for its name heading,
+  // which renders together with the Edit intro link. Returns at once after SPA navigation.
+  await BaseExtractor.waitForElement('main section h2', 10000);
+  if (!OwnershipDetector.hasOwnershipIndicators()) return false;
+
+  // Save profile for future instant detection
+  await saveUserProfileId();
+  return true;
 }
 
 /**
