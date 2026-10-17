@@ -1120,7 +1120,7 @@ const OverlayManager = {
       : `<div class="eli-welcome">
           <h3 class="eli-welcome-title">Welcome to ElevateLI</h3>
           <p class="eli-welcome-text">See how complete your profile is and what to add next. ${scrollNote}</p>
-          <p class="eli-welcome-consent">ElevateLI analyzes only your own profile and keeps the results in this browser.</p>
+          <p class="eli-welcome-consent">By continuing, you agree to use ElevateLI only on your own LinkedIn profile. Results stay in this browser.</p>
           <button type="button" class="eli-primary" data-action="consent">Confirm and analyze</button>
         </div>`);
 
