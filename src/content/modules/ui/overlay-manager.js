@@ -415,11 +415,11 @@ const OverlayManager = {
   },
 
   /**
-   * 'on' (set up and turned on), 'off' or 'unset'. A fresh result's settings carry only enableAI, so
-   * without an aiProvider key AI-off reads as 'off', which is true either way.
+   * 'on' (set up and turned on), 'off' or 'unset'. Set up = a provider, a model and a saved key (a local model's
+   * is a stand-in), as the analyzer requires. Settings without an aiProvider key (none passed) read as 'off'.
    */
   aiState(settings = {}) {
-    if (settings.aiProvider && settings.aiModel) return settings.enableAI ? 'on' : 'off';
+    if (settings.aiProvider && settings.aiModel && settings.hasKey) return settings.enableAI ? 'on' : 'off';
     return settings.enableAI || 'aiProvider' in settings ? 'unset' : 'off';
   },
 
@@ -1238,7 +1238,8 @@ const OverlayManager = {
       // A run or a restore may have replaced the zero state while storage answered; a reload kills getURL
       if (this.overlayElement !== overlay || ![this.states.INITIALIZING, this.states.EMPTY_CACHE].includes(this.currentState)) return;
       if (!chrome.runtime?.id) return;
-      const settings = { enableAI: stored.enableAI, aiProvider: stored.aiProvider, aiModel: stored.aiModel, aiBaseUrl: stored.aiBaseUrl };
+      const settings = { enableAI: stored.enableAI, aiProvider: stored.aiProvider, aiModel: stored.aiModel, aiBaseUrl: stored.aiBaseUrl,
+        hasKey: !!stored.encryptedApiKey };
       const aiOn = this.aiState(settings) === 'on';
       // ponytail: AI-agnostic, since nothing re-renders this when the AI settings change after setup;
       // the WEL-6/BAR-12 per-setting variants can return once analyzer-main re-renders on those changes
@@ -1268,7 +1269,7 @@ const OverlayManager = {
     };
     // chrome.storage throws at once when the extension was reloaded
     Promise.resolve()
-      .then(() => chrome.storage.local.get(['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl']))
+      .then(() => chrome.storage.local.get(['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey']))
       .then(render, () => render());
   },
 
@@ -1306,7 +1307,7 @@ const OverlayManager = {
   /**
    * The overlay state for what is stored: the consent card before setup, cached results, or the zero state
    * @param {Object|undefined} cachedData - Cached analysis data
-   * @param {Object} settings - Current settings (enableAI, aiProvider, aiModel)
+   * @param {Object} settings - Current settings (enableAI, aiProvider, aiModel, aiBaseUrl, encryptedApiKey)
    * @param {Object|undefined} compliance - Compliance status
    * @param {Object} context - The analyzer's error fallback: isErrorFallback, error, message (the banner text)
    * @returns {{state: string, data: Object|null}}
@@ -1321,7 +1322,9 @@ const OverlayManager = {
       fromCache: true,
       // Only mark AI as disabled if there's no content score - matches analyzer-base's cache path
       aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
-      settings: { enableAI: settings.enableAI, aiProvider: settings.aiProvider, aiModel: settings.aiModel, aiBaseUrl: settings.aiBaseUrl },
+      // As analyzer-base's uiSettings: what the copy reads, never the key itself
+      settings: { enableAI: settings.enableAI, aiProvider: settings.aiProvider, aiModel: settings.aiModel, aiBaseUrl: settings.aiBaseUrl,
+        hasKey: !!settings.encryptedApiKey },
       ...context
     };
     return { state: context.isErrorFallback ? this.states.ANALYSIS_FAILED_CACHE_FALLBACK : this.states.COMPLETE, data };
@@ -1341,7 +1344,7 @@ const OverlayManager = {
 
     try {
       const cacheKey = `cache_${profileId || extractProfileIdFromUrl()}`;
-      const stored = await chrome.storage.local.get(['compliance', 'enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', cacheKey]);
+      const stored = await chrome.storage.local.get(['compliance', 'enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey', cacheKey]);
       const { state, data } = this.determineStateFromData(stored[cacheKey], stored, stored.compliance, context);
 
       // An error fallback with nothing cached is left to the caller (it shows its own error)
