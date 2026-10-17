@@ -523,7 +523,7 @@ Reply with JSON: fill in score, positiveInsight (their actual skills and endorse
 // Parse section analysis response. Providers return SECTION_SCHEMA JSON; slicing to the outer
 // braces also covers local models that ignore the schema and wrap the JSON in prose or fences.
 // A reply without a numeric score throws, so the section is reported as failed rather than scored.
-function parseSectionAnalysis(response) {
+function parseSectionAnalysis(response, model) {
   try {
     const parsed = JSON.parse(response.slice(response.indexOf('{'), response.lastIndexOf('}') + 1));
     const score = parseFloat(parsed.score); // NaN for a missing score; keeps 0 and "7"
@@ -541,7 +541,7 @@ function parseSectionAnalysis(response) {
   } catch {
     // Not JSON: falls through to the parse error below
   }
-  throw Object.assign(new Error('AI response could not be read'), { errorType: 'RESPONSE_PARSE_ERROR' });
+  throw Object.assign(new Error(`${model} sent a reply ElevateLI couldn't read; try another model`), { errorType: 'RESPONSE_PARSE_ERROR' });
 }
 
 // The openai provider talks to any OpenAI-compatible server; the user can point it at Ollama or LM Studio.
@@ -565,22 +565,45 @@ const authHeaders = (provider, key) => ({
 // Error text in a reply body: { error: { message } } from the cloud providers, { error: '...' } from LM Studio
 const bodyError = body => body?.error?.message || (typeof body?.error === 'string' ? body.error : '');
 
+// How copy names the provider. A server URL means a local model (Ollama, LM Studio).
+const providerName = (provider, baseUrl) => provider === 'openai' && openaiBaseUrl(baseUrl) !== OPENAI_URL
+  ? 'your local model' : { openai: 'OpenAI', anthropic: 'Claude', gemini: 'Gemini' }[provider];
+const capitalize = text => text[0].toUpperCase() + text.slice(1);
+const seconds = n => `${n} second${n === 1 ? '' : 's'}`;
+// Provider text can echo the key ("Incorrect API key provided: sk-…"): mask key-like tokens, keep 80 characters
+function quote(text) {
+  text = text.replace(/\b(sk-|AIza)\S*|[\w-]{30,}/g, '…');
+  return `"${text.length > 80 ? text.slice(0, 79) + '…' : text}"`;
+}
+
 // What a failed provider call tells the user, decided here where the provider, base URL and HTTP status are known.
-// status 0 = no answer. The provider's own text is kept: it often names the fix (low credit, a missing scope, an API to enable).
-function providerError(provider, baseUrl, status, body) {
+// reason: a short phrase the page wraps in its own sentence and fix ("AI analysis failed ({reason}). Click Analyze to retry.").
+// error: a full sentence with the fix, for the key field in ElevateLI settings. status 0 = no answer.
+function providerError(provider, baseUrl, status, body, { timeout, offline, noAccess, retryAfter } = {}) {
   const message = bodyError(body);
-  const custom = provider === 'openai' && baseUrl !== OPENAI_URL;
-  const local = custom && /^http:\/\/(localhost|127\.0\.0\.1)\b/.test(baseUrl);
-  const name = local ? 'Your local AI server' : custom ? baseUrl : { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini' }[provider];
+  const local = provider === 'openai' && baseUrl !== OPENAI_URL;
+  const name = providerName(provider, baseUrl);
+  const Name = capitalize(name);
   // Gemini answers a bad key with 400 API_KEY_INVALID. A local server's 403 is OLLAMA_ORIGINS, not a key.
   const auth = !(local && status === 403) && (status === 401 || status === 403 || !!body?.error?.details?.some(d => d.reason === 'API_KEY_INVALID'));
+  // OpenAI also answers an empty balance with 429; waiting won't fix that, so it keeps the provider's text
+  const rateLimit = status === 429 && body?.error?.code !== 'insufficient_quota';
+  const quoted = message ? `: ${quote(message)}` : '';
+  const [reason, error] =
+    timeout ? [`${name} took too long to respond`, `${Name} took too long to respond. ${local ? "Check that it's running, then try again." : 'Try again in a few minutes.'}`]
+    : noAccess ? ['ElevateLI needs access to localhost to use your local model', 'ElevateLI needs access to localhost to use a local model. Enter the server URL again and choose Allow when Chrome asks.']
+    : !status ? (local
+      ? [`ElevateLI couldn't reach ${baseUrl}; check that Ollama or LM Studio is running`, `Can't reach ${baseUrl}. Check that Ollama or LM Studio is running and the URL is right.`]
+      : [`ElevateLI couldn't reach ${name}; check your internet connection`, offline ? "You're offline. Reconnect, then try again." : `Can't reach ${name}. Check your internet connection, then try again.`])
+    : local && status === 403 ? ['your local model blocked the request (Ollama needs OLLAMA_ORIGINS=chrome-extension://*)',
+      'The local server blocked the request. For Ollama, set OLLAMA_ORIGINS=chrome-extension://* and restart it.']
+    : auth ? [`${name} rejected your API key`, `${Name} rejected this key. Check that you copied all of it.`]
+    : rateLimit ? [`${name}'s rate limit was reached; wait ${retryAfter ? seconds(retryAfter) : 'a minute'}`, `${Name}'s rate limit was reached. Wait a minute, then try again.`]
+    : status >= 500 ? [`${name} is unavailable right now`, `${Name} is unavailable right now. Try again in a few minutes.`]
+    : [`${name} returned an error${quoted}`, `${Name} returned an error (${status})${quoted || '.'}`];
   return {
-    errorType: !status ? 'NETWORK' : auth ? 'AUTH' : status === 429 ? 'RATE_LIMIT' : status >= 500 ? 'SERVICE_UNAVAILABLE' : 'PROVIDER_ERROR',
-    error: !status ? (local ? `Can't reach your local AI server at ${baseUrl}. Is Ollama or LM Studio running?` : `Couldn't reach ${name}. Check your connection and try again.`)
-      : local && status === 403 ? 'Your local AI server refused ElevateLI. Set OLLAMA_ORIGINS=chrome-extension://* and restart Ollama.'
-      : auth ? `${name} rejected your API key${message ? `: ${message}` : '.'}`
-      : status === 429 ? `${name} is limiting requests on your key${message ? `: ${message}` : '. Wait a minute, then try again.'}`
-      : message || `${name} returned error ${status}.`
+    errorType: !status ? 'NETWORK' : auth ? 'AUTH' : rateLimit ? 'RATE_LIMIT' : status >= 500 ? 'SERVICE_UNAVAILABLE' : 'PROVIDER_ERROR',
+    status, reason, error, retryAfter
   };
 }
 
@@ -617,9 +640,12 @@ const SECTION_SCHEMA = {
 // Call AI provider
 async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
   const cleanApiKey = cleanKey(apiKey);
-  if (!cleanApiKey) throw new Error('API key is required');
-  if (!model) throw new Error('No AI model selected');
   baseUrl = openaiBaseUrl(baseUrl);
+  // Thrown with the short reason; the page adds its own fix
+  const fail = (status, body, options) => {
+    const { reason, errorType, retryAfter } = providerError(provider, baseUrl, status, body, options);
+    return Object.assign(new Error(reason), { errorType, retryAfter });
+  };
   // Local servers may never show response_format's schema to the model; Ollama's docs put it in the prompt too
   if (provider === 'openai' && baseUrl !== OPENAI_URL) prompt += `\n\nReply with JSON matching: ${JSON.stringify(SECTION_SCHEMA)}`;
 
@@ -660,11 +686,8 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
   };
 
   const providerConfig = config[provider];
-  if (!providerConfig) {
-    throw new Error(`Unknown provider: ${provider}`);
-  }
+  if (!providerConfig) throw Object.assign(new Error('no AI provider is selected'), { errorType: 'AUTH' });
 
-  const timeout = "The AI didn't answer within 3 minutes. Try again, or pick a faster model.";
   let response;
   try {
     response = await fetch(providerConfig.url, {
@@ -675,18 +698,18 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
       signal: AbortSignal.timeout(180000)
     });
   } catch (error) {
-    throw Object.assign(new Error(error.name === 'TimeoutError' ? timeout : providerError(provider, baseUrl, 0).error), { errorType: 'NETWORK' });
+    throw fail(0, null, { timeout: error.name === 'TimeoutError' });
   }
 
   if (!response.ok) {
     // HTTP/2 has no statusText, so the body carries the reason
-    const { error, errorType } = providerError(provider, baseUrl, response.status, await response.json().catch(() => ({})));
-    throw Object.assign(new Error(error), { errorType });
+    throw fail(response.status, await response.json().catch(() => ({})),
+      { retryAfter: parseInt(response.headers.get('retry-after')) || undefined });
   }
 
   // The timeout also runs during the body read. Any other unreadable body returns '', which parseSectionAnalysis reports as a parse error.
   const data = await response.json().catch(error => {
-    if (error.name === 'TimeoutError') throw Object.assign(new Error(timeout), { errorType: 'NETWORK' });
+    if (error.name === 'TimeoutError') throw fail(0, null, { timeout: true });
     return {};
   });
   return (provider === 'openai' ? data.choices?.[0]?.message?.content
@@ -694,14 +717,17 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
     : data.candidates?.[0]?.content?.parts?.[0]?.text) || '';
 }
 
-// Message handlers. Each returns its reply; a throw replies { success: false, error, errorType }.
+// Message handlers. Each returns its reply; a throw replies { success: false, error, errorType, retryAfter }.
 const handlers = {
   // A typed key goes only to the typed base URL ('' = OpenAI). No apiKey in the request = reload models
   // with the saved key, which only ever goes to the saved base URL.
   async testApiKey({ provider, apiKey, baseUrl }) {
     if (apiKey) return testApiKey(provider, apiKey, baseUrl);
     const { encryptedApiKey, aiBaseUrl } = await chrome.storage.local.get(['encryptedApiKey', 'aiBaseUrl']);
-    return testApiKey(provider, await getDecryptedApiKey(encryptedApiKey), aiBaseUrl);
+    const key = await getDecryptedApiKey(encryptedApiKey);
+    if (encryptedApiKey && !key) return { success: false, errorType: 'AUTH', reason: "ElevateLI couldn't read your saved API key",
+      error: "ElevateLI couldn't read your saved key. Paste it again." };
+    return testApiKey(provider, key, aiBaseUrl);
   },
   // [CRITICAL_PATH:API_KEY_ENCRYPTION_HANDLER] - P0: Handles API key encryption requests from popup
   encryptApiKey: async ({ apiKey }) => ({ success: true, encryptedApiKey: await encryptApiKey(apiKey) }),
@@ -724,7 +750,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   keepAliveWhile(handlers[request.action](request)).then(sendResponse, error => {
     console.error(request.action, error);
-    sendResponse({ success: false, error: error.message, errorType: error.errorType });
+    // Only errors thrown on purpose carry an errorType; any other text is a bug's, and stays in this console
+    sendResponse({ success: false, error: error.errorType ? error.message : 'something went wrong', errorType: error.errorType, retryAfter: error.retryAfter });
   });
   return true;
 });
@@ -740,9 +767,9 @@ function checkRateLimit(now = Date.now()) {
 }
 
 // List the provider's models. Doubles as the key check: a GET, so no tokens are spent.
+// A failure replies with both texts from providerError: error for the settings key field, reason for the page.
 async function testApiKey(provider, apiKey, baseUrl) {
   const key = cleanKey(apiKey);
-  if (!key) return { success: false, error: 'API key is required' };
   baseUrl = openaiBaseUrl(baseUrl);
 
   const url = {
@@ -750,7 +777,8 @@ async function testApiKey(provider, apiKey, baseUrl) {
     anthropic: 'https://api.anthropic.com/v1/models?limit=1000',
     gemini: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000'
   }[provider];
-  if (!url) return { success: false, error: 'Unknown provider' };
+  if (!url) return { success: false, errorType: 'AUTH', reason: 'no AI provider is selected', error: 'Choose an AI provider.' };
+  if (!key) return { success: false, errorType: 'AUTH', reason: "AI analysis isn't fully set up", error: `Paste your ${providerName(provider)} API key.` };
 
   let response;
   try {
@@ -758,9 +786,10 @@ async function testApiKey(provider, apiKey, baseUrl) {
     response = await fetch(url, { headers: authHeaders(provider, key), signal: AbortSignal.timeout(20000) });
   } catch (error) {
     console.error('Test API key error', error);
-    return { success: false, errorType: 'NETWORK', error: error.name === 'TimeoutError'
-      ? 'No answer within 20 seconds. Check that the AI server is running, then try again.'
-      : providerError(provider, baseUrl, 0).error };
+    // localhost is an optional host permission: without it the fetch fails like a stopped server
+    const noAccess = /^http:\/\/(localhost|127\.0\.0\.1)\b/.test(baseUrl) &&
+      !await chrome.permissions.contains({ origins: ['http://localhost/*', 'http://127.0.0.1/*'] });
+    return { success: false, ...providerError(provider, baseUrl, 0, null, { timeout: error.name === 'TimeoutError', offline: !navigator.onLine, noAccess }) };
   }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) return { success: false, ...providerError(provider, baseUrl, response.status, data) };
@@ -780,9 +809,10 @@ async function testApiKey(provider, apiKey, baseUrl) {
     .filter(id => !/embed|tts|whisper|dall-e|davinci|babbage|moderation|audio|realtime|transcribe|image|search|sora/.test(id) && !unusable?.test(id));
   // A 200 can still be no list: LM Studio answers a wrong path with 200 + an error, Ollama with nothing pulled sends []
   if (!models.length) {
-    return { success: false, errorType: 'PROVIDER_ERROR', error: bodyError(data) || (provider === 'openai' && baseUrl !== OPENAI_URL
-      ? `No models found at ${baseUrl}. Check the address (it usually ends in /v1) and that the server has a model.`
-      : 'No usable models found for this key.') };
+    const local = provider === 'openai' && baseUrl !== OPENAI_URL;
+    const reason = local ? `no models found at ${new URL(baseUrl).host}` : `${providerName(provider)} returned no chat models for this key`;
+    const fix = !local ? '' : bodyError(data) ? ' Check that the URL ends in /v1.' : ' Download one in Ollama or LM Studio, then reopen settings.';
+    return { success: false, errorType: 'PROVIDER_ERROR', reason, error: `${capitalize(reason)}.${fix}` };
   }
   return { success: true, models };
 }
@@ -797,15 +827,15 @@ async function handleSectionAnalysis({ section, data, context }) {
   // Turning AI off in the popup only writes storage; stop here so a running analysis sends no more profile text
   if (!enableAI) return { success: false, error: 'AI analysis was turned off' };
   const apiKey = await getDecryptedApiKey(encryptedApiKey);
-  if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: 'API key or provider not configured' };
-  if (!aiModel) return { success: false, errorType: 'AUTH', error: 'Choose an AI model in ElevateLI settings.' };
+  if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: "AI analysis isn't fully set up" };
+  if (!aiModel) return { success: false, errorType: 'AUTH', error: 'no AI model is selected' };
 
   const rateCheck = checkRateLimit();
   if (!rateCheck.allowed) {
     return {
       success: false,
       // ElevateLI's own limit, not the provider's
-      error: `Too many analyses in a few minutes. Wait ${rateCheck.waitTime} seconds, then click Analyze.`,
+      error: `ElevateLI paused to stay under ${providerName(aiProvider, aiBaseUrl)}'s rate limit; wait ${seconds(rateCheck.waitTime)}`,
       errorType: 'RATE_LIMIT',
       retryAfter: rateCheck.waitTime
     };
@@ -817,7 +847,7 @@ async function handleSectionAnalysis({ section, data, context }) {
     customInstructions: customInstructions || ''
   };
   const prompt = createSectionPrompt(section, data, config, context);
-  const analysis = parseSectionAnalysis(await callAIProvider(aiProvider, apiKey, prompt, aiModel, aiBaseUrl));
+  const analysis = parseSectionAnalysis(await callAIProvider(aiProvider, apiKey, prompt, aiModel, aiBaseUrl), aiModel);
   return {
     success: true,
     section,
@@ -828,11 +858,13 @@ async function handleSectionAnalysis({ section, data, context }) {
 }
 
 // The saved provider, model, base URL and key, from one read. Auto-save can store a key before a model is picked.
+// The page wraps error in its own sentence, so a failure replies with the short reason.
 async function validateApiKey() {
   const { aiProvider, aiModel, aiBaseUrl, encryptedApiKey } = await chrome.storage.local.get(['aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey']);
   const apiKey = await getDecryptedApiKey(encryptedApiKey);
-  if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: 'API key or provider not configured' };
-  if (!aiModel) return { success: false, errorType: 'AUTH', error: 'Choose an AI model in ElevateLI settings.' };
-  return testApiKey(aiProvider, apiKey, aiBaseUrl);
+  if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: "AI analysis isn't fully set up" };
+  if (!aiModel) return { success: false, errorType: 'AUTH', error: 'no AI model is selected' };
+  const result = await testApiKey(aiProvider, apiKey, aiBaseUrl);
+  return result.success ? result : { ...result, error: result.reason };
 }
 
