@@ -708,7 +708,9 @@ async function callAIProvider(provider, apiKey, prompt, model) {
         generationConfig: {
           temperature: 0.1,
           maxOutputTokens: 8192,
-          responseFormat: { text: { mimeType: 'application/json', schema: SECTION_SCHEMA } }
+          // responseFormat.text.mimeType is an enum that rejects 'application/json'; responseJsonSchema takes plain JSON Schema
+          responseMimeType: 'application/json',
+          responseJsonSchema: SECTION_SCHEMA
         }
       }
     }
