@@ -1079,7 +1079,8 @@ const OverlayManager = {
       const tooltip = this.getFailureTooltip(errorType);
       wrapper.title = tooltip;
       wrapper.setAttribute('aria-label', `Not rated. ${tooltip}`);
-      wrapper.style.cssText = 'cursor: help; opacity: 0.5;';
+      // The same tone as a rated empty star, not a fainter one
+      wrapper.style.cssText = 'cursor: help; color: var(--eli-text-muted);';
 
       // Visual stars span
       const visualSpan = document.createElement('span');
@@ -1096,35 +1097,31 @@ const OverlayManager = {
       return wrapper;
     }
 
-    // Calculate numerical rating for tooltip
-    const numericalRating = rating.toFixed(1);
-    let qualityText = '';
-    if (rating >= 5) qualityText = 'Excellent';
-    else if (rating >= 4) qualityText = 'Good';
-    else if (rating >= 3) qualityText = 'Average';
-    else if (rating >= 2) qualityText = 'Below Average';
-    else qualityText = 'Needs Improvement';
+    // Whole stars, so no '.0' that suggests precision
+    const label = this.ratingLabel(rating);
+    wrapper.title = `${rating}/5 - ${label}`;
+    wrapper.setAttribute('aria-label', `${rating} out of 5 stars, ${label}`);
 
-    const tooltip = `${numericalRating}/5.0 - ${qualityText}`;
-    wrapper.title = tooltip;
-    wrapper.setAttribute('aria-label', `${rating} out of 5 stars, ${qualityText}`);
-
-    // Create individual star spans with animation
+    // Filled stars are 3:1 or better on every badge tint and row in both themes; empty ones match unrated stars
     for (let i = 1; i <= 5; i++) {
       const starSpan = document.createElement('span');
-      const delay = i * 0.1; // Stagger star animations
-      if (i <= rating) {
-        starSpan.style.cssText = `color: #f59e0b; animation-delay: ${delay}s`;
-        starSpan.textContent = filled;
-      } else {
-        starSpan.style.cssText = `color: #d1d5db; animation-delay: ${delay}s`;
-        starSpan.textContent = empty;
-      }
+      starSpan.style.color = i <= rating ? 'var(--eli-warning)' : 'var(--eli-text-muted)';
+      starSpan.textContent = i <= rating ? filled : empty;
       wrapper.appendChild(starSpan);
     }
 
     wrapper.style.cursor = 'help';
     return wrapper;
+  },
+
+  /**
+   * One word per star rating, for the star tooltips and the results banner alike
+   */
+  ratingLabel(stars) {
+    if (stars >= 5) return 'Excellent';
+    if (stars >= 4) return 'Good';
+    if (stars >= 3) return 'Fair';
+    return 'Needs improvement';
   },
 
   /**
@@ -1158,10 +1155,9 @@ const OverlayManager = {
     }
 
     const parts = [percent >= 100 ? 'Your profile is complete.' : `${percent}% complete.`];
-    // Same scale as the quality badge's colour, so text, stars and colour agree
+    // The quality badge's stars (its colour bands break at the same 3.5 and 2.5 stars), so text, stars and colour agree
     if (typeof data.contentScore === 'number' && sections.some(section => typeof section.rating === 'number')) {
-      const verdict = { 'score-excellent': 'Excellent', 'score-good': 'Good', 'score-moderate': 'Fair', 'score-poor': 'Needs improvement' };
-      parts.push(`Content quality: ${verdict[this.getScoreClass(data.contentScore, true)]}.`);
+      parts.push(`Content quality: ${this.ratingLabel(Math.round(data.contentScore / 2))}.`);
     }
     // The biggest gap first: the scorer sorts its recommendations by impact
     const next = data.completenessData?.allRecommendations?.[0];
