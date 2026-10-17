@@ -52,7 +52,7 @@
         return;
       }
 
-      const settings = await chrome.storage.local.get(['compliance', 'enableAI', 'encryptedApiKey', 'aiProvider']);
+      const settings = await chrome.storage.local.get(['compliance', 'enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel']);
       if (!settings.compliance?.hasAcknowledged) {
         // Setup was reset elsewhere (Factory Reset in another tab): back to first-run, where Analyze offers setup
         OverlayManager.hasCompliance = false;

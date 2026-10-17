@@ -64,7 +64,7 @@ class Analyzer {
           // Only mark AI as disabled if there's no content score
           aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
           // Pass current settings for UI logic
-          settings: { enableAI: this.settings.enableAI, aiProvider: this.settings.aiProvider }
+          settings: { enableAI: this.settings.enableAI, aiProvider: this.settings.aiProvider, aiModel: this.settings.aiModel }
         });
         return;
       }

@@ -399,7 +399,7 @@ const OverlayManager = {
    * AI is set up now but this result has no AI scores (e.g. cached from an AI-off run): the next step is Analyze
    */
   aiReady(data) {
-    return !data.aiError && !!data.settings?.enableAI && !!data.settings?.aiProvider;
+    return !data.aiError && !!data.settings?.enableAI && !!data.settings?.aiProvider && !!data.settings?.aiModel;
   },
 
   /**
@@ -1169,7 +1169,7 @@ const OverlayManager = {
   /**
    * The overlay state for what is stored: the consent card before setup, cached results, or the zero state
    * @param {Object|undefined} cachedData - Cached analysis data
-   * @param {Object} settings - Current settings (enableAI, aiProvider)
+   * @param {Object} settings - Current settings (enableAI, aiProvider, aiModel)
    * @param {Object|undefined} compliance - Compliance status
    * @param {Object} context - The analyzer's error fallback: isErrorFallback, error, message (the banner text)
    * @returns {{state: string, data: Object|null}}
@@ -1184,7 +1184,7 @@ const OverlayManager = {
       fromCache: true,
       // Only mark AI as disabled if there's no content score - matches analyzer-base's cache path
       aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
-      settings: { enableAI: settings.enableAI, aiProvider: settings.aiProvider },
+      settings: { enableAI: settings.enableAI, aiProvider: settings.aiProvider, aiModel: settings.aiModel },
       ...context
     };
     return { state: context.isErrorFallback ? this.states.ANALYSIS_FAILED_CACHE_FALLBACK : this.states.COMPLETE, data };
@@ -1204,7 +1204,7 @@ const OverlayManager = {
 
     try {
       const cacheKey = `cache_${profileId || extractProfileIdFromUrl()}`;
-      const stored = await chrome.storage.local.get(['compliance', 'enableAI', 'aiProvider', cacheKey]);
+      const stored = await chrome.storage.local.get(['compliance', 'enableAI', 'aiProvider', 'aiModel', cacheKey]);
       const { state, data } = this.determineStateFromData(stored[cacheKey], stored, stored.compliance, context);
 
       // An error fallback with nothing cached is left to the caller (it shows its own error)

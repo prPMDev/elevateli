@@ -798,6 +798,7 @@ async function handleSectionAnalysis({ section, data, context }) {
   if (!enableAI) return { success: false, error: 'AI analysis was turned off' };
   const apiKey = await getDecryptedApiKey(encryptedApiKey);
   if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: 'API key or provider not configured' };
+  if (!aiModel) return { success: false, errorType: 'AUTH', error: 'Choose an AI model in ElevateLI settings.' };
 
   const rateCheck = checkRateLimit();
   if (!rateCheck.allowed) {
@@ -826,11 +827,12 @@ async function handleSectionAnalysis({ section, data, context }) {
   };
 }
 
-// The saved provider, base URL and key, from one read
+// The saved provider, model, base URL and key, from one read. Auto-save can store a key before a model is picked.
 async function validateApiKey() {
-  const { aiProvider, aiBaseUrl, encryptedApiKey } = await chrome.storage.local.get(['aiProvider', 'aiBaseUrl', 'encryptedApiKey']);
+  const { aiProvider, aiModel, aiBaseUrl, encryptedApiKey } = await chrome.storage.local.get(['aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey']);
   const apiKey = await getDecryptedApiKey(encryptedApiKey);
   if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: 'API key or provider not configured' };
+  if (!aiModel) return { success: false, errorType: 'AUTH', error: 'Choose an AI model in ElevateLI settings.' };
   return testApiKey(aiProvider, apiKey, aiBaseUrl);
 }
 
