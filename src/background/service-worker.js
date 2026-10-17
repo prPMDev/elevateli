@@ -687,12 +687,12 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
       }
     }
   };
-  
+
   const providerConfig = config[provider];
   if (!providerConfig) {
     throw new Error(`Unknown provider: ${provider}`);
   }
-  
+
   let response;
   try {
     response = await fetch(providerConfig.url, {
@@ -714,22 +714,10 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
     throw Object.assign(new Error(error), { errorType });
   }
 
-  return processProviderResponse(provider, await response.json(), model);
-
-  // Helper function to process provider response
-  function processProviderResponse(provider, data, model) {
-
-    // Extract content based on provider
-    if (provider === 'openai') {
-      return data.choices?.[0]?.message?.content || '';
-    } else if (provider === 'anthropic') {
-      return data.content?.find(block => block.type === 'text')?.text || '';
-    } else if (provider === 'gemini') {
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    }
-
-    return '';
-  }
+  const data = await response.json();
+  return (provider === 'openai' ? data.choices?.[0]?.message?.content
+    : provider === 'anthropic' ? data.content?.find(block => block.type === 'text')?.text
+    : data.candidates?.[0]?.content?.parts?.[0]?.text) || '';
 }
 
 // Message handlers. Each returns its reply; a throw replies { success: false, error, errorType }.
