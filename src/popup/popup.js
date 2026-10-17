@@ -41,6 +41,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Other elements
   const complianceCheck = document.getElementById('complianceCheck');
   const acknowledgeComplianceBtn = document.getElementById('acknowledgeCompliance');
+  const buttonHint = document.getElementById('buttonHint');
   const setupError = document.getElementById('setupError');
   const confirmDialog = document.getElementById('confirmDialog');
   const confirmTitle = document.getElementById('confirmTitle');
@@ -188,6 +189,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelector('.compliance-notice').classList.add('hidden');
     acknowledgeComplianceBtn.disabled = false;
     acknowledgeComplianceBtn.textContent = 'Open my LinkedIn profile';
+    buttonHint.textContent = 'Setup finishes on your profile page.';
+    buttonHint.style.display = 'block'; // the CSS hides the hint next to an enabled button
   }
 
   showView(settings.compliance?.hasAcknowledged ? 'activeMain' : 'profileSetup');
@@ -211,21 +214,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       // 'Could not establish connection' and the catch below offers a refresh (which loads the manifest's content scripts).
       const response = await chrome.tabs.sendMessage(activeTab.id, { action: 'saveProfile' });
       if (!response?.success) {
-        showFieldError(null, setupError, 'Open your own LinkedIn profile (not a section page), then try again.');
+        showFieldError(null, setupError, 'ElevateLI couldn\'t read this profile. Wait for the page to finish loading, then click Get started again.');
         return;
       }
 
       const { userProfile } = response;
+      const name = displayName(userProfile);
       // Ticking the box already confirmed ownership; ask again only when the page doesn't look like the user's
       const confirmed = userProfile.verifiedOwnership || await showConfirmDialog(
         'This doesn\'t look like your own profile',
-        `ElevateLI only analyzes yours. Continue only if ${userProfile.profileName || userProfile.profileId} is you.`,
+        `ElevateLI only analyzes yours. ${name ? `If ${name} is you, continue.` : 'If this is your profile, continue.'}`,
         'Continue anyway'
       );
       if (!confirmed) return;
 
       // termsVersion: keep in sync with privacy-terms.html "Last updated" and overlay-manager acceptConsent
-      await chrome.storage.local.set({ compliance: { hasAcknowledged: true, acknowledgedAt: Date.now(), termsVersion: '2026-10' }, userProfile });
+      const saved = await chrome.storage.local.set({ compliance: { hasAcknowledged: true, acknowledgedAt: Date.now(), termsVersion: '2026-10' }, userProfile })
+        .then(() => true, () => false);
+      if (!saved) {
+        showFieldError(null, setupError, 'ElevateLI couldn\'t save your profile. Click Get started to try again. If it keeps failing, reload the LinkedIn tab.');
+        return;
+      }
       // Open tabs update from storage.onChanged; this builds the overlay if this tab has none yet
       chrome.tabs.sendMessage(activeTab.id, { action: 'showOverlay' }).catch(() => {});
 
@@ -237,10 +246,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         profileSetupDiv.replaceChildren(document.getElementById('refreshNeeded').content.cloneNode(true));
         document.getElementById('refreshTab').addEventListener('click', () => {
           chrome.tabs.reload(activeTab.id);
-          window.close(); // Close popup after refreshing
+          window.close(); // Close popup after reloading
         });
       } else {
-        showFieldError(null, setupError, 'Could not save your profile. Refresh the page and try again.');
+        showFieldError(null, setupError, 'ElevateLI couldn\'t connect to this tab. Reload the LinkedIn tab, then click Get started again.');
       }
     }
   });

@@ -21,14 +21,14 @@
     <!-- First Time Setup -->
     <div id="profileSetup" class="hidden">
       <div class="welcome-container" style="text-align: center; padding: 0;">
-        <h2 style="margin: 0 0 6px 0; font-size: 18px; color: #0a66c2;">Welcome</h2>
+        <h2 style="margin: 0 0 6px 0; font-size: 18px; color: #0a66c2;">Welcome to ElevateLI</h2>
 
-        <p style="margin: 0 0 12px 0; color: #666; font-size: 13px;">See what's missing from your LinkedIn profile and what to fix first.</p>
+        <p style="margin: 0 0 12px 0; color: #666; font-size: 13px;">See what's missing from your LinkedIn profile and what to fix first. No account needed.</p>
 
         <div class="value-props" style="display: flex; justify-content: space-around; gap: 8px; margin: 12px 0; padding: 10px; background: #f3f7fa; border-radius: 8px;">
           <p style="flex: 1; font-size: 12px; color: #444;">Completeness score</p>
           <p style="flex: 1; font-size: 12px; color: #444;">Tips for each section</p>
-          <p style="flex: 1; font-size: 12px; color: #444;">Writing ratings (needs AI)</p>
+          <p style="flex: 1; font-size: 12px; color: #444;">AI ratings of your writing (optional)</p>
         </div>
 
         <div class="compliance-notice" style="background: white; border: 1px solid #e1e9ee; border-radius: 8px; padding: 12px; margin: 12px 0;">
@@ -36,7 +36,7 @@
             <input type="checkbox" id="complianceCheck" style="margin-right: 8px; margin-top: 2px;">
             <div>
               <strong style="color: #2e3338; font-size: 13px;">This is my own LinkedIn profile, and I'll use ElevateLI only on it</strong>
-              <p style="margin: 2px 0 0 0; color: #666; font-size: 12px;">It's built to improve your profile, not to look at other people's.</p>
+              <p style="margin: 2px 0 0 0; color: #666; font-size: 12px;">Results stay in this browser. Nothing leaves it unless you turn on AI analysis.</p>
             </div>
           </label>
           <p style="margin: 8px 0 0 24px; color: #666; font-size: 12px; text-align: left;">By continuing, you agree to the <a href="../../privacy-terms.html#terms" target="_blank">Terms of Service</a> and <a href="../../privacy-terms.html#privacy" target="_blank">Privacy Policy</a>.</p>
@@ -50,10 +50,10 @@
 
     <!-- Replaces the setup view when the LinkedIn tab has no live content script -->
     <template id="refreshNeeded">
-      <div style="text-align: center; padding: 20px; background: #fef3c7; border-radius: 8px; margin: 10px 0;">
-        <p style="color: #92400e; font-weight: 500; margin-bottom: 8px;">Refresh needed</p>
-        <p style="color: #78350f; font-size: 14px; margin-bottom: 12px;">Refresh your LinkedIn tab to finish setup</p>
-        <button id="refreshTab" class="primary-button">Refresh LinkedIn tab</button>
+      <div style="text-align: center; padding: 20px 0; margin: 10px 0;">
+        <p style="font-weight: 600; margin-bottom: 8px;">Reload needed</p>
+        <p style="color: #666; font-size: 13px; margin-bottom: 12px;">Reload your LinkedIn tab so ElevateLI can read it, then click the ElevateLI icon again.</p>
+        <button id="refreshTab" class="primary-button">Reload LinkedIn tab</button>
       </div>
     </template>
 
