@@ -63,22 +63,12 @@ if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
   });
 }
 
-// Rate limiting class defined later in file to avoid duplication
-
-// Keep service worker alive
-if (chrome && chrome.runtime && chrome.runtime.getPlatformInfo) {
-  const keepAlive = () => setInterval(() => {
-    if (chrome && chrome.runtime && chrome.runtime.getPlatformInfo) {
-      chrome.runtime.getPlatformInfo(() => {
-        // Keep alive ping
-      });
-    }
-  }, 20e3);
-  
-  if (chrome.runtime.onStartup) {
-    chrome.runtime.onStartup.addListener(keepAlive);
-  }
-  keepAlive();
+// Keep the SW alive only while a provider request is in flight: a slow local model can outlast the 30 s idle timer.
+// A permanent ping would keep it alive forever, and Chrome installs updates only once the SW is unloaded.
+let inFlight = 0, keepAliveTimer;
+function keepAliveWhile(promise) {
+  if (!inFlight++) keepAliveTimer = setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20e3);
+  return promise.finally(() => { if (!--inFlight) clearInterval(keepAliveTimer); });
 }
 
 // Create section-specific prompt
@@ -766,11 +756,11 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   // A typed key goes only to the typed base URL ('' = OpenAI). No apiKey in the request = reload models
   // with the saved key, which only ever goes to the saved base URL.
   if (action === 'testApiKey') {
-    (async () => {
+    keepAliveWhile((async () => {
       if (request.apiKey) return testApiKey(request.provider, request.apiKey, request.baseUrl);
       const { encryptedApiKey, aiBaseUrl } = await chrome.storage.local.get(['encryptedApiKey', 'aiBaseUrl']);
       return testApiKey(request.provider, await getDecryptedApiKey(encryptedApiKey), aiBaseUrl);
-    })().then(result => {
+    })()).then(result => {
       sendResponse(result);
     }).catch(error => {
       sendResponse({ success: false, error: error.message });
@@ -821,7 +811,7 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   
   // Handle individual section analysis
   if (action === 'analyzeSection') {
-    handleSectionAnalysis(request, sendResponse);
+    keepAliveWhile(handleSectionAnalysis(request, sendResponse));
     return true;
   }
   
@@ -833,7 +823,7 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
   
   // Handle API key validation
   if (action === 'validateApiKey') {
-    (async () => {
+    keepAliveWhile((async () => {
       try {
         // The saved provider, base URL and key, from one read
         const { aiProvider, aiBaseUrl, encryptedApiKey } = await chrome.storage.local.get(['aiProvider', 'aiBaseUrl', 'encryptedApiKey']);
@@ -855,10 +845,10 @@ if (chrome && chrome.runtime && chrome.runtime.onMessage) {
         console.error('AI.PROMPTS', 'API key validation error', error);
         sendResponse({ 
           success: false, 
-          error: error.message || 'Validation failed' 
+          error: error.message || 'Validation failed'
         });
       }
-    })();
+    })());
     return true;
   }
   
