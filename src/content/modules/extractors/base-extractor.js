@@ -74,14 +74,15 @@ const BaseExtractor = {
   },
 
   /**
-   * Total item count from the heading ("Skills (58)") or a "Show all 14 licenses" link, else visible rows
+   * Total item count from the heading ("Skills (58)") or a "Show all 14 licenses" link, else the visible rows
+   * (or the caller's own visible count)
    */
-  count(section) {
+  count(section, fallback = this.items(section).length) {
     const heading = section.querySelector('h2')?.textContent.match(/\((\d+)\)/);
     const showAll = Array.from(section.querySelectorAll('a'))
       .map(a => a.textContent.trim().match(/^Show all (\d+)/))
       .find(Boolean);
-    return parseInt((heading || showAll || [])[1]) || this.items(section).length;
+    return parseInt((heading || showAll || [])[1]) || fallback;
   },
 
   /**

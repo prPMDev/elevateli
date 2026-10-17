@@ -13,9 +13,9 @@ const ExperienceExtractor = {
    */
   async scan() {
     const section = BaseExtractor.findSection('Experience');
-    const visibleCount = BaseExtractor.items(section).length;
+    const visibleCount = this.rows(section).length;
     // "Show all" carries no number on the new profile page, so the total is the visible rows
-    const totalCount = section ? BaseExtractor.count(section) : 0;
+    const totalCount = section ? BaseExtractor.count(section, visibleCount) : 0;
     
     return {
       exists: visibleCount > 0,
@@ -157,8 +157,8 @@ const ExperienceExtractor = {
    */
   async extractDetailedExperiences() {
     const roles = [];
-    
-    for (const item of BaseExtractor.items(BaseExtractor.findSection('Experience'))) {
+
+    for (const item of this.rows(BaseExtractor.findSection('Experience'))) {
       // Several roles at one employer: a company row with one <li> per role
       const grouped = Array.from(item.querySelectorAll('li'))
         .filter(li => BaseExtractor.fields(li).some(field => this.isDateLine(field)));
@@ -175,6 +175,14 @@ const ExperienceExtractor = {
       .filter(experience => experience.title);
   },
   
+  /**
+   * Experience rows without LinkedIn "Career break" entries, which are not jobs
+   * ponytail: English label only, same limit as the English-only headings
+   */
+  rows(section) {
+    return BaseExtractor.items(section).filter(item => BaseExtractor.fields(item)[1] !== 'Career break');
+  },
+
   /**
    * Dates line of a role: "Jan 2022 - Present · 2 yrs", "2011 – Present"
    */
