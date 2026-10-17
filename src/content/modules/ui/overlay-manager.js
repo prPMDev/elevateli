@@ -359,7 +359,7 @@ const OverlayManager = {
         // Show cached data
         this.populateScores(data);
 
-        // The flag makes the results banner carry data.message (what failed) in amber
+        // The flag makes the results banner say, in amber, that this run failed
         this.showUnifiedView({ ...data, isCacheFallback: true });
 
         // Show timestamp
@@ -368,9 +368,10 @@ const OverlayManager = {
         }
         // Only the fresh AI-failure producer has a current aiError; the others spread the cache's old one
         if (data.isErrorFallback || data.analysisError || !data.aiError) {
-          this.showError(data.timestamp ? `Showing your results from ${this.fmtDate(data.timestamp)}` : 'Showing your earlier results');
+          this.showError(`This analysis didn't finish. Showing your ${data.timestamp ? `results from ${this.fmtDate(data.timestamp)}` : 'earlier results'}.`);
         } else {
-          this.showError(`AI analysis failed (${this.reason(data.aiError, data.settings)})`, this.aiFix(data).settings);
+          const fix = this.aiFix(data);
+          this.showError(`AI analysis failed (${this.reason(data.aiError, data.settings)}).${fix.settings ? '' : ' Click Analyze to retry.'}`, fix.settings);
         }
       }
     };
@@ -438,7 +439,7 @@ const OverlayManager = {
   reason(error, settings) {
     if (error?.type === 'timeout') {
       const provider = this.providerName(settings);
-      return provider ? `${provider} took too long to respond` : 'AI analysis took too long';
+      return provider ? `${provider} took too long to respond` : 'your AI provider took too long to respond';
     }
     return String(error?.message || 'something went wrong').replace(/\.$/, '');
   },
@@ -564,10 +565,12 @@ const OverlayManager = {
     // aiDisabled also marks the timeout path's placeholder contentScore 0
     if (typeof data.contentScore === 'number' && !data.aiDisabled) {
       // 10-point AI score as 5 stars; the narrow bar shows the average, rounded from the 10-point
-      // score because (7.3 / 2).toFixed(1) rounds the float 3.6499… down to 3.6
+      // score because (7.3 / 2).toFixed(1) rounds the float 3.6499… down to 3.6. Stars, word and
+      // colour all come from this average, so they agree
       const average = (Math.round(data.contentScore * 5) / 10).toFixed(1);
-      const label = `${average} out of 5 (${this.ratingLabel(Number(average))})${data.roleLabel ? ` for ${data.roleLabel} roles` : ''}`;
-      const badge = this.setBadge('quality', this.renderStars(Math.round(data.contentScore / 2), label, `${average}/5★`));
+      const avg = Number(average);
+      const label = `${average} out of 5 (${this.ratingLabel(avg)})${data.roleLabel ? ` for ${data.roleLabel} roles` : ''}`;
+      const badge = this.setBadge('quality', this.renderStars(Math.round(avg), label, `${average}/5★`));
       // These AI results are from an earlier run: this one's AI step failed
       if (data.aiFailedWithCache) {
         const asterisk = document.createElement('span');
@@ -576,7 +579,7 @@ const OverlayManager = {
         asterisk.title = `Your AI ratings are from an earlier run. The latest one failed (${this.reason(data.aiError, data.settings)}). Click Analyze to retry.`;
         badge.appendChild(asterisk);
       }
-      badge.classList.add(this.getScoreClass(data.contentScore, true));
+      badge.classList.add(this.getScoreClass(avg * 2, true));
     } else if (this.aiFailed(data)) {
       // Red blank stars for a fresh failure, a failed key check, a timeout and a restored failure
       const reason = this.reason(data.aiError, data.settings);
@@ -1185,13 +1188,12 @@ const OverlayManager = {
   aiLine(data, sections) {
     const reason = this.reason(data.aiError, data.settings);
     const settings = this.aiFix(data).settings ? 'Open settings' : undefined;
-    // A run that just fell back to earlier results: the analyzer's message says what failed. Only an AI
-    // failure (no isErrorFallback/analysisError) has a current aiError and so a settings fix.
-    if (data.isCacheFallback) {
+    // A run that fell back to earlier results after an error: the analyzer's message says what failed.
+    // A fresh AI failure with earlier AI ratings (no isErrorFallback/analysisError) takes the aiFailed branch.
+    if (data.isCacheFallback && (data.isErrorFallback || data.analysisError || !this.aiFailed(data))) {
       return {
         text: data.message || `This analysis didn't finish. Showing your ${data.timestamp ? `results from ${this.fmtDate(data.timestamp)}` : 'earlier results'}. Click Analyze to try again.`,
-        warn: true,
-        button: !data.isErrorFallback && !data.analysisError && data.aiError ? settings : undefined
+        warn: true
       };
     }
     if (this.aiFailed(data)) {
@@ -1244,7 +1246,7 @@ const OverlayManager = {
     analyzeBtn.textContent = 'Analyze';
     analyzeBtn.disabled = false;
 
-    // The AI settings decide how long a run takes and the quality badge's hint; the saved name greets
+    // The AI settings decide the quality badge's hint
     const overlay = this.overlayElement;
     const render = (stored = {}) => {
       // A run or a restore may have replaced the zero state while storage answered; a reload kills getURL
@@ -1252,12 +1254,13 @@ const OverlayManager = {
       if (!chrome.runtime?.id) return;
       const settings = { enableAI: stored.enableAI, aiProvider: stored.aiProvider, aiModel: stored.aiModel, aiBaseUrl: stored.aiBaseUrl };
       const aiOn = this.aiState(settings) === 'on';
-      const time = !aiOn ? 'Under 30 seconds.'
-        : `Up to a few minutes with AI analysis on.${settings.aiBaseUrl ? ' Local models can take longer.' : ''}`;
+      // ponytail: AI-agnostic, since nothing re-renders this when the AI settings change after setup;
+      // the WEL-6/BAR-12 per-setting variants can return once analyzer-main re-renders on those changes
+      const time = 'Under 30 seconds, or up to a few minutes with AI analysis on.';
       const scroll = 'Your page will scroll by itself while ElevateLI reads each section.';
-      // saveUserProfileId falls back to the profile id, which is no name
-      const { profileName, profileId } = stored.userProfile || {};
-      const firstName = profileName && profileName !== profileId ? profileName.split(/\s+/)[0] : '';
+      // The overlay renders only on the user's own profile: the name is the top card's, as saveUserProfileId reads it
+      const name = BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim();
+      const firstName = name ? name.split(/\s+/)[0] : '';
       const termsUrl = chrome.runtime.getURL('privacy-terms.html'); // web-accessible (dynamic URL) so the link opens from LinkedIn
 
       this.fillFromTemplate(overlay.querySelector('.unified-section'), this.hasCompliance
@@ -1270,16 +1273,16 @@ const OverlayManager = {
           </div>`);
 
       const slot = overlay.querySelector('.last-analyzed-collapsed');
-      slot.textContent = !this.hasCompliance ? 'Setup needed'
-        : aiOn ? 'Up to a few minutes with AI. Your page will scroll.' : 'Under 30 seconds. Your page will scroll.';
-      slot.title = '';
+      slot.textContent = this.hasCompliance ? 'Under 30 seconds, or a few minutes with AI. Your page will scroll.' : 'Setup needed';
+      // The slot cuts long text with an ellipsis
+      slot.title = slot.textContent;
       slot.className = 'last-analyzed-collapsed';
       analyzeBtn.title = this.hasCompliance ? slot.textContent : 'Set up ElevateLI to analyze your profile';
       quality.title = aiOn ? `Rated by ${this.providerName(settings)} when you click Analyze` : this.noRatingText({ settings });
     };
     // chrome.storage throws at once when the extension was reloaded
     Promise.resolve()
-      .then(() => chrome.storage.local.get(['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'userProfile']))
+      .then(() => chrome.storage.local.get(['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl']))
       .then(render, () => render());
   },
 
