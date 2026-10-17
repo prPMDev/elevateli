@@ -1,7 +1,6 @@
 /**
  * [CRITICAL_PATH:OWNERSHIP_DETECTION] - P0: Profile ownership verification
- * Shared module for detecting if the current LinkedIn profile belongs to the user
- * Used by both popup and content scripts
+ * Detects if the current LinkedIn profile belongs to the user (content scripts: isOwnProfile, the popup's saveProfile message)
  */
 
 const OwnershipDetector = {
@@ -17,8 +16,3 @@ const OwnershipDetector = {
     return !!(id && document.querySelector(`main a[href*="/in/${id}/edit/intro/" i]`));
   }
 };
-
-// Export for use in both environments
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = OwnershipDetector;
-}
