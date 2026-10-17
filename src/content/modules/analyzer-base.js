@@ -489,7 +489,7 @@ class Analyzer {
         consecutiveFailures++;
         failed.push(label[section.type]);
         // Keep the section's last good result, as a whole-run failure keeps them all. Otherwise record
-        // the failure so the overlay says this section failed instead of "Enable AI"
+        // the failure so the card says why it has no rating (STAR-3)
         const prev = prevScores?.[section.type];
         sectionResults[section.type] = prev?.score != null ? prev
           : { score: null, errorType: 'ANALYSIS_FAILED', error: result.error, actionItems: [] };

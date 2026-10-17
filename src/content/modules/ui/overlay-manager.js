@@ -408,7 +408,7 @@ const OverlayManager = {
 
   /**
    * AI was on for this result but its run failed (cached results keep aiError until a run succeeds).
-   * A fresh result has no settings, and only AI-enabled runs set aiError, so missing settings counts as on.
+   * Only AI-enabled runs set aiError, so missing settings counts as on; turning AI off since then hides an old failure.
    */
   aiFailed(data) {
     return !!data.aiError && data.settings?.enableAI !== false;

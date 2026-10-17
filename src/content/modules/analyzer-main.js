@@ -191,7 +191,7 @@
   init();
   observeNavigation();
 
-  // Isolated-world handle: OverlayManager's Analyze/Refresh buttons call startAnalysis here. For debugging,
+  // Isolated-world handle: OverlayManager's Analyze button calls startAnalysis here. For debugging,
   // OverlayManager, Analyzer and extractProfileIdFromUrl are globals in the same console context.
   window.ElevateLI = { startAnalysis };
 
