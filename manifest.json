@@ -2,8 +2,7 @@
   "manifest_version": 3,
   "name": "ElevateLI",
   "version": "1.0.0",
-  "description": "Optimize your LinkedIn profile with AI-powered suggestions",
-  "default_locale": "en",
+  "description": "See how complete your LinkedIn profile is and what to add next. Scoring runs in your browser; AI review is optional.",
   "permissions": [
     "storage",
     "activeTab",
@@ -57,8 +56,7 @@
       "16": "src/images/icon16.png",
       "48": "src/images/icon48.png",
       "128": "src/images/icon128.png"
-    },
-    "default_title": "ElevateLI - LinkedIn Optimizer"
+    }
   },
   "icons": {
     "16": "src/images/icon16.png",
