@@ -812,7 +812,7 @@ async function handleSectionAnalysis({ section, data, context }) {
   // Turning AI off in the popup only writes storage; stop here so a running analysis sends no more profile text
   if (!enableAI) return { success: false, error: 'AI analysis was turned off' };
   const apiKey = await getDecryptedApiKey(encryptedApiKey);
-  if (!aiProvider || !apiKey) return { success: false, error: 'API key or provider not configured' };
+  if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: 'API key or provider not configured' };
 
   const rateCheck = checkRateLimit();
   if (!rateCheck.allowed) {
@@ -847,7 +847,7 @@ async function handleSectionAnalysis({ section, data, context }) {
 async function validateApiKey() {
   const { aiProvider, aiBaseUrl, encryptedApiKey } = await chrome.storage.local.get(['aiProvider', 'aiBaseUrl', 'encryptedApiKey']);
   const apiKey = await getDecryptedApiKey(encryptedApiKey);
-  if (!aiProvider || !apiKey) return { success: false, error: 'API key or provider not configured' };
+  if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: 'API key or provider not configured' };
   return testApiKey(aiProvider, apiKey, aiBaseUrl);
 }
 

@@ -109,10 +109,10 @@ class Analyzer {
 
         let aiResult;
         if (!validationResult.isValid) {
-          // Only a key problem is a key error. Offline, 429/5xx or a stopped local server keep the SW's own
-          // message and are classified below.
-          const error = validationResult.error || 'Invalid Key';
-          aiResult = { success: false, error, errorType: /api key/i.test(error) ? 'validation_failed' : undefined };
+          // Only a key problem (the SW's AUTH) is a key error. Offline, 429/5xx or a stopped local server keep
+          // the SW's own message and type.
+          aiResult = { success: false, error: validationResult.error || 'Invalid Key',
+            errorType: validationResult.errorType === 'AUTH' ? 'validation_failed' : validationResult.errorType };
         } else {
           // API key is valid, proceed with AI analysis
           OverlayManager.setState(OverlayManager.states.AI_ANALYZING, { completeness: completenessData.score });
@@ -282,7 +282,8 @@ class Analyzer {
    */
   async validateApiKey() {
     const response = await safeSendMessage({ action: 'validateApiKey' });
-    return response?.success ? { isValid: true } : { isValid: false, error: response?.error || 'ElevateLI could not reach its service worker. Reload the page and try again.' };
+    return response?.success ? { isValid: true } : { isValid: false, errorType: response?.errorType,
+      error: response?.error || 'ElevateLI could not reach its service worker. Reload the page and try again.' };
   }
   
   /**
