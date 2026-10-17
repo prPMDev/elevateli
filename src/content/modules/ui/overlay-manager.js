@@ -214,7 +214,7 @@ const OverlayManager = {
     if (!chrome.runtime?.id) return;
     try {
       await saveUserProfileId();
-      await chrome.storage.local.set({ compliance: { hasAcknowledged: true, acknowledgedAt: Date.now(), version: '1.0' } });
+      await chrome.storage.local.set({ compliance: { hasAcknowledged: true, acknowledgedAt: Date.now() } });
     } catch (error) {
       console.error('[ElevateLI] Saving setup failed:', error);
       this.showError('Setup failed. Refresh the page and try again.');
