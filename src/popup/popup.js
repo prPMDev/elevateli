@@ -389,26 +389,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     clearFieldError(settingsAiModelSelect, modelError);
     if (keyIsSaved()) saveSettings({ aiModel: settingsAiModelSelect.value });
   });
-
-
-  // Handle footer links for Privacy and Terms
-  const termsLink = document.getElementById('terms-link');
-  const privacyLink = document.getElementById('privacy-link');
-
-  if (termsLink) {
-    termsLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      const url = termsLink.getAttribute('data-url');
-      chrome.tabs.create({ url: chrome.runtime.getURL(url) });
-    });
-  }
-
-  if (privacyLink) {
-    privacyLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      const url = privacyLink.getAttribute('data-url');
-      chrome.tabs.create({ url: chrome.runtime.getURL(url) });
-    });
-  }
-
 });
