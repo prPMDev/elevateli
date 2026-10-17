@@ -14,14 +14,16 @@ const ExperienceExtractor = {
   async scan() {
     const section = BaseExtractor.findSection('Experience');
     const visibleCount = this.rows(section).length;
-    // "Show all" carries no number on the new profile page, so the total is the visible rows
+    // "Show all" carries no number on the new profile page, so the total is the visible rows,
+    // but the link itself says older roles are hidden
     const totalCount = section ? BaseExtractor.count(section, visibleCount) : 0;
-    
+    const showAll = Array.from(section?.querySelectorAll('a') || []).some(a => /^Show all\b/.test(a.textContent.trim()));
+
     return {
       exists: visibleCount > 0,
       visibleCount,
       totalCount,
-      hasMore: totalCount > visibleCount
+      hasMore: showAll || totalCount > visibleCount
     };
   },
   
@@ -64,7 +66,7 @@ const ExperienceExtractor = {
       totalMonths: basicInfo.totalMonths,
       hasCurrentRole: basicInfo.hasCurrentRole,
       visibleCount: scanResult.visibleCount,
-      hasMoreItems: totalCount > scanResult.visibleCount
+      hasMoreItems: scanResult.hasMore // Older roles hidden behind "Show all": count and months are a lower bound
     };
     
     return result;
