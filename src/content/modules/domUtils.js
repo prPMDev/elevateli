@@ -2,21 +2,14 @@
  * DOM utility functions
  */
 
-
-// from previously loaded modules in the concatenated analyzer.js
-
 /**
  * Debounce function to limit execution frequency
  */
 function debounce(func, wait) {
   let timeout;
-  return function executedFunction(...args) {
-    const later = () => {
-      clearTimeout(timeout);
-      func(...args);
-    };
+  return (...args) => {
     clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
+    timeout = setTimeout(() => func(...args), wait);
   };
 }
 
