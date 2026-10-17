@@ -77,6 +77,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   ]);
   // activeTab exposes the URL of whatever tab the popup was opened on
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  // The profile id when the tab is on a profile itself, not a /details/ or /recent-activity/ subpage
+  const tabProfileId = activeTab?.url?.match(/linkedin\.com\/in\/([^\/?#]+)\/?(?:[?#]|$)/)?.[1];
 
   // View management functions
   function showView(viewName) {
@@ -118,10 +120,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       : settings.enableAI ? 'On' : 'Off';
     const profileId = settings.userProfile?.profileId;
     activeProfileName.textContent = settings.userProfile?.profileName || profileId || '';
-    // On the profile itself (not a /details/ subpage) the overlay is right there
-    const onProfile = !!profileId && activeTab?.url?.match(/linkedin\.com\/in\/([^\/?#]+)\/?(?:[?#]|$)/)?.[1] === profileId;
+    // On the profile itself the overlay is right there, unless Show analysis is off
+    const onProfile = !!profileId && tabProfileId === profileId;
     openProfileBtn.classList.toggle('hidden', onProfile);
     onProfileText.classList.toggle('hidden', !onProfile);
+    onProfileText.textContent = settings.showAnalysis === false
+      ? 'Turn on "Show analysis on profile" in Settings to see your results here.'
+      : 'Your results are in the ElevateLI bar on this page.';
   }
 
   // Built from the id, not the saved URL, which can be the subpage setup ran on
@@ -140,8 +145,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     settingsCustomInstructionsTextarea.value = settings.customInstructions || '';
   }
 
-  // Setup: on a LinkedIn profile the button saves it; anywhere else it opens the user's profile
-  const onProfilePage = !!activeTab?.url?.includes('linkedin.com/in/');
+  // Setup: on a LinkedIn profile the button saves it; anywhere else (subpages too) it opens the user's profile
+  const onProfilePage = !!tabProfileId;
   if (!onProfilePage) {
     document.querySelector('.compliance-notice').classList.add('hidden');
     acknowledgeComplianceBtn.disabled = false;
@@ -205,7 +210,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Settings view event handlers
   settingsEnableAIToggle.addEventListener('change', (e) => {
-    saveSettings({ enableAI: e.target.checked }); // safe without a key: analysis needs enableAI, a key and a provider
+    saveSettings({ enableAI: e.target.checked }); // safe without a key: analysis needs enableAI, a key, a provider and a model
     aiConfigSection.classList.toggle('hidden', !e.target.checked);
     if (e.target.checked) onProviderChange(); // models load only once AI is on
   });
@@ -335,7 +340,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       await chrome.storage.local.remove('settingsDraft');
       settingsApiKeyInput.value = '';
-      settingsApiKeyInput.placeholder = 'Key saved. Paste a new key to replace it.';
+      settingsApiKeyInput.placeholder = isLocalBaseUrl() ? 'Not needed for a local server' : 'Key saved. Paste a new key to replace it.';
     }
     listedFor = [provider, settingsApiKeyInput.value.trim(), baseUrl].join('|');
     if (!settingsAiModelSelect.value) showFieldError(settingsAiModelSelect, modelError, 'Choose a model');
@@ -352,8 +357,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     clearFieldError(settingsApiKeyInput, apiKeyError);
     clearFieldError(settingsAiModelSelect, modelError);
     const saved = keyIsSaved();
-    settingsApiKeyInput.placeholder = saved ? 'Key saved. Paste a new key to replace it.'
-      : isLocalBaseUrl() ? 'Not needed for a local server' : 'Paste your API key';
+    // A local server's stored key is the stand-in 'local', never one the user entered
+    settingsApiKeyInput.placeholder = isLocalBaseUrl() ? 'Not needed for a local server'
+      : saved ? 'Key saved. Paste a new key to replace it.' : 'Paste your API key';
     loadSeq++; // a list still loading for the old choice must not land
     listedFor = null;
     settingsAiModelSelect.replaceChildren(saved && settings.aiModel
@@ -380,6 +386,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   settingsAiModelSelect.addEventListener('change', () => {
     clearFieldError(settingsAiModelSelect, modelError);
-    if (keyIsSaved()) saveSettings({ aiModel: settingsAiModelSelect.value });
+    // The placeholder is no model: keep the last one picked
+    if (keyIsSaved() && settingsAiModelSelect.value) saveSettings({ aiModel: settingsAiModelSelect.value });
   });
 });
