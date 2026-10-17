@@ -58,32 +58,13 @@ function extractProfileIdFromUrl() {
  * Get saved user profile from storage
  */
 async function getSavedProfile() {
-  return new Promise((resolve) => {
-    // Check if chrome APIs are available
-    if (!chrome?.storage?.local) {
-      resolve(null);
-      return;
-    }
-    
-    // Check if extension context is still valid
-    if (!chrome.runtime?.id) {
-      resolve(null);
-      return;
-    }
-    
-    try {
-      chrome.storage.local.get(['userProfile'], (data) => {
-        // Check for runtime errors
-        if (chrome.runtime.lastError) {
-          resolve(null);
-          return;
-        }
-        resolve(data.userProfile || null);
-      });
-    } catch (error) {
-      resolve(null);
-    }
-  });
+  // The extension context dies on reload
+  if (!chrome.runtime?.id) return null;
+  try {
+    return (await chrome.storage.local.get('userProfile')).userProfile || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
