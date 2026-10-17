@@ -239,7 +239,7 @@ const OverlayManager = {
    * @param {Element} link - The clicked control, replaced by the hint on failure
    */
   openSettings(link) {
-    safeSendMessage({ action: 'openPopup' }, response => {
+    safeSendMessage({ action: 'openPopup' }).then(response => {
       if (!response?.success) link.replaceWith("Open ElevateLI from Chrome's puzzle-piece menu.");
     });
   },
