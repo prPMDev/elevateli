@@ -239,7 +239,8 @@ class Analyzer {
     } catch (error) {
       console.error('[Analyzer] Analysis failed:', error);
       clearTimeout(analysisTimeout);
-      if (this.cancelled) return { success: false, cancelled: true };
+      // An extension reload orphans this run (chrome.storage throws); the new script's overlay is not its to paint
+      if (this.cancelled || !chrome.runtime?.id) return { success: false, cancelled: true };
 
       // If we have cached data, fall back to it
       if (cachedData && cachedData.completeness !== undefined) {
