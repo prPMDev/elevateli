@@ -144,7 +144,8 @@ class Analyzer {
 
           // Pass completeness score to AI analysis for conditional advice
           extractedData.completenessScore = completenessData?.score || 100;
-          aiResult = await this.runAIAnalysis(extractedData, cachedData?.sectionScores);
+          aiResult = await this.runDistributedAIAnalysis(extractedData, cachedData?.sectionScores)
+            .catch(error => ({ success: false, error: error.message }));
         }
 
         if (aiResult.success) {
@@ -739,7 +740,7 @@ class Analyzer {
     if (this.cancelled) return { success: false, cancelled: true };
     OverlayManager.updateAIProgress('synthesizing', 'Synthesizing results...');
 
-    return { ...await this.synthesizeResults(sectionResults), failed };
+    return { ...this.synthesizeResults(sectionResults), failed };
   }
   
   /**
@@ -753,34 +754,19 @@ class Analyzer {
   }
   
   /**
-   * Synthesize all section results
+   * Content score: the weighted average of the scored sections
    */
-  async synthesizeResults(sectionResults) {
-
-    return new Promise((resolve) => {
-      safeSendMessage({
-        action: 'synthesizeAnalysis',
-        sectionScores: sectionResults
-      }, (response) => {
-        
-        if (response && response.success) {
-          resolve({ success: true, score: response.finalScore, sectionScores: response.sectionScores });
-        } else {
-          // Treated like any AI failure: analyze() keeps the previous AI results
-          resolve({ success: false, error: response?.error || 'Synthesis failed' });
-        }
-      });
-    });
-  }
-
-  /**
-   * Run AI analysis. Resolves with { success: false, error } instead of rejecting.
-   */
-  async runAIAnalysis(extractedData, prevScores) {
-    try {
-      return await this.runDistributedAIAnalysis(extractedData, prevScores);
-    } catch (error) {
-      return { success: false, error: error.message };
+  synthesizeResults(sectionScores) {
+    const weights = { first_impression: 0.20, about: 0.25, experience_overall: 0.30, skills: 0.15, recommendations: 0.10 };
+    let total = 0, weight = 0;
+    for (const [type, r] of Object.entries(sectionScores)) {
+      if (r?.score == null) continue;
+      const w = weights[type] || 0.1; // the 'experience' fallback section
+      total += r.score * w;
+      weight += w;
     }
+    // No section scored: fail instead of inventing a score; analyze() keeps the previous AI results
+    return weight ? { success: true, score: Math.round(total / weight * 10) / 10, sectionScores }
+      : { success: false, error: 'AI could not score any section' };
   }
 }
