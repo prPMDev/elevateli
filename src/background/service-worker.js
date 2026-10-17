@@ -50,58 +50,44 @@ async function getDecryptedApiKey(encryptedApiKey) {
   }
 }
 
-// Use onInstalled only for one-time setup
-if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
-  chrome.runtime.onInstalled.addListener(async (details) => {
-    // Open LinkedIn tabs have no content script after an install, and a dead one after an update or
-    // reload, so popup messages to them go nowhere. Inject the current one unless the tab already
-    // loaded it; OverlayManager.initialize() replaces the overlay a dead script left behind.
-    if (details.reason === 'install' || details.reason === 'update') {
-      const { js, css } = chrome.runtime.getManifest().content_scripts[0];
-      const reinject = id => {
-        const target = { tabId: id };
-        chrome.scripting.executeScript({ target, func: () => typeof OverlayManager !== 'undefined' })
-          .then(([probe]) => probe?.result || Promise.all([
-            chrome.scripting.insertCSS({ target, files: css }),
-            chrome.scripting.executeScript({ target, files: js })
-          ]))
-          .catch(() => {}); // tab closed or not scriptable (error page)
-      };
-      for (const { id, status } of await chrome.tabs.query({ url: 'https://www.linkedin.com/*' })) {
-        if (status === 'complete') reinject(id);
-        // A tab still loading may already be past document_idle, where the new manifest scripts never run.
-        // Wait for it to finish; the probe then skips tabs that did get them. 'unloaded' tabs reload fresh.
-        else if (status === 'loading') {
-          const onUpdated = (tabId, info) => {
-            if (tabId !== id || info.status !== 'complete') return;
-            chrome.tabs.onUpdated.removeListener(onUpdated);
-            reinject(id);
-          };
-          chrome.tabs.onUpdated.addListener(onUpdated);
-        }
+chrome.runtime.onInstalled.addListener(async (details) => {
+  // Open LinkedIn tabs have no content script after an install, and a dead one after an update or
+  // reload, so popup messages to them go nowhere. Inject the current one unless the tab already
+  // loaded it; OverlayManager.initialize() replaces the overlay a dead script left behind.
+  if (details.reason === 'install' || details.reason === 'update') {
+    const { js, css } = chrome.runtime.getManifest().content_scripts[0];
+    const reinject = id => {
+      const target = { tabId: id };
+      chrome.scripting.executeScript({ target, func: () => typeof OverlayManager !== 'undefined' })
+        .then(([probe]) => probe?.result || Promise.all([
+          chrome.scripting.insertCSS({ target, files: css }),
+          chrome.scripting.executeScript({ target, files: js })
+        ]))
+        .catch(() => {}); // tab closed or not scriptable (error page)
+    };
+    for (const { id, status } of await chrome.tabs.query({ url: 'https://www.linkedin.com/*' })) {
+      if (status === 'complete') reinject(id);
+      // A tab still loading may already be past document_idle, where the new manifest scripts never run.
+      // Wait for it to finish; the probe then skips tabs that did get them. 'unloaded' tabs reload fresh.
+      else if (status === 'loading') {
+        const onUpdated = (tabId, info) => {
+          if (tabId !== id || info.status !== 'complete') return;
+          chrome.tabs.onUpdated.removeListener(onUpdated);
+          reinject(id);
+        };
+        chrome.tabs.onUpdated.addListener(onUpdated);
       }
     }
+  }
 
-    if (details.reason === 'install') {
-      // Open updates page on fresh install
-      chrome.tabs.create({ url: 'updates.html' });
-    } else if (details.reason === 'update') {
-      
-      // Parse version numbers
-      const previousVersion = details.previousVersion || '0.0.0';
-      const currentVersion = chrome.runtime.getManifest().version;
-      
-      // Check if this is a major or minor version update
-      const [prevMajor, prevMinor] = previousVersion.split('.').map(Number);
-      const [currMajor, currMinor] = currentVersion.split('.').map(Number);
-      
-      // Show updates page for major or minor version changes
-      if (currMajor > prevMajor || (currMajor === prevMajor && currMinor > prevMinor)) {
-        chrome.tabs.create({ url: 'updates.html' });
-      }
-    }
-  });
-}
+  if (details.reason === 'install') chrome.tabs.create({ url: 'updates.html' });
+  else if (details.reason === 'update') {
+    // Show updates page for major or minor version changes
+    const [pMaj, pMin] = details.previousVersion.split('.').map(Number);
+    const [cMaj, cMin] = chrome.runtime.getManifest().version.split('.').map(Number);
+    if (cMaj > pMaj || (cMaj === pMaj && cMin > pMin)) chrome.tabs.create({ url: 'updates.html' });
+  }
+});
 
 // Keep the SW alive only while a message handler runs: a slow local model can outlast the 30 s idle timer.
 // A permanent ping would keep it alive forever, and Chrome installs updates only once the SW is unloaded.
