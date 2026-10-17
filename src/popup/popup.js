@@ -309,7 +309,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const keep = settingsAiModelSelect.value;
     if (!keep) settingsAiModelSelect.replaceChildren(new Option('Loading models…', ''));
     // No apiKey = the saved key, which the service worker only sends to the saved server
-    const response = await chrome.runtime.sendMessage({ action: 'testApiKey', provider, apiKey: apiKey || undefined, baseUrl });
+    // A worker that dies mid-call rejects: the failure path below then restores the select and allows a retry
+    const response = await chrome.runtime.sendMessage({ action: 'testApiKey', provider, apiKey: apiKey || undefined, baseUrl })
+      .catch(() => null);
     if (seq !== loadSeq) return; // provider, key or server changed while loading
     if (!response?.success) {
       listedFor = null; // let the same values be retried
