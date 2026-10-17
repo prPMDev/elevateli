@@ -81,22 +81,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Check configuration states
   const hasCompliance = settings.compliance?.hasAcknowledged;
 
-  // Sync settings across popup instances and tabs
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local') {
-      const updates = {};
-      ['showAnalysis', 'enableAI', 'targetRole', 'customRole', 'seniorityLevel'].forEach(key => {
-        // Skip values this popup already holds (its own writes), so a sync never wipes form edits
-        if (changes[key] && changes[key].newValue !== settings[key]) updates[key] = changes[key].newValue;
-      });
-      if (Object.keys(updates).length) {
-        Object.assign(settings, updates);
-        if (!activeMainDiv?.classList.contains('hidden')) updateActiveMainView();
-        if (!settingsViewDiv?.classList.contains('hidden')) updateSettingsView();
-      }
-    }
-  });
-
   // View management functions
   function showView(viewName) {
     profileSetupDiv.classList.toggle('hidden', viewName !== 'profileSetup');
