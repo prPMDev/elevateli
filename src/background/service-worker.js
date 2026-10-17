@@ -156,7 +156,9 @@ function createExperienceOverallPrompt(experienceData, config) {
   const totalMonths = experienceData.totalMonths || 0;
   const yearsOfExperience = Math.floor(totalMonths / 12);
   const totalRoles = experienceData.totalRoles || experienceData.count || 0;
-  
+  // Older roles behind "Show all" are never read, so the totals below are then only a lower bound
+  const partial = !!experienceData.hasMoreItems;
+
   const prompt = `You are an expert career coach analyzing LinkedIn profiles for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
 <context>
@@ -176,14 +178,15 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
    - Scores 7-10: START with what's working well, END with specific steps to reach 10/10
 5. Give SPECIFIC actions: "Move your Oracle ML project mention to the first bullet" not "Highlight technical skills"
 6. Focus on STRATEGIC career trajectory patterns, not individual role nitpicks
-7. If they already have strong metrics, suggest how to REPOSITION or ENHANCE them, not add more
+7. If they already have strong metrics, suggest how to REPOSITION or ENHANCE them, not add more${partial ? `
+8. Only their most recent roles are provided; older roles exist but were not read. Never judge the career as only as long as the roles shown` : ''}
 </critical_rules>
 
 <profile_overview>
-Total Experience: ${yearsOfExperience} years across ${totalRoles} roles
+Total Experience: ${partial ? `${yearsOfExperience}+ years in the ${totalRoles} most recent roles (older roles are not shown on the profile page)` : `${yearsOfExperience} years across ${totalRoles} roles`}
 Average Tenure: ${experienceData.averageTenure ? Math.round(experienceData.averageTenure) + ' months per role' : 'Unknown'}
 Current Status: ${experienceData.hasCurrentRole ? 'Currently employed' : 'Not currently employed'}
-Career Start: ${experienceData.experiences?.[experienceData.experiences.length - 1]?.employment?.startDate || 'Unknown'}
+${partial ? 'Earliest Listed Role Start' : 'Career Start'}: ${experienceData.experiences?.[experienceData.experiences.length - 1]?.employment?.startDate || 'Unknown'}
 Industry Changes: ${experienceData.industryChanges || 0}
 </profile_overview>
 
