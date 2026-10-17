@@ -103,8 +103,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const level = settings.targetRole !== 'entrepreneur' && LEVEL_PREFIXES[settings.seniorityLevel];
     return role && level ? `${level} ${role}` : role || '';
   }
-  // saveProfile falls back to the URL slug when the page shows no name; never print the slug
-  const displayName = profile => profile?.profileName !== profile?.profileId ? profile?.profileName || '' : '';
+  // saveProfile sends '' when the page shows no name; copy then uses its no-name variant
+  const displayName = profile => profile?.profileName || '';
   // Saved settings only apply on the next run: Back says so once when one of these changed
   const rerunSnapshot = () => JSON.stringify(['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'targetRole', 'customRole',
     'seniorityLevel', 'customInstructions'].map(key => settings[key] || ''));
