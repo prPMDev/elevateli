@@ -156,16 +156,8 @@ class Analyzer {
 
       // Update overlay with final results. An AI failure keeps the completeness results and advice
       // (COMPLETE, as a reload shows them); earlier AI results come back with the cache-fallback banner.
-      let finalState = OverlayManager.states.COMPLETE;
-      if (result.aiError) {
-        if (result.aiFailedWithCache) {
-          finalState = OverlayManager.states.ANALYSIS_FAILED_CACHE_FALLBACK;
-        } else if (result.aiError.type === 'validation_failed') {
-          // Add a specific message for API key errors
-          result.apiKeyError = true;
-          result.apiKeyErrorMessage = result.aiError.message;
-        }
-      }
+      // A key error is aiError.type 'validation_failed', which the overlay gives an Open settings link.
+      const finalState = result.aiFailedWithCache ? OverlayManager.states.ANALYSIS_FAILED_CACHE_FALLBACK : OverlayManager.states.COMPLETE;
 
       const overlayData = {
         ...result,
