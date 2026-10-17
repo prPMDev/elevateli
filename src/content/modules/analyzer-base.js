@@ -619,7 +619,8 @@ class Analyzer {
       
       // Build career context for skills analysis
       const careerContext = {
-        currentRole: extractedData.experience?.experiences?.[0] || null,
+        // The latest role may have ended (between jobs): "Not specified" then, like the experience prompt
+        currentRole: extractedData.experience?.experiences?.find(e => e.employment?.isCurrent) || null,
         recentCompanies: extractedData.experience?.experiences?.slice(0, 3).map(exp => ({
           company: exp.company,
           title: exp.title,
@@ -679,7 +680,7 @@ class Analyzer {
       
       // Build career context for recommendations analysis
       const careerContext = {
-        currentRole: extractedData.experience?.experiences?.[0] || null,
+        currentRole: extractedData.experience?.experiences?.find(e => e.employment?.isCurrent) || null,
         recentCompanies: extractedData.experience?.experiences?.slice(0, 3).map(exp => ({
           company: exp.company,
           title: exp.title,
