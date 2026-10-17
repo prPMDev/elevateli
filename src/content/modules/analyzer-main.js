@@ -145,6 +145,11 @@
 
     // Setup in the popup: report this page's profile; the popup saves it once the user confirms
     if (request.action === 'saveProfile') {
+      // The popup then asks for the profile itself, not a /details/ subpage
+      if (!isProfilePage()) {
+        sendResponse({ success: false, error: 'Not on a profile page' });
+        return;
+      }
       const profileId = extractProfileIdFromUrl();
       sendResponse({
         success: true,

@@ -172,7 +172,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       // A tab opened before install/reload has no live content script, so this rejects with
       // 'Could not establish connection' and the catch below offers a refresh (which loads the manifest's content scripts).
-      const response = await chrome.tabs.sendMessage(activeTab.id, { action: 'saveProfile', checkOnly: true });
+      const response = await chrome.tabs.sendMessage(activeTab.id, { action: 'saveProfile' });
       if (!response?.success) {
         showFieldError(null, setupError, 'Open your own LinkedIn profile (not a section page), then try again.');
         return;
