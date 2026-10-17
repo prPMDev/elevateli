@@ -778,8 +778,7 @@ class Analyzer {
             score: response.score,
             // Include all AI analysis fields
             positiveInsight: response.insight,
-            actionItems: response.actionItems,
-            specificFeedback: response.specificFeedback
+            actionItems: response.actionItems
           });
         } else {
           // Ensure error is always a string
