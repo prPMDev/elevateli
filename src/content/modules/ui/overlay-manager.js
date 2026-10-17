@@ -117,10 +117,12 @@ const OverlayManager = {
             <span class="brand-name" role="heading" aria-level="2">ElevateLI</span>
             <span class="score-badge completeness"><span class="label-full">Completeness</span><span class="label-short">Complete</span>: —</span>
             <span class="score-badge quality"><span class="label-full">Content quality</span><span class="label-short">Quality</span>: —</span>
-            <span class="last-analyzed-collapsed"></span>
-            <button type="button" class="analyze-btn-collapsed eli-primary" data-action="analyze">Analyze</button>
-            <button type="button" class="view-details-link eli-link" data-action="details" aria-expanded="${this.viewState === 'expanded'}"><span class="details-text-full">View details</span><span class="details-text-medium">Details</span></button>
-            <button type="button" class="eli-hide" data-action="hide" aria-label="Hide ElevateLI on my profile" title="Hide ElevateLI on my profile">×</button>
+            <span class="eli-bar-end">
+              <span class="last-analyzed-collapsed"></span>
+              <button type="button" class="analyze-btn-collapsed eli-primary" data-action="analyze">Analyze</button>
+              <button type="button" class="view-details-link eli-link" data-action="details" aria-expanded="${this.viewState === 'expanded'}"><span class="details-text-full">View details</span><span class="details-text-medium">Details</span></button>
+              <button type="button" class="eli-hide" data-action="hide" aria-label="Hide ElevateLI on my profile" title="Hide ElevateLI on my profile">×</button>
+            </span>
             <span class="elevateli-sr-only" role="status"></span>
           </div>
           

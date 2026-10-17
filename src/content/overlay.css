@@ -35,14 +35,23 @@
 /* ============================================
  * COLLAPSED VIEW STYLES
  * ============================================ */
-/* A narrow column or 200% zoom wraps the bar (date and controls drop to a second, right-aligned line)
- * instead of clipping or hiding anything */
+/* A narrow column or 200% zoom wraps the bar instead of clipping or hiding anything. The date and
+ * controls sit in .eli-bar-end, so they wrap together and stay right-aligned */
 .overlay-collapsed-view {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
   padding: 8px 24px;
+}
+
+.overlay-collapsed-view .eli-bar-end {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-left: auto;
 }
 
 .overlay-collapsed-view .brand-logo {
@@ -105,7 +114,6 @@
   font-size: 12px;
   color: var(--eli-text-muted);
   white-space: nowrap;
-  margin-left: auto; /* pushes it and the controls right, on whichever line they land */
   margin-right: 8px;
   min-width: 0;
   overflow: hidden;
