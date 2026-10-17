@@ -61,15 +61,10 @@ class Analyzer {
         OverlayManager.setState(OverlayManager.states.COMPLETE, {
           ...cachedData,
           fromCache: true,
-          cacheRestored: true,
           // Only mark AI as disabled if there's no content score
           aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
           // Pass current settings for UI logic
-          settings: {
-            enableAI: this.settings.enableAI,
-            aiProvider: this.settings.aiProvider,
-            aiModel: this.settings.aiModel
-          }
+          settings: { enableAI: this.settings.enableAI, aiProvider: this.settings.aiProvider }
         });
         return;
       }
