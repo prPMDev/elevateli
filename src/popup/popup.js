@@ -28,6 +28,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const settingsResetAllBtn = document.getElementById('settingsResetAll');
   const settingsStatus = document.getElementById('settingsStatus');
   const aiConfigSection = document.getElementById('aiConfigSection');
+  const keyLinks = document.getElementById('keyLinks');
+  const localNote = document.getElementById('localNote');
+  const getKeyLink = document.getElementById('getKeyLink');
+  const pricingLink = document.getElementById('pricingLink');
 
   // Active main view elements
   const activeProfileName = document.getElementById('activeProfileName');
@@ -156,7 +160,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     openProfileBtn.classList.toggle('hidden', onProfile);
     onProfileText.classList.toggle('hidden', !onProfile);
     onProfileText.textContent = settings.showAnalysis === false
-      ? 'Turn on "Show analysis on profile" in Settings to see your results here.'
+      ? 'Turn on "Show the ElevateLI bar on my profile" in Settings to see your results here.'
       : 'Your results are in the ElevateLI bar on this page.';
     const changed = openedWith !== null && openedWith !== rerunSnapshot();
     openedWith = null;
@@ -181,6 +185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     settingsCustomRoleInput.value = settings.customRole || '';
     settingsSeniorityLevelSelect.value = settings.seniorityLevel || '';
     settingsCustomInstructionsTextarea.value = settings.customInstructions || '';
+    settingsClearApiKeyBtn.classList.toggle('hidden', !settings.encryptedApiKey);
   }
 
   // Setup: on a LinkedIn profile the button saves it; anywhere else (subpages too) it opens the user's profile
@@ -274,13 +279,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   settingsCustomInstructionsTextarea.addEventListener('input', (e) => saveSettings({ customInstructions: e.target.value.trim() }));
 
   settingsClearApiKeyBtn.addEventListener('click', async () => {
-    if (!await showConfirmDialog('Remove your saved API key?', 'AI analysis will turn off.', 'Remove key', true)) return;
+    // A local model's stored key is the stand-in 'local', so it names no provider
+    const provider = !settings.aiBaseUrl && PROVIDER_NAMES[settings.aiProvider];
+    if (!await showConfirmDialog(`Remove your saved ${provider ? `${provider} ` : ''}API key?`, 'AI analysis will turn off.', 'Remove key', true)) return;
     await chrome.storage.local.remove(['encryptedApiKey', 'installationId']);
     delete settings.encryptedApiKey; // or Settings shows the saved-key placeholder and 'On' again
     await saveSettings({ enableAI: false });
     settingsEnableAIToggle.checked = false;
     aiConfigSection.classList.add('hidden');
     settingsApiKeyInput.value = '';
+    settingsClearApiKeyBtn.classList.add('hidden');
+    settingsEnableAIToggle.focus(); // the focused button just disappeared
     settingsStatus.textContent = 'API key removed. AI analysis is off.';
   });
 
@@ -329,13 +338,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // A provider or server counts only once a key works with it. Until then it waits in a draft, so Back,
-  // "Get an API key" and the localhost prompt (which closes the popup) lose nothing, and the stored
+  // the "Get a key" link and the localhost prompt (which closes the popup) lose nothing, and the stored
   // key, provider and server stay a set that works together.
   function saveDraft() {
     const settingsDraft = { aiProvider: settingsAiProviderSelect.value, aiBaseUrl: settingsBaseUrlInput.value.trim() };
     return keyIsSaved() || !settingsDraft.aiProvider
       ? chrome.storage.local.remove('settingsDraft')
       : chrome.storage.local.set({ settingsDraft });
+  }
+
+  // The server's host and port, e.g. localhost:11434
+  const localHost = () => settingsBaseUrlInput.value.trim().split('/')[2];
+
+  // A local server's stored key is the stand-in 'local', never one the user entered
+  function keyPlaceholder() {
+    const name = PROVIDER_NAMES[settingsAiProviderSelect.value];
+    return isLocalBaseUrl() ? 'Not needed for a local model' : keyIsSaved() ? 'Key saved. Type a new one to replace it.'
+      : name ? `Paste your ${name} API key` : 'Paste your API key';
+  }
+
+  // The model select while it has no list (a local server needs no key, so its list only fails to load)
+  function modelPrompt() {
+    const name = PROVIDER_NAMES[settingsAiProviderSelect.value];
+    return isLocalBaseUrl() ? `Couldn't load models from ${localHost()}`
+      : name ? `Paste your ${name} API key to load models` : 'Choose a provider first';
   }
 
   // Fill the model list from the provider. The same call validates the key; a typed key that works is stored.
@@ -354,7 +380,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     listedFor = id;
     const seq = ++loadSeq;
     const keep = settingsAiModelSelect.value;
-    if (!keep) settingsAiModelSelect.replaceChildren(new Option('Loading models…', ''));
+    const loading = isLocalBaseUrl() ? `Loading models from ${localHost()}…`
+      : apiKey ? `Checking your key with ${PROVIDER_NAMES[provider]}…` : 'Loading models…';
+    if (!keep) settingsAiModelSelect.replaceChildren(new Option(loading, ''));
     // No apiKey = the saved key, which the service worker only sends to the saved server
     // A worker that dies mid-call rejects: the failure path below then restores the select and allows a retry
     const response = await chrome.runtime.sendMessage({ action: 'testApiKey', provider, apiKey: apiKey || undefined, baseUrl })
@@ -362,23 +390,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (seq !== loadSeq) return; // provider, key or server changed while loading
     if (!response?.success) {
       listedFor = null; // let the same values be retried
-      if (!keep) settingsAiModelSelect.replaceChildren(new Option('Enter your API key to load models', ''));
-      showFieldError(settingsApiKeyInput, apiKeyError, response?.error || 'Could not load models');
+      if (!keep) settingsAiModelSelect.replaceChildren(new Option(modelPrompt(), ''));
+      showFieldError(settingsApiKeyInput, apiKeyError, response?.error || 'Couldn\'t load models. Close and reopen ElevateLI to try again.');
       return;
     }
     clearFieldError(settingsApiKeyInput, apiKeyError);
     settingsAiModelSelect.replaceChildren(
-      new Option('Select AI model...', ''),
+      new Option('Choose a model…', ''),
       ...response.models.map(id => new Option(id, id, false, id === keep))
     );
     if (apiKey) {
       // The new key works: store it with the provider, server and model it was tested with.
       // The set below overwrites the old key, so it stays usable until the new one is stored.
-      const encrypted = await chrome.runtime.sendMessage({ action: 'encryptApiKey', apiKey });
+      const encrypted = await chrome.runtime.sendMessage({ action: 'encryptApiKey', apiKey }).catch(() => null);
       if (seq !== loadSeq) return;
       if (!encrypted?.success || !encrypted.encryptedApiKey) {
         listedFor = null;
-        showFieldError(settingsApiKeyInput, apiKeyError, 'Could not save the API key securely');
+        showFieldError(settingsApiKeyInput, apiKeyError, 'ElevateLI couldn\'t store your API key. Close this window, reopen ElevateLI and paste it again.');
         return;
       }
       await saveSettings({
@@ -389,7 +417,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       await chrome.storage.local.remove('settingsDraft');
       settingsApiKeyInput.value = '';
-      settingsApiKeyInput.placeholder = isLocalBaseUrl() ? 'Not needed for a local server' : 'Key saved. Paste a new key to replace it.';
+      settingsApiKeyInput.placeholder = keyPlaceholder();
+      settingsClearApiKeyBtn.classList.remove('hidden');
     }
     listedFor = [provider, settingsApiKeyInput.value.trim(), baseUrl].join('|');
     if (!settingsAiModelSelect.value) showFieldError(settingsAiModelSelect, modelError, 'Choose a model');
@@ -398,22 +427,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Provider or server picked (or settings opened): point the links at it and load its models
   function onProviderChange() {
     const option = settingsAiProviderSelect.selectedOptions[0];
-    if (option?.value) {
-      document.getElementById('getKeyLink').href = option.dataset.keyUrl;
-      document.getElementById('pricingLink').href = option.dataset.pricingUrl;
+    const name = PROVIDER_NAMES[option?.value];
+    if (name) {
+      getKeyLink.href = option.dataset.keyUrl;
+      getKeyLink.textContent = `Get ${name === 'OpenAI' ? 'an' : 'a'} ${name} key →`;
+      pricingLink.href = option.dataset.pricingUrl;
+      pricingLink.textContent = `${name} pricing →`;
     }
+    // A local model needs no key and keeps the profile text on this computer
+    keyLinks.classList.toggle('hidden', !name || isLocalBaseUrl());
+    localNote.classList.toggle('hidden', !isLocalBaseUrl());
     baseUrlGroup.classList.toggle('hidden', option?.value !== 'openai');
     clearFieldError(settingsApiKeyInput, apiKeyError);
     clearFieldError(settingsAiModelSelect, modelError);
     const saved = keyIsSaved();
-    // A local server's stored key is the stand-in 'local', never one the user entered
-    settingsApiKeyInput.placeholder = isLocalBaseUrl() ? 'Not needed for a local server'
-      : saved ? 'Key saved. Paste a new key to replace it.' : 'Paste your API key';
+    settingsApiKeyInput.placeholder = keyPlaceholder();
     loadSeq++; // a list still loading for the old choice must not land
     listedFor = null;
     settingsAiModelSelect.replaceChildren(saved && settings.aiModel
       ? new Option(settings.aiModel, settings.aiModel, true, true)
-      : new Option('Enter your API key to load models', ''));
+      : new Option(modelPrompt(), ''));
     loadModels();
   }
 

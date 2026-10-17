@@ -93,8 +93,38 @@
           <label class="toggle-wrapper">
             <input type="checkbox" id="settingsShowAnalysis" class="toggle-input" checked>
             <span class="toggle-slider"></span>
-            <span class="toggle-text">Show analysis on profile</span>
+            <span class="toggle-text">Show the ElevateLI bar on my profile</span>
           </label>
+          <p class="cost-hint">Applies right away.</p>
+        </div>
+
+        <!-- Target role and level shape the tips and the AI prompts, so they work with AI off too -->
+        <div class="settings-section">
+          <label for="settingsTargetRole" class="settings-label">Target role</label>
+          <select id="settingsTargetRole" class="settings-select" aria-describedby="roleHint">
+            <option value="">Choose a role…</option>
+            <option value="product-manager">Product Manager</option>
+            <option value="software-engineer">Software Engineer</option>
+            <option value="data-scientist">Data Scientist</option>
+            <option value="designer">Designer</option>
+            <option value="marketing">Marketing</option>
+            <option value="sales">Sales</option>
+            <option value="consultant">Consultant</option>
+            <option value="entrepreneur">Founder or entrepreneur</option>
+            <option value="other">Other (type your own)</option>
+          </select>
+          <input type="text" id="settingsCustomRole" class="settings-input hidden" aria-label="Your target role" placeholder="e.g. DevOps Engineer or UX Researcher">
+
+          <label for="settingsSeniorityLevel" class="settings-label">Target level</label>
+          <select id="settingsSeniorityLevel" class="settings-select" aria-describedby="roleHint">
+            <option value="">Choose a level…</option>
+            <option value="entry">Entry level</option>
+            <option value="mid">Mid level</option>
+            <option value="senior">Senior</option>
+            <option value="lead">Lead or principal</option>
+            <option value="director">Director or above</option>
+          </select>
+          <p id="roleHint" class="cost-hint">Tailors your tips and AI ratings. Leave blank for general advice.</p>
         </div>
 
         <div class="settings-section">
@@ -102,73 +132,49 @@
           <label class="toggle-wrapper">
             <input type="checkbox" id="settingsEnableAI" class="toggle-input">
             <span class="toggle-slider"></span>
-            <span class="toggle-text">Enable AI analysis</span>
+            <span class="toggle-text">Turn on AI analysis</span>
           </label>
           <p class="cost-hint">When on, the profile sections being reviewed (including recommendations and who wrote them) go straight from your browser to the provider you pick, never to us. Free Gemini keys: Google may use this text to improve its products. <a href="../../privacy-terms.html#privacy" target="_blank">Privacy details</a></p>
 
           <div id="aiConfigSection" class="ai-config-section hidden">
             <select id="settingsAiProvider" class="settings-select" aria-label="AI provider">
-              <option value="">Select AI provider...</option>
+              <option value="">Choose an AI provider…</option>
               <option value="gemini" data-key-url="https://aistudio.google.com/apikey" data-pricing-url="https://ai.google.dev/gemini-api/docs/pricing">Google Gemini</option>
-              <option value="openai" data-key-url="https://platform.openai.com/api-keys" data-pricing-url="https://developers.openai.com/api/docs/pricing">OpenAI or local (Ollama, LM Studio)</option>
+              <option value="openai" data-key-url="https://platform.openai.com/api-keys" data-pricing-url="https://developers.openai.com/api/docs/pricing">OpenAI, or a local model (Ollama, LM Studio)</option>
               <option value="anthropic" data-key-url="https://platform.claude.com/settings/keys" data-pricing-url="https://claude.com/pricing#api">Anthropic Claude</option>
             </select>
             <label for="settingsApiKey" class="settings-label">API key</label>
             <input type="password" id="settingsApiKey" placeholder="Paste your API key" class="settings-input">
             <div id="apiKeyError" class="error-text" role="alert"></div>
             <select id="settingsAiModel" class="settings-select" aria-label="AI model">
-              <option value="">Enter your API key to load models</option>
+              <option value="">Choose a provider first</option>
             </select>
             <div id="modelError" class="error-text" role="alert"></div>
             <p class="cost-hint">Tip: a flash, mini or haiku model is cheap and works well.</p>
             <details id="baseUrlGroup" class="hidden">
-              <summary>Use a local model (Ollama / LM Studio)</summary>
+              <summary>Use a local model (Ollama or LM Studio)</summary>
               <label for="settingsBaseUrl" class="settings-label">Server URL (optional)</label>
-              <input type="url" id="settingsBaseUrl" placeholder="http://localhost:11434/v1" class="settings-input">
-              <p class="cost-hint">Leave empty for OpenAI. A local server needs no key. For Ollama, set OLLAMA_ORIGINS=chrome-extension://*</p>
+              <input type="url" id="settingsBaseUrl" class="settings-input">
+              <p class="cost-hint">Ollama: http://localhost:11434/v1. LM Studio: http://localhost:1234/v1. No API key needed. For Ollama, first set OLLAMA_ORIGINS=chrome-extension://* and restart it.</p>
             </details>
-            <p class="cost-hint"><a id="getKeyLink" href="https://aistudio.google.com/apikey" target="_blank">Get an API key</a><span class="separator">•</span><a id="pricingLink" href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank">Pricing</a></p>
+            <p id="keyLinks" class="cost-hint"><a id="getKeyLink" href="https://aistudio.google.com/apikey" target="_blank">Get a Gemini key →</a><span class="separator">•</span><a id="pricingLink" href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank">Gemini pricing →</a></p>
+            <p id="localNote" class="cost-hint hidden">Your profile text stays on your computer.</p>
 
-            <!-- Target role & custom instructions only feed the AI prompts -->
+            <!-- Custom instructions only feed the AI prompts -->
             <div class="ai-subsection">
-              <label for="settingsTargetRole" class="settings-label">Target role</label>
-              <select id="settingsTargetRole" class="settings-select">
-                <option value="">Select your target role...</option>
-                <option value="product-manager">Product Manager</option>
-                <option value="software-engineer">Software Engineer</option>
-                <option value="data-scientist">Data Scientist</option>
-                <option value="designer">Designer</option>
-                <option value="marketing">Marketing Professional</option>
-                <option value="sales">Sales Professional</option>
-                <option value="consultant">Consultant</option>
-                <option value="entrepreneur">Entrepreneur</option>
-                <option value="general">General Professional</option>
-                <option value="other">Other (specify)</option>
-              </select>
-              <input type="text" id="settingsCustomRole" class="settings-input hidden" aria-label="Custom target role" placeholder="Enter your target role (e.g., DevOps Engineer, UX Researcher)">
-
-              <label for="settingsSeniorityLevel" class="settings-label">Target level</label>
-              <select id="settingsSeniorityLevel" class="settings-select">
-                <option value="">Select target level...</option>
-                <option value="entry">Entry Level</option>
-                <option value="mid">Mid Level</option>
-                <option value="senior">Senior</option>
-                <option value="lead">Lead/Principal</option>
-                <option value="director">Director+</option>
-              </select>
-
               <label for="settingsCustomInstructions" class="settings-label">Custom instructions</label>
-              <textarea id="settingsCustomInstructions" class="settings-textarea"
-                        placeholder="e.g., Focus on leadership experience, highlight international work..."
+              <textarea id="settingsCustomInstructions" class="settings-textarea" aria-describedby="customInstructionsHint"
+                        placeholder="e.g. Focus on leadership. Mention my international work."
                         rows="3"></textarea>
+              <p id="customInstructionsHint" class="cost-hint">Sent to the AI with every section.</p>
             </div>
           </div>
         </div>
 
         <div class="settings-footer">
-          <button type="button" id="settingsClearApiKey">Clear API key</button>
+          <button type="button" id="settingsClearApiKey">Remove API key</button>
           <span class="separator">•</span>
-          <button type="button" id="settingsResetAll">Reset all</button>
+          <button type="button" id="settingsResetAll">Reset ElevateLI</button>
           <p id="settingsStatus" class="cost-hint" role="status"></p>
         </div>
       </div>
