@@ -576,8 +576,8 @@ function providerError(provider, baseUrl, status, body) {
   const custom = provider === 'openai' && baseUrl !== OPENAI_URL;
   const local = custom && /^http:\/\/(localhost|127\.0\.0\.1)\b/.test(baseUrl);
   const name = local ? 'Your local AI server' : custom ? baseUrl : { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini' }[provider];
-  // Gemini answers a bad key with 400 API_KEY_INVALID
-  const auth = status === 401 || status === 403 || !!body?.error?.details?.some(d => d.reason === 'API_KEY_INVALID');
+  // Gemini answers a bad key with 400 API_KEY_INVALID. A local server's 403 is OLLAMA_ORIGINS, not a key.
+  const auth = !(local && status === 403) && (status === 401 || status === 403 || !!body?.error?.details?.some(d => d.reason === 'API_KEY_INVALID'));
   return {
     errorType: !status ? 'NETWORK' : auth ? 'AUTH' : status === 429 ? 'RATE_LIMIT' : status >= 500 ? 'SERVICE_UNAVAILABLE' : 'PROVIDER_ERROR',
     error: !status ? (local ? `Can't reach your local AI server at ${baseUrl}. Is Ollama or LM Studio running?` : `Couldn't reach ${name}. Check your connection and try again.`)
@@ -679,6 +679,7 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
     throw new Error(`Unknown provider: ${provider}`);
   }
 
+  const timeout = "The AI didn't answer within 3 minutes. Try again, or pick a faster model.";
   let response;
   try {
     response = await fetch(providerConfig.url, {
@@ -689,9 +690,7 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
       signal: AbortSignal.timeout(180000)
     });
   } catch (error) {
-    throw Object.assign(new Error(error.name === 'TimeoutError'
-      ? "The AI didn't answer within 3 minutes. Try again, or pick a faster model."
-      : providerError(provider, baseUrl, 0).error), { errorType: 'NETWORK' });
+    throw Object.assign(new Error(error.name === 'TimeoutError' ? timeout : providerError(provider, baseUrl, 0).error), { errorType: 'NETWORK' });
   }
 
   if (!response.ok) {
@@ -700,7 +699,11 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
     throw Object.assign(new Error(error), { errorType });
   }
 
-  const data = await response.json();
+  // The timeout also runs during the body read. Any other unreadable body returns '', which parseSectionAnalysis reports as a parse error.
+  const data = await response.json().catch(error => {
+    if (error.name === 'TimeoutError') throw Object.assign(new Error(timeout), { errorType: 'NETWORK' });
+    return {};
+  });
   return (provider === 'openai' ? data.choices?.[0]?.message?.content
     : provider === 'anthropic' ? data.content?.find(block => block.type === 'text')?.text
     : data.candidates?.[0]?.content?.parts?.[0]?.text) || '';
