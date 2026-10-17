@@ -312,7 +312,7 @@ const OverlayManager = {
         }
         
         // A run that just failed AI says so next to its date; a restore shows the amber "No score" badge
-        if (!data.fromCache && !data.cacheRestored) {
+        if (!data.fromCache) {
           if (this.aiFailed(data)) this.showError('AI analysis failed', data.aiError);
           else this.announce(`Analysis complete. Profile ${Math.round(data.completeness)}% complete.`);
         }
@@ -1179,246 +1179,56 @@ const OverlayManager = {
   // ============================================================================
 
   /**
-   * Promise-based compliance check helper
-   * @returns {Promise<Object|null>} Compliance data or null
+   * The overlay state for what is stored: the consent card before setup, cached results, or the zero state
+   * @param {Object|undefined} cachedData - Cached analysis data
+   * @param {Object} settings - Current settings (enableAI, aiProvider)
+   * @param {Object|undefined} compliance - Compliance status
+   * @param {Object} context - The analyzer's error fallback: isErrorFallback, error, message (the banner text)
+   * @returns {{state: string, data: Object|null}}
    */
-  async getCompliance() {
-    return new Promise((resolve) => {
-      try {
-        if (!chrome?.storage?.local) {
-          resolve(null);
-          return;
-        }
-        
-        chrome.storage.local.get(['compliance'], (data) => {
-          if (chrome.runtime.lastError) {
-            resolve(null);
-            return;
-          }
-          resolve(data.compliance);
-        });
-      } catch (error) {
-        console.error('STATE.RESTORATION', 'Error getting compliance', error);
-        resolve(null);
-      }
-    });
-  },
-
-  /**
-   * Promise-based settings check helper
-   * @returns {Promise<Object>} Settings object (empty if failed)
-   */
-  async getSettings() {
-    return new Promise((resolve) => {
-      try {
-        if (!chrome?.storage?.local) {
-          resolve({});
-          return;
-        }
-        
-        chrome.storage.local.get(['enableAI', 'aiProvider', 'aiModel'], (data) => {
-          if (chrome.runtime.lastError) {
-            resolve({});
-            return;
-          }
-          resolve(data);
-        });
-      } catch (error) {
-        console.error('STATE.RESTORATION', 'Error getting settings', error);
-        resolve({});
-      }
-    });
-  },
-
-  /**
-   * Pure function to determine overlay state from data and context
-   * @param {Object|null} cachedData - Cached analysis data
-   * @param {Object} settings - Current settings
-   * @param {Object} compliance - Compliance status
-   * @param {Object} context - Additional context (error info, etc.)
-   * @returns {Object} State and data to set
-   */
-  /**
-   * Get cached data for a profile
-   * @param {string} profileId - Profile ID
-   * @returns {Promise<Object|null>} Cached data or null
-   */
-  async getCachedData(profileId) {
-    if (!profileId || !chrome?.storage?.local) {
-      return null;
-    }
-    
-    const cacheKey = `cache_${profileId}`;
-    return new Promise((resolve) => {
-      chrome.storage.local.get([cacheKey], (data) => {
-        if (chrome.runtime.lastError) {
-          resolve(null);
-        } else {
-          resolve(data[cacheKey] || null);
-        }
-      });
-    });
-  },
-  
   determineStateFromData(cachedData, settings, compliance, context = {}) {
-    // Check compliance first
-    if (!compliance?.hasAcknowledged) {
-      return {
-        state: this.states.INITIALIZING,
-        data: null
-      };
-    }
+    if (!compliance?.hasAcknowledged) return { state: this.states.INITIALIZING, data: null };
+    if (cachedData?.completeness === undefined) return { state: this.states.EMPTY_CACHE, data: null };
 
-    // If we have cached data, restore it
-    if (cachedData && cachedData.completeness !== undefined) {
-      // Keep every cached field (insights, AI-failure flags, extractedData), as analyzer-base's cache path does
-      const stateData = {
-        ...cachedData,
-        fromCache: true,
-        // Only mark AI as disabled if there's no content score - matches analyzer-base's cache path
-        aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
-        settings: {
-          enableAI: settings.enableAI,
-          aiProvider: settings.aiProvider,
-          aiModel: settings.aiModel
-        },
-        ...context // Include any additional context (error messages, etc.)
-      };
-
-      // Choose appropriate state based on context
-      if (context.isErrorFallback) {
-        return {
-          state: this.states.ANALYSIS_FAILED_CACHE_FALLBACK,
-          data: {
-            ...stateData,
-            analysisError: context.error || 'Analysis error',
-            message: context.message || 'Analysis failed. Showing your last results.'
-          }
-        };
-      } else {
-        return {
-          state: this.states.COMPLETE,
-          data: {
-            ...stateData,
-            fromCache: true,
-            cacheRestored: true
-          }
-        };
-      }
-    }
-
-    // No cache available - show empty state
-    return {
-      state: this.states.EMPTY_CACHE,
-      data: null
+    // Keep every cached field (insights, AI-failure flags, extractedData), as analyzer-base's cache path does
+    const data = {
+      ...cachedData,
+      fromCache: true,
+      // Only mark AI as disabled if there's no content score - matches analyzer-base's cache path
+      aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
+      settings: { enableAI: settings.enableAI, aiProvider: settings.aiProvider },
+      ...context
     };
+    return { state: context.isErrorFallback ? this.states.ANALYSIS_FAILED_CACHE_FALLBACK : this.states.COMPLETE, data };
   },
 
   /**
    * Central method to restore appropriate overlay state
-   * Replaces duplicate cache restoration logic throughout the codebase
-   * @param {string|null} profileId - Profile ID (will extract from URL if not provided)
+   * @param {string|null} profileId - Profile ID (from the URL if not provided)
    * @param {Object} context - Additional context for state determination
    * @returns {Promise<boolean>} True only when cached results were applied
    */
   async restoreAppropriateState(profileId = null, context = {}) {
+    // Don't interrupt active analysis - unless the running analysis itself asks for its error fallback
+    const busy = [this.states.SCANNING, this.states.CALCULATING, this.states.AI_ANALYZING].includes(this.currentState);
+    if (this.isRestoringState || (busy && !context.isErrorFallback)) return false;
+    this.isRestoringState = true;
+
     try {
-      // Prevent duplicate restoration attempts
-      if (this.isRestoringState) {
-        return false;
-      }
-
-      // Don't interrupt active analysis - unless the running analysis itself asks for its error fallback
-      if (!context.isErrorFallback &&
-          (this.currentState === this.states.AI_ANALYZING ||
-           this.currentState === this.states.SCANNING ||
-           this.currentState === this.states.CALCULATING)) {
-        return false;
-      }
-      
-      // Get profile ID if not provided
-      if (!profileId) {
-        // Try to extract profile ID from URL
-        try {
-          profileId = extractProfileIdFromUrl();
-        } catch (error) {
-          // Don't fail restoration just because of profile ID extraction
-          // The function might be temporarily unavailable
-        }
-        
-        if (!profileId) {
-          // Don't return false here - let restoration continue without profile ID
-          // Some operations might still work
-        }
-      }
-      
-      // Set restoration flag to prevent duplicates
-      this.isRestoringState = true;
-
-      // Get compliance, settings and cached data in parallel with individual error handling
-      let compliance = null;
-      let settings = null;
-      let cachedData = null;
-      
-      try {
-        [compliance, settings, cachedData] = await Promise.all([
-          this.getCompliance().catch(err => {
-            return null;
-          }),
-          this.getSettings().catch(err => {
-            return {};
-          }),
-          this.getCachedData(profileId).catch(err => {
-            return null;
-          })
-        ]);
-      } catch (promiseError) {
-        // Continue with null values
-      }
-      
-      
-      // Determine appropriate state
-      const { state, data } = this.determineStateFromData(cachedData, settings, compliance, context);
+      const cacheKey = `cache_${profileId || extractProfileIdFromUrl()}`;
+      const stored = await chrome.storage.local.get(['compliance', 'enableAI', 'aiProvider', cacheKey]);
+      const { state, data } = this.determineStateFromData(stored[cacheKey], stored, stored.compliance, context);
 
       // An error fallback with nothing cached is left to the caller (it shows its own error)
-      if (data || !context.isErrorFallback) {
-        this.setState(state, data);
-      }
-
-      // Clear restoration flag
-      this.isRestoringState = false;
-
+      if (data || !context.isErrorFallback) this.setState(state, data);
       return !!data;
-
     } catch (error) {
-      // Create a proper error object if needed
-      const errorObj = error instanceof Error ? error : 
-        new Error(typeof error === 'string' ? error : 'Unknown restoration error');
-      
-      console.error('STATE.RESTORATION', 'Restoration failed', errorObj, {
-        profileId: profileId,
-        currentState: this.currentState
-      });
-      
-      // Only fallback to empty cache if we're not already in a good state
-      // Don't overwrite COMPLETE state with EMPTY_CACHE
-      if (this.currentState !== this.states.COMPLETE &&
-          this.currentState !== this.states.AI_ANALYZING) {
-        try {
-          this.setState(this.states.EMPTY_CACHE);
-        } catch (fallbackError) {
-          const fallbackErrorObj = fallbackError instanceof Error ? fallbackError : 
-            new Error(typeof fallbackError === 'string' ? fallbackError : 'Fallback state setting failed');
-          console.error('STATE.RESTORATION', 'Fallback state setting failed', fallbackErrorObj, {
-            profileId: profileId
-          });
-        }
-      }
-      
-      // Clear restoration flag on error
-      this.isRestoringState = false;
-      
+      console.error('STATE.RESTORATION', 'Restoration failed', error);
+      // Don't overwrite results with the zero state
+      if (![this.states.COMPLETE, this.states.AI_ANALYZING].includes(this.currentState)) this.setState(this.states.EMPTY_CACHE);
       return false;
+    } finally {
+      this.isRestoringState = false;
     }
   }
 };
