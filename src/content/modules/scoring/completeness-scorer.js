@@ -1,7 +1,6 @@
 /**
  * Completeness Scorer Module for ElevateLI
  * Calculates profile completeness score based on section data
- * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
 class ProfileCompletenessCalculator {
@@ -19,145 +18,66 @@ class ProfileCompletenessCalculator {
       projects: 2
     };
     
-    // LinkedIn character limits (2025)
-    this.characterLimits = {
-      headline: 220,
-      about: 2600,
-      experienceDescription: 2000
-    };
-    
-    // Content depth thresholds
-    this.contentDepthThresholds = {
-      headline: {
-        excellent: 0.75,  // 165+ chars
-        good: 0.50,       // 110+ chars
-        minimum: 0.30     // 66+ chars
-      },
-      about: {
-        excellent: 0.60,  // 1560+ chars
-        good: 0.40,       // 1040+ chars
-        minimum: 0.20     // 520+ chars
-      },
-      experienceDescription: {
-        excellent: 0.40,  // 800+ chars
-        good: 0.25,       // 500+ chars
-        minimum: 0.15     // 300+ chars
-      }
-    };
-    
-    // Section-specific rules
+    // Section-specific rules. Character thresholds are shares of LinkedIn's limits:
+    // headline 220 (75/50/30%), About 2600 (60/40/20/10%), role description 2000 (40/25/15%).
     this.rules = {
       photo: {
-        check: (data) => data.exists || data === true,
-        points: 5,
+        check: (data) => data.exists, // throws on null (extractor error), so the catch skips the gap
         getMessage: () => "Add a professional photo"
       },
       
       headline: {
-        check: (data) => data && data.charCount >= 50,
-        getScore: function(data) {
+        getScore: (data) => {
           if (!data || !data.exists || !data.charCount) return 0;
-          const utilization = data.charCount / this.characterLimits.headline;
-          
-          if (utilization >= this.contentDepthThresholds.headline.excellent) return 1.0;
-          if (utilization >= this.contentDepthThresholds.headline.good) return 0.8;
-          if (utilization >= this.contentDepthThresholds.headline.minimum) return 0.5;
-          return 0.2;
+          const n = data.charCount;
+          return n >= 165 ? 1.0 : n >= 110 ? 0.8 : n >= 66 ? 0.5 : 0.2;
         },
-        points: 10,
-        getMessage: function(data) {
-          if (!data || !data.exists) return "Add a professional headline";
-          const headlineLimit = 220; // LinkedIn headline character limit
-          const utilization = data.charCount / headlineLimit;
-          if (utilization < 0.30) return `Expand headline to 70+ characters (currently ${data.charCount}/220)`;
-          if (utilization < 0.50) return `Add more detail to headline (aim for 110+ characters)`;
-          if (utilization < 0.75) return `Optimize headline further (165+ characters recommended)`;
-          return "Headline looks good - ensure keywords are included";
+        getMessage: (data) => {
+          if (!data || !data.exists || !data.charCount) return "Add a professional headline";
+          return `Headline is ${data.charCount} characters. 165+ gets full credit.`;
         }
       },
       
       about: {
-        check: (data) => {
-          // Must have actual content, not just the section existing
-          return data && data.exists && data.charCount >= 800;
-        },
-        getScore: function(data) {
+        getScore: (data) => {
           if (!data || !data.exists || !data.charCount) return 0;
-          const utilization = data.charCount / this.characterLimits.about;
-          
-          if (utilization >= this.contentDepthThresholds.about.excellent) return 1.0;
-          if (utilization >= this.contentDepthThresholds.about.good) return 0.75;
-          if (utilization >= this.contentDepthThresholds.about.minimum) return 0.4;
-          if (utilization >= 0.1) return 0.2;
-          return 0;
+          const n = data.charCount;
+          return n >= 1560 ? 1.0 : n >= 1040 ? 0.75 : n >= 520 ? 0.4 : n >= 260 ? 0.2 : 0;
         },
-        points: 20,
-        getMessage: function(data) {
-          if (!data || !data.exists || data.charCount === 0) return "Add an About section";
-          const aboutLimit = 2600; // LinkedIn about section character limit
-          const utilization = data.charCount / aboutLimit;
-          if (utilization < 0.20) return `About section too brief (${data.charCount}/2600) - aim for 1000+ characters`;
-          if (utilization < 0.40) return `Expand About section (${data.charCount}/2600) - recruiters need more detail`;
-          if (utilization < 0.60) return `Good About section - consider adding more achievements`;
-          return "Excellent About section depth";
+        getMessage: (data) => {
+          if (!data || !data.exists || !data.charCount) return "Add an About section";
+          return `About is ${data.charCount} characters. 1560+ gets full credit.`;
         }
       },
       
       experience: {
-        check: (data) => {
-          if (!data || !data.exists || data.count === 0) return false;
-          if (data.count < 2) return false;
-          if (!data.hasCurrentRole) return false;
-          // Check average description length (aim for 150+ chars per role)
-          // Only check if we have the data
-          if (data.averageDescriptionLength !== undefined) {
-            return data.averageDescriptionLength >= 150;
-          }
-          // Fallback - if we have 2+ roles and current role, consider it complete
-          return true;
+        getScore: (data) => {
+          // An existing section has at least one role and always sets averageDescriptionLength
+          if (!data?.exists) return 0;
+          const avg = data.averageDescriptionLength;
+          // Roles, current role, description depth, then a recency bonus for the current role.
+          // Sums to at most 1.0; keep the order, since regrouping the two 0.2 terms changes the float result.
+          return (data.count >= 2 ? 0.3 : 0.15) +
+            (data.hasCurrentRole ? 0.2 : 0) +
+            (avg >= 800 ? 0.3 : avg >= 500 ? 0.2 : avg >= 300 ? 0.1 : 0) +
+            (data.hasCurrentRole ? 0.2 : 0);
         },
-        getScore: function(data) {
-          if (!data || !data.exists || data.count === 0) return 0;
-          
-          // Base scoring components
-          const hasRoles = data.count >= 2 ? 0.3 : (data.count === 1 ? 0.15 : 0);
-          const hasCurrent = data.hasCurrentRole ? 0.2 : 0;
-          
-          // Content depth scoring
-          let contentScore = 0;
-          if (data.averageDescriptionLength !== undefined) {
-            const avgUtilization = data.averageDescriptionLength / this.characterLimits.experienceDescription;
-            if (avgUtilization >= this.contentDepthThresholds.experienceDescription.excellent) {
-              contentScore = 0.3;
-            } else if (avgUtilization >= this.contentDepthThresholds.experienceDescription.good) {
-              contentScore = 0.2;
-            } else if (avgUtilization >= this.contentDepthThresholds.experienceDescription.minimum) {
-              contentScore = 0.1;
-            }
-          }
-          
-          // Recency bonus - only for a current role
-          const recencyScore = data.hasCurrentRole ? 0.2 : 0;
-          
-          const score = hasRoles + hasCurrent + contentScore + recencyScore;
-          return Math.min(score, 1.0);
-        },
-        points: 25,
-        getMessage: function(data) {
-          if (!data || !data.exists || data.count === 0) return "Add your work experience";
+        getMessage: (data) => {
+          if (!data?.exists) return "Add your work experience";
           if (data.count === 1) return "Add more work experiences (at least 2)";
           if (!data.hasCurrentRole) return "Update with your current position";
-          if (data.averageDescriptionLength !== undefined && data.averageDescriptionLength < 300) {
-            return `Expand experience descriptions (avg ${Math.round(data.averageDescriptionLength)} chars) - aim for 500+ per role`;
+          const empty = data.emptyRoles || [];
+          if (empty.length) {
+            return `Add a description to your ${empty.slice(0, 2).join(' and ')} role${empty.length > 1 ? 's' : ''}` +
+              (empty.length > 2 ? ` (+${empty.length - 2} more empty)` : '');
           }
-          return "Enhance experience descriptions";
+          return `Role descriptions average ${data.averageDescriptionLength} characters. 800+ per role gets full credit. Add one measurable result to each.`;
         }
       },
       
       skills: {
         check: (data) => data && data.count >= 10,
-        points: 15,
-        getMessage: function(data) {
+        getMessage: (data) => {
           if (!data || !data.exists || data.count === 0) return "Add relevant skills";
           if (data.count < 5) return "Add more skills (aim for 10+)";
           if (data.count < 10) return `Add ${10 - data.count} more skills`;
@@ -167,8 +87,7 @@ class ProfileCompletenessCalculator {
       
       education: {
         check: (data) => data && data.count >= 1,
-        points: 10,
-        getMessage: function(data) {
+        getMessage: (data) => {
           if (!data || !data.exists || data.count === 0) return "Add your education";
           return "Complete your education details";
         }
@@ -177,22 +96,13 @@ class ProfileCompletenessCalculator {
       recommendations: {
         check: (data) => {
           if (!data || !data.exists || data.count === 0) return false;
-          // Check if has recent recommendations (within 2 years)
-          // Fallback to basic count check if recency data not available
-          if (data.isCurrentlyEndorsed !== undefined || data.hasRecentRecommendations !== undefined) {
-            return data.isCurrentlyEndorsed === true || data.hasRecentRecommendations === true;
-          }
-          // If no recency data, just check if has any recommendations
+          // A recent one (within 2 years) when dates were read, else any
+          if (data.isCurrentlyEndorsed !== undefined) return data.isCurrentlyEndorsed;
           return data.count >= 1;
         },
-        points: 10,
-        getMessage: function(data) {
+        getMessage: (data) => {
           if (!data || !data.exists || data.count === 0) return "Request at least one recommendation";
-          // Only show recency message if we actually have the data to check
-          if ((data.isCurrentlyEndorsed === false || data.hasRecentRecommendations === false) &&
-              (data.isCurrentlyEndorsed !== undefined || data.hasRecentRecommendations !== undefined)) {
-            return "Request a recent recommendation (within 2 years)";
-          }
+          if (data.isCurrentlyEndorsed === false) return "Request a recent recommendation (within 2 years)";
           if (data.count < 3) return "Request more recommendations (aim for 3+)";
           return "Keep recommendations current";
         }
@@ -200,13 +110,11 @@ class ProfileCompletenessCalculator {
       
       certifications: {
         check: (data) => data && data.count >= 1,
-        points: 3,
         getMessage: () => "Add relevant certifications"
       },
       
       projects: {
         check: (data) => data && data.count >= 1,
-        points: 2,
         getMessage: () => "Showcase projects you've worked on"
       }
     };
@@ -226,69 +134,49 @@ class ProfileCompletenessCalculator {
     let earnedPoints = 0;
     let totalPoints = 0;
     
-    // Process each section
+    // Process each section. Every weight has a rule, and runExtractors sets every key (null on error).
     for (const [section, weight] of Object.entries(this.weights)) {
       const data = sectionData[section];
       const rule = this.rules[section];
-      
-      
+
       totalPoints += weight;
-      
-      if (rule && data !== undefined) {
-        try {
-          // Use getScore if available for graduated scoring, otherwise fall back to check
-          const scoreMultiplier = rule.getScore ? rule.getScore.call(this, data) : (rule.check(data) ? 1 : 0);
-          
-          const points = weight * scoreMultiplier;
-          earnedPoints += points;
-          const passed = scoreMultiplier >= 0.5; // Consider >= 50% as "passed"
-          
-          
-          breakdown[section] = {
-            weight,
-            earned: points,
-            passed,
-            scoreMultiplier,
-            data: this.summarizeData(data)
-          };
-          
-          if (scoreMultiplier < 1) {
-            recommendations.push({
-              section,
-              priority: this.getPriority(section, weight, scoreMultiplier),
-              message: rule.getMessage.call(this, data),
-              impact: weight * (1 - scoreMultiplier),
-              weight: weight,
-              currentScore: scoreMultiplier
-            });
-          }
-        } catch (error) {
-          // Set default values for this section
-          breakdown[section] = {
-            weight,
-            earned: 0,
-            passed: false,
-            scoreMultiplier: 0,
-            data: null
-          };
-          // Continue processing other sections
+
+      try {
+        // Use getScore if available for graduated scoring, otherwise fall back to check
+        const scoreMultiplier = rule.getScore ? rule.getScore(data) : (rule.check(data) ? 1 : 0);
+
+        const points = weight * scoreMultiplier;
+        earnedPoints += points;
+        const passed = scoreMultiplier >= 0.5; // Consider >= 50% as "passed"
+
+        breakdown[section] = {
+          weight,
+          earned: points,
+          passed,
+          scoreMultiplier,
+          data: this.summarizeData(data)
+        };
+
+        if (scoreMultiplier < 1) {
+          recommendations.push({
+            section,
+            priority: this.getPriority(section, weight, scoreMultiplier),
+            message: rule.getMessage(data),
+            impact: weight * (1 - scoreMultiplier),
+            weight: weight,
+            currentScore: scoreMultiplier
+          });
         }
-      } else {
-        // Section not found or no rule
+      } catch (error) {
+        // Set default values for this section
         breakdown[section] = {
           weight,
           earned: 0,
           passed: false,
+          scoreMultiplier: 0,
           data: null
         };
-        
-        recommendations.push({
-          section,
-          priority: 'high',
-          message: `Add ${section} section`,
-          impact: weight,
-          weight: weight
-        });
+        // Continue processing other sections
       }
     }
     

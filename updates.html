@@ -51,12 +51,8 @@
         }
         
         .version-badge {
-            background: #0a66c2;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 16px;
-            font-size: 13px;
-            font-weight: 500;
+            color: rgba(0, 0, 0, 0.6);
+            font-size: 12px;
         }
         
         .main-content {
@@ -96,21 +92,6 @@
             color: rgba(0, 0, 0, 0.6);
         }
         
-        .ai-highlight {
-            background: #fff3cd;
-            border: 1px solid #ffeeba;
-            border-radius: 6px;
-            padding: 12px 16px;
-            max-width: 280px;
-            font-size: 13px;
-        }
-        
-        .ai-highlight strong {
-            display: block;
-            margin-bottom: 4px;
-            color: #856404;
-        }
-        
         .value-props {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -121,20 +102,6 @@
             display: flex;
             align-items: flex-start;
             gap: 12px;
-        }
-        
-        .value-icon {
-            flex-shrink: 0;
-            width: 32px;
-            height: 32px;
-            background: #e7f3ff;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #0a66c2;
-            font-weight: 600;
-            font-size: 14px;
         }
         
         .value-text strong {
@@ -200,10 +167,14 @@
             font-size: 13px;
             color: rgba(0, 0, 0, 0.7);
         }
+
+        .step-text a {
+            color: #0a66c2;
+        }
         
         .feature-list {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
+            grid-template-columns: 1fr;
             gap: 10px;
         }
         
@@ -269,15 +240,6 @@
             line-height: 1.6;
         }
         
-        .ai-link {
-            color: #0a66c2;
-            text-decoration: none;
-        }
-        
-        .ai-link:hover {
-            text-decoration: underline;
-        }
-        
         .cta-footer {
             background: white;
             border-radius: 8px;
@@ -317,6 +279,11 @@
             text-align: center;
             padding: 16px;
             font-size: 13px;
+            color: rgba(0, 0, 0, 0.6);
+        }
+
+        .footer p {
+            margin-top: 8px;
         }
         
         .footer a {
@@ -333,10 +300,6 @@
             .hero-header {
                 flex-direction: column;
                 gap: 16px;
-            }
-            
-            .ai-highlight {
-                max-width: 100%;
             }
             
             .value-props {
@@ -364,12 +327,12 @@
     <header class="header">
         <div class="header-content">
             <div class="header-left">
-                <img src="src/images/icon48.png" alt="ElevateLI" class="logo">
+                <img src="src/images/icon48.png" alt="" class="logo">
                 <div class="header-text">
                     <h1>ElevateLI</h1>
                 </div>
             </div>
-            <span class="version-badge">Version 1.0</span>
+            <span class="version-badge">v1.0.0</span>
         </div>
     </header>
     
@@ -377,18 +340,15 @@
         <div class="hero-section">
             <div class="hero-header">
                 <div class="hero-text">
-                    <h2 class="hero-title">Your LinkedIn Profile, Optimized</h2>
-                    <p class="hero-subtitle">Instant completeness scoring. See what's missing, right away!</p>
+                    <h2 class="hero-title">Your LinkedIn profile, optimized</h2>
+                    <p class="hero-subtitle">Instant completeness scoring. See what's missing, right away.</p>
+                    <p class="hero-subtitle">What's new in v1.0.0: first release.</p>
                 </div>
-                <div class="ai-highlight">
-                    <strong>🎯 Want personalized advice?</strong>
-                    Plug in your own AI for private personalized advice!
-                </div>
+                <a class="cta-button" href="https://www.linkedin.com/in/me/" target="_blank">Open my LinkedIn profile</a>
             </div>
             
             <div class="value-props">
                 <div class="value-prop">
-                    <div class="value-icon">🔒</div>
                     <div class="value-text">
                         <strong>Private by default</strong>
                         <span>Scoring runs in your browser; AI goes only to your chosen provider</span>
@@ -396,17 +356,15 @@
                 </div>
                 
                 <div class="value-prop">
-                    <div class="value-icon">🤖</div>
                     <div class="value-text">
-                        <strong>Use Your Own AI</strong>
+                        <strong>Use your own AI</strong>
                         <span>Your API key, your control</span>
                     </div>
                 </div>
                 
                 <div class="value-prop">
-                    <div class="value-icon">📋</div>
                     <div class="value-text">
-                        <strong>No Copy-Paste Needed</strong>
+                        <strong>No copy-paste needed</strong>
                         <span>Direct analysis on LinkedIn</span>
                     </div>
                 </div>
@@ -415,33 +373,33 @@
         
         <div class="two-column">
             <div class="section-card">
-                <h3 class="section-title">Quick Start</h3>
+                <h3 class="section-title">Quick start</h3>
                 <div class="steps">
                     <div class="step">
                         <div class="step-number">1</div>
-                        <div class="step-text">Visit your own LinkedIn profile</div>
+                        <div class="step-text"><a href="https://www.linkedin.com/in/me/" target="_blank">Open my LinkedIn profile</a></div>
                     </div>
                     <div class="step">
                         <div class="step-number">2</div>
-                        <div class="step-text">Click the ElevateLI icon and choose Get Started</div>
+                        <div class="step-text">Click Analyze in the ElevateLI bar on your profile, or pin ElevateLI from the puzzle-piece (Extensions) menu and choose Get started</div>
                     </div>
                     <div class="step">
                         <div class="step-number">3</div>
-                        <div class="step-text">Click Analyze and review your completeness score</div>
+                        <div class="step-text">Review your completeness score. The page scrolls briefly while ElevateLI reads each section.</div>
                     </div>
                     <div class="step">
                         <div class="step-number">4</div>
-                        <div class="step-text">Fix red sections first (biggest impact)</div>
+                        <div class="step-text">Fill in missing sections first (each tip shows the % it adds)</div>
                     </div>
                 </div>
             </div>
             
             <div class="section-card">
-                <h3 class="section-title">Core Features</h3>
+                <h3 class="section-title">Core features</h3>
                 <div class="feature-list">
                     <div class="feature-item">
                         <span class="check">✓</span>
-                        <span>Real-time completeness %</span>
+                        <span>One-click completeness %</span>
                     </div>
                     <div class="feature-item">
                         <span class="check">✓</span>
@@ -449,7 +407,7 @@
                     </div>
                     <div class="feature-item">
                         <span class="check">✓</span>
-                        <span>Zero data collection</span>
+                        <span>No data sent to us</span>
                     </div>
                 </div>
             </div>
@@ -457,25 +415,24 @@
         
         <div class="ai-section">
             <div class="ai-header">
-                <h3 class="ai-title">AI-Powered Recommendations</h3>
+                <h3 class="ai-title">AI-powered suggestions</h3>
                 <span class="ai-badge">Optional</span>
             </div>
             <div class="ai-content">
                 <div class="ai-info">
-                    <strong>Use YOUR OWN API key to unlock:</strong>
+                    <strong>Add a Gemini, OpenAI or Anthropic API key, or a free local model (Ollama/LM Studio), in ElevateLI settings to get:</strong>
                     <ul style="margin: 8px 0 0 20px; padding: 0;">
                         <li>Role-specific content suggestions</li>
-                        <li>Industry-tailored keywords</li>
                         <li>Personalized improvement tips</li>
-                        <li>Content quality scoring (1-10)</li>
+                        <li>Content quality rating (1–5 stars)</li>
                     </ul>
                 </div>
                 <div class="ai-providers">
-                    <strong>AI Integration:</strong><br>
-                    ✓ Compatible with major AI providers<br>
-                    ✓ Use your own API credentials<br>
-                    ✓ Direct provider connection<br>
-                    ✓ You control your usage<br><br>
+                    <strong>AI integration:</strong><br>
+                    <span class="check">✓</span> Compatible with major AI providers<br>
+                    <span class="check">✓</span> Use your own API credentials<br>
+                    <span class="check">✓</span> Direct provider connection<br>
+                    <span class="check">✓</span> You control your usage<br><br>
                     <em style="color: #666; font-size: 12px;">All API costs are charged directly by your chosen provider</em>
                 </div>
             </div>
@@ -491,7 +448,10 @@
     <footer class="footer">
         <a href="privacy-terms.html#privacy">Privacy Policy</a>
         <a href="privacy-terms.html#terms">Terms of Service</a>
-        <a href="https://github.com/prPMDev/elevateli/issues" target="_blank">Contact & Support</a>
+        <a href="updates.html">What's new</a>
+        <a href="https://github.com/prPMDev/elevateli" target="_blank">Source code</a>
+        <a href="https://github.com/prPMDev/elevateli/issues/new" target="_blank">Send feedback</a>
+        <p>© 2025 ElevateLI. Not affiliated with or endorsed by LinkedIn.</p>
     </footer>
 </body>
 </html>

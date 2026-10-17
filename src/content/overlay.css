@@ -3,22 +3,58 @@
  * Progressive UI states and LinkedIn-matching design
  */
 
+/* Colour tokens. Light by default; .eli-dark (createAndInject reads LinkedIn's theme off the top card) flips them.
+ * Semantic fills are rgba tints, so they need no dark override. The toast sits on <body>, so it gets the tokens too.
+ * Every text pair is 4.5:1 or better in both themes. */
+.elevateli-overlay-wrapper,
+.elevateli-toast {
+  --eli-surface: #fff;
+  --eli-surface-muted: #f3f2ef;
+  --eli-text: rgba(0, 0, 0, 0.9);
+  --eli-text-muted: rgba(0, 0, 0, 0.6);
+  --eli-link: #0a66c2;
+  --eli-success: #057642;
+  --eli-warning: #a8500a;
+  --eli-error: #b91c1c;
+  color-scheme: light;
+}
+
+.elevateli-overlay-wrapper.eli-dark,
+.elevateli-toast.eli-dark {
+  --eli-surface: #1b1f23;
+  --eli-surface-muted: #2d3135;
+  --eli-text: rgba(255, 255, 255, 0.9);
+  --eli-text-muted: rgba(255, 255, 255, 0.6);
+  --eli-link: #71b7fb;
+  --eli-success: #5fc48e;
+  --eli-warning: #f0b54a;
+  --eli-error: #f58b8b;
+  color-scheme: dark;
+}
+
 /* ============================================
  * COLLAPSED VIEW STYLES
  * ============================================ */
+/* A narrow column or 200% zoom wraps the bar instead of clipping or hiding anything. The date and
+ * controls sit in .eli-bar-end, so they wrap together and stay right-aligned */
 .overlay-collapsed-view {
   display: flex;
   align-items: center;
-  gap: 4px;  /* Reduced from 6px */
-  padding: 8px 20px;
-  min-height: 44px;  /* Reduced from 50px */
-  border-bottom: 1px solid #e0e0e0;
-  overflow: hidden;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 24px;
 }
 
-.overlay-collapsed-view .brand-logo,
-.overlay-collapsed-view .overlay-logo {
+.overlay-collapsed-view .eli-bar-end {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.overlay-collapsed-view .brand-logo {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
@@ -28,12 +64,8 @@
 .overlay-collapsed-view .brand-name {
   font-weight: 600;
   font-size: 14px;
-  color: #0a66c2;
+  color: var(--eli-link);
   margin-right: 16px;
-}
-
-.overlay-collapsed-view .spacer {
-  flex: 1;
 }
 
 .overlay-collapsed-view .score-badge {
@@ -46,596 +78,336 @@
   margin-right: 6px;
 }
 
-.overlay-collapsed-view .score-badge.completeness {
-  background: #e7f3ff;
-  color: #0a66c2;
-}
-
-.overlay-collapsed-view .score-badge.completeness.high {
-  background: #e8f5e9;
-  color: #057642;
-}
-
-.overlay-collapsed-view .score-badge.completeness.medium {
-  background: #fff3cd;
-  color: #856404;
-}
-
-.overlay-collapsed-view .score-badge.completeness.low {
-  background: #fee;
-  color: #dc2626;
-}
-
+/* Unscored ("—", AI off): neutral, so it can't be mistaken for a score */
+.overlay-collapsed-view .score-badge.completeness,
 .overlay-collapsed-view .score-badge.quality {
-  background: #f0f9ff;
-  color: #0369a1;
+  background: var(--eli-surface-muted);
+  color: var(--eli-text-muted);
 }
 
-.overlay-collapsed-view .score-badge.quality.high {
-  background: #e8f5e9;
-  color: #057642;
+/* Score colours from getScoreClass (90/70/50, 8.5/7/5). Good and excellent share green. */
+.overlay-collapsed-view .score-badge.score-excellent,
+.overlay-collapsed-view .score-badge.score-good {
+  background: rgba(5, 118, 66, 0.12);
+  color: var(--eli-success);
 }
 
-.overlay-collapsed-view .score-badge.quality.medium {
-  background: #fff3cd;
-  color: #856404;
+/* Moderate, and AI on but failed ("No score", the reason is in the title) */
+.overlay-collapsed-view .score-badge.score-moderate,
+.overlay-collapsed-view .score-badge.quality.ai-error {
+  background: rgba(245, 158, 11, 0.16);
+  color: var(--eli-warning);
 }
 
-.overlay-collapsed-view .score-badge.quality.low {
-  background: #fee;
-  color: #dc2626;
+.overlay-collapsed-view .score-badge.score-poor {
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--eli-error);
 }
 
-.overlay-collapsed-view .score-badge.quality.ai-disabled {
-  background: #f3f4f6;
-  color: #6b7280;
-  font-size: 12px;
-}
-
-.overlay-collapsed-view .score-badge.quality.ai-disabled.error {
-  background: #fee2e2;
-  color: #dc2626;
+.eli-asterisk {
+  font-weight: bold;
+  margin-left: 2px;
+  cursor: help;
 }
 
 .overlay-collapsed-view .last-analyzed-collapsed {
   font-size: 12px;
-  color: #666;
+  color: var(--eli-text-muted);
   white-space: nowrap;
   margin-right: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.overlay-collapsed-view .analyze-btn-collapsed {
-  background: #0a66c2;
-  border: 1px solid #0a66c2;
-  color: white;
-  padding: 5px 12px;  /* Increased vertical padding */
-  border-radius: 16px;
-  font-size: 12px;
+.overlay-collapsed-view .last-analyzed-collapsed.is-stale {
+  color: var(--eli-warning);
+}
+
+.overlay-collapsed-view .last-analyzed-collapsed.has-error {
+  color: var(--eli-error);
+}
+
+/* Text-style button, e.g. "Open settings" */
+.elevateli-overlay .eli-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--eli-link);
+  cursor: pointer;
+}
+
+.elevateli-overlay .eli-link:hover {
+  text-decoration: underline;
+}
+
+/* The bar's ×: hide on my profile */
+.overlay-collapsed-view .eli-hide {
+  background: none;
+  border: 0;
+  padding: 0 4px;
+  margin-left: 8px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--eli-text-muted);
+  cursor: pointer;
+}
+
+.overlay-collapsed-view .eli-hide:hover {
+  color: var(--eli-text);
+}
+
+/* Zero state: welcome + consent before setup, one line after */
+.eli-welcome-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--eli-text);
+}
+
+.eli-welcome-text,
+.eli-welcome-consent {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--eli-text);
+}
+
+.eli-welcome-consent {
+  color: var(--eli-text-muted);
+}
+
+.eli-welcome-consent a {
+  color: var(--eli-link);
+  text-decoration: underline;
+}
+
+.elevateli-overlay .eli-primary {
+  min-height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--eli-link);
+  color: var(--eli-surface);
+  font: inherit;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+}
+
+.elevateli-overlay .eli-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--eli-link) 85%, #000);
+}
+
+/* Screen-reader-only live region */
+.elevateli-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
   white-space: nowrap;
-  margin-right: 4px;  /* Reduced from 6px */
-  min-width: 80px; /* Fixed width to prevent layout shift */
-  text-align: center;
 }
 
-.overlay-collapsed-view .analyze-btn-collapsed:hover {
-  background: #0856a0;
-  border-color: #0856a0;
+/* Analyze is an .eli-primary pill (LinkedIn's 32px, 14px/600); this keeps it from shrinking or shifting */
+.overlay-collapsed-view .analyze-btn-collapsed {
+  flex-shrink: 0;
+  min-width: 80px; /* "Analyze" and "Analyzing…" take the same slot */
+  margin-right: 4px;
+  white-space: nowrap;
 }
 
+/* Once results show, the score leads and Analyze steps back to an outlined button */
+.elevateli-overlay[data-state="complete"] .analyze-btn-collapsed:not(:disabled) {
+  background: var(--eli-surface);
+  box-shadow: inset 0 0 0 1px var(--eli-link);
+  color: var(--eli-link);
+}
+
+.elevateli-overlay[data-state="complete"] .analyze-btn-collapsed:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--eli-link) 10%, var(--eli-surface));
+}
+
+/* Disabled only while analyzing, and then it carries the progress ("Analyzing 2/5"), so keep it readable */
 .overlay-collapsed-view .analyze-btn-collapsed:disabled {
-  background: #ccc;
-  border-color: #ccc;
-  cursor: not-allowed;
+  background: var(--eli-surface-muted);
+  color: var(--eli-text-muted);
+  cursor: progress;
 }
 
+/* A disclosure button styled as .eli-link; the vertical padding makes the target 24px+ tall */
 .overlay-collapsed-view .view-details-link {
-  color: #0a66c2;
-  text-decoration: none;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  flex-shrink: 0;
+  padding: 4px 0;
   white-space: nowrap;
 }
 
-/* Analyze section with cancel link */
-.overlay-collapsed-view .analyze-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin-right: 8px;
-}
-
-.overlay-collapsed-view .cancel-analysis-link {
-  margin-top: 2px;
-  font-size: 11px;
-  color: #666;
-  text-decoration: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.overlay-collapsed-view .cancel-analysis-link:hover {
-  color: #dc2626;
-  text-decoration: underline;
-}
-
-.overlay-collapsed-view .view-details-link:hover {
-  text-decoration: underline;
-}
-
-/* Responsive Label Display - Hide short versions by default */
-.label-short {
-  display: none;
-}
-
-.btn-text-short {
-  display: none;
-}
-
-.stars-numeric {
-  display: none;
-}
-
+/* Short forms by the column's width, not the viewport's. Nothing is hidden: the bar wraps instead. */
+.label-short,
+.stars-numeric,
 .details-text-medium {
   display: none;
 }
 
-.details-icon {
-  display: none;
-}
-
-/* Medium screens (tablets, iPad mini) */
-@media (max-width: 768px) {
-  /* Show "Details" instead of "View details" */
+@container (max-width: 768px) {
   .details-text-full {
     display: none;
   }
-  
+
   .details-text-medium {
     display: inline;
   }
 }
 
-/* Small screens (phones) */
-@media (max-width: 500px) {
-  /* Abbreviated labels */
-  .label-full {
-    display: none;
-  }
-  
-  .label-short {
-    display: inline;
-  }
-  
-  /* Abbreviated button text */
-  .btn-text-full {
-    display: none;
-  }
-  
-  .btn-text-short {
-    display: inline;
-  }
-  
-  /* Show numeric rating instead of visual stars for empty state */
+@container (max-width: 550px) {
+  .label-full,
   .stars-visual {
     display: none;
   }
-  
+
+  .label-short,
   .stars-numeric {
     display: inline;
   }
-  
-  /* Show icon instead of "Details" text */
-  .details-text-medium {
-    display: none;
-  }
-  
-  .details-icon {
-    display: inline;
-    color: #0a66c2;
-    font-size: 18px;
-    vertical-align: middle;
-  }
 }
 
-/* Spin animation for analyzing state */
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-/* Container query support for modern browsers */
-@supports (container-type: inline-size) {
-  .elevateli-overlay-wrapper {
-    container-type: inline-size;
-  }
-  
-  @container (max-width: 700px) {
-    .overlay-collapsed-view .brand-name {
-      display: none;
-    }
-  }
-  
-  @container (max-width: 550px) {
-    .overlay-collapsed-view .last-analyzed-collapsed {
-      display: none;
-    }
-    
-    .overlay-collapsed-view .score-badge {
-      font-size: 11px;
-      padding: 2px 6px;
-    }
-  }
-}
-
-/* Fallback: Responsive design for smaller screens using viewport */
-@media (max-width: 900px) {
-  .overlay-collapsed-view .brand-name {
-    display: none;
-  }
-  
-  .overlay-collapsed-view .brand-logo {
-    margin-right: 8px;
-  }
-}
-
-/* Even smaller screens - hide timestamp text */
-@media (max-width: 700px) {
-  .overlay-collapsed-view .last-analyzed-collapsed {
-    display: none;
-  }
-  
-  .overlay-collapsed-view {
-    padding: 12px 16px;
-  }
-  
-  .overlay-collapsed-view .score-badge {
-    font-size: 11px;
-    padding: 2px 6px;
-  }
-}
-
-/* View state visibility rules */
-[data-view-state="collapsed"] .overlay-collapsed-view {
-  display: flex;
-}
-
+/* The bar is always shown; the panel below it only while expanded */
 [data-view-state="collapsed"] .overlay-expanded-view {
   display: none;
-}
-
-[data-view-state="expanded"] .overlay-collapsed-view {
-  display: flex; /* Keep visible but change button text */
-}
-
-[data-view-state="expanded"] .overlay-expanded-view {
-  display: block;
-}
-
-/* ============================================
- * NEW COLOR SYSTEM (REDESIGN SPEC)
- * ============================================ */
-.score-excellent { color: #10b981 !important; }  /* 90-100% or 8.5-10 */
-.score-good { color: #3b82f6 !important; }      /* 70-89% or 7-8.4 */
-.score-moderate { color: #f59e0b !important; }  /* 50-69% or 5-6.9 */
-.score-poor { color: #ef4444 !important; }      /* <50% or <5 */
-
-/* Background colors for badges */
-.overlay-collapsed-view .score-badge.score-excellent {
-  background: #d1fae5;
-  color: #10b981;
-}
-
-.overlay-collapsed-view .score-badge.score-good {
-  background: #dbeafe;
-  color: #3b82f6;
-}
-
-.overlay-collapsed-view .score-badge.score-moderate {
-  background: #fef3c7;
-  color: #f59e0b;
-}
-
-.overlay-collapsed-view .score-badge.score-poor {
-  background: #fee2e2;
-  color: #ef4444;
-}
-
-/* ============================================
- * FEATURE FLAG CONTROL
- * ============================================ */
-/* Classic UI (old) - hide collapsed view and show header */
-.elevateli-overlay.classic-ui .overlay-collapsed-view {
-  display: none !important;
-}
-
-.elevateli-overlay.classic-ui .overlay-expanded-view {
-  display: block !important;
-}
-
-/* Unified UI (new) - show/hide based on view state */
-.elevateli-overlay.unified-ui[data-view-state="collapsed"] .overlay-collapsed-view {
-  display: flex;
-}
-
-.elevateli-overlay.unified-ui[data-view-state="collapsed"] .overlay-expanded-view {
-  display: none;
-}
-
-.elevateli-overlay.unified-ui[data-view-state="expanded"] .overlay-collapsed-view {
-  display: flex;
-}
-
-.elevateli-overlay.unified-ui[data-view-state="expanded"] .overlay-expanded-view {
-  display: block;
 }
 
 /* ============================================
  * UNIFIED SECTION STYLES
  * ============================================ */
 .unified-section {
-  display: block;
   margin-top: 16px;
-  animation: fadeInUp 0.4s ease-out;
+  animation: eli-fade 0.2s ease-out;
 }
 
-.unified-section.hidden {
-  display: none !important;
-}
-
-/* Coaching summary styling */
-.unified-section > div > div:first-child {
-  animation: slideInLeft 0.5s ease-out;
-}
-
-/* Section cards animation */
-.unified-section > div > div > div {
-  animation: fadeInUp 0.3s ease-out;
-  animation-fill-mode: both;
-}
-
-/* Stagger section animations */
-.unified-section > div > div > div:nth-child(1) { animation-delay: 0.1s; }
-.unified-section > div > div > div:nth-child(2) { animation-delay: 0.2s; }
-.unified-section > div > div > div:nth-child(3) { animation-delay: 0.3s; }
-.unified-section > div > div > div:nth-child(4) { animation-delay: 0.4s; }
-.unified-section > div > div > div:nth-child(5) { animation-delay: 0.5s; }
-.unified-section > div > div > div:nth-child(6) { animation-delay: 0.6s; }
-
-/* Star rating animations */
-@keyframes starPop {
-  0% { transform: scale(0); opacity: 0; }
-  50% { transform: scale(1.2); }
-  100% { transform: scale(1); opacity: 1; }
-}
-
-/* Apply star animation in JS when rendered */
 .star-rating {
   display: inline-block;
 }
 
-.star-rating > span {
-  display: inline-block;
-  animation: starPop 0.3s ease-out;
-  animation-fill-mode: both;
+/* Results: banner with the next step, caption, one row per section. The advice is the main text. */
+.eli-banner {
+  margin: 8px 0 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--eli-surface-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--eli-text);
 }
 
-/* Section hover effects */
-.unified-section > div > div > div {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+.eli-banner.is-warning {
+  background: rgba(245, 158, 11, 0.16);
+  color: var(--eli-warning);
 }
 
-.unified-section > div > div > div:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+.eli-caption {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--eli-text-muted);
 }
 
-/* Recommendation list item hover */
-.unified-section ul li {
-  transition: padding-left 0.2s ease;
+.eli-row {
+  margin-bottom: 12px;
+  padding: 12px;
+  background: var(--eli-surface-muted);
+  border-radius: 8px;
 }
 
-.unified-section ul li:hover {
-  padding-left: 12px;
+.eli-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.eli-row-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--eli-text);
+}
+
+.eli-row-head .star-rating {
+  font-size: 16px;
+}
+
+.eli-row-positive {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--eli-success);
+}
+
+.eli-row-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--eli-warning);
+}
+
+.eli-advice {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  list-style: none;
+}
+
+.eli-advice li {
+  position: relative;
+  margin-bottom: 6px;
+  padding-left: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--eli-text);
+}
+
+.eli-advice li::before {
+  content: "→" / "";
+  position: absolute;
+  left: -8px;
+}
+
+.eli-why {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--eli-text-muted);
 }
 
 /* ============================================
  * BASE OVERLAY STYLES
  * ============================================ */
 .elevateli-overlay-wrapper {
-  /* Custom card styling without LinkedIn classes */
-  background: #fff;
-  border: 1px solid #e0e0e0;
+  /* LinkedIn's card: 8px radius and a 1px ring. 8px above; LinkedIn's own card gap follows below. */
+  background: var(--eli-surface);
   border-radius: 8px;
-  margin: 16px 0;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 0 0 1px rgba(140, 140, 140, 0.2);
+  margin: 8px 0 0;
   overflow: hidden;
-  transition: all 0.3s ease;
   max-width: 100%;
   box-sizing: border-box;
+  container-type: inline-size; /* the bar's short labels follow the column's width */
   
-  /* Force full width and prevent sidebar placement */
+  /* Full width in the main column whatever its layout: never a grid cell or a float */
   width: 100% !important;
   display: block !important;
   position: relative !important;
-  grid-column: 1 / -1 !important; /* Span full grid if parent uses grid */
+  grid-area: unset !important;
   float: none !important;
-}
-
-/* Custom card class to replace LinkedIn's artdeco-card */
-.elevateli-card {
-  /* Mimic LinkedIn card appearance */
-  background: #fff;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  overflow: hidden;
 }
 
 .elevateli-overlay {
   padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: 14px;
   line-height: 1.5;
-  color: #333;
+  color: var(--eli-text);
 }
 
-/* Padding only for expanded view */
+/* Padding only for expanded view; the divider shows only while expanded */
 .overlay-expanded-view {
-  padding: 16px;
-}
-
-/* ============================================
- * HEADER SECTION
- * ============================================ */
-.overlay-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid #e0e0e0;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.header-left h3 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #0a66c2; /* LinkedIn blue */
-}
-
-.header-logo {
-  width: 24px;
-  height: 24px;
-  flex-shrink: 0;
-}
-
-.logo-section {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.timestamp-display {
-  font-size: 12px;
-  color: #666;
-  margin-top: 4px;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.overlay-close {
-  background: none;
-  border: none;
-  font-size: 24px;
-  color: #666;
-  cursor: pointer;
-  padding: 0;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  transition: all 0.2s ease;
-}
-
-.overlay-close:hover {
-  background: #f3f2ef;
-  color: #333;
-}
-
-/* ============================================
- * SCORES CONTAINER
- * ============================================ */
-.scores-container {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  margin-bottom: 20px;
-}
-
-.score-block {
-  text-align: center;
-}
-
-.score-block label {
-  display: block;
-  font-size: 12px;
-  color: #666;
-  margin-bottom: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.score-display {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  margin-bottom: 8px;
-}
-
-.score-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: #333;
-  transition: all 0.3s ease;
-}
-
-.score-value.skeleton {
-  color: #e0e0e0;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.score-suffix {
-  font-size: 16px;
-  color: #666;
-  margin-left: 4px;
-}
-
-.score-bar {
-  width: 100%;
-  height: 8px;
-  background: #f3f2ef;
-  border-radius: 4px;
-  overflow: hidden;
-  margin-top: 8px;
-}
-
-.score-bar-fill {
-  height: 100%;
-  background: #0a66c2;
-  border-radius: 4px;
-  transition: width 0.5s ease, background-color 0.3s ease;
-}
-
-.score-bar-fill.skeleton {
-  width: 30% !important;
-  background: #e0e0e0;
-  animation: shimmer 1.5s ease-in-out infinite;
-}
-
-.ai-status {
-  font-size: 11px;
-  color: #666;
-  margin-top: 4px;
-}
-
-/* AI disabled message */
-.ai-disabled-message {
-  font-size: 13px;
-  color: #666;
-  text-align: center;
-  padding: 12px 0;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(140, 140, 140, 0.2);
 }
 
 /* ============================================
@@ -646,391 +418,87 @@
   align-items: center;
   justify-content: center;
   padding: 8px 12px;
-  background: #f3f2ef;
+  background: var(--eli-surface-muted);
   border-radius: 6px;
   margin-bottom: 16px;
   min-height: 40px;
 }
 
-.status-icon {
-  font-size: 20px;
+/* Progress spinner: a ring in the text colour (updateStatus toggles it on .status-icon) */
+.eli-spinner {
+  display: inline-block;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
   margin-right: 8px;
-}
-
-.status-icon.spinning {
-  animation: spin 1s linear infinite;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: eli-spin 0.8s linear infinite;
 }
 
 .status-text {
   font-size: 14px;
-  color: #333;
-  transition: opacity 0.2s ease;
 }
 
-/* ============================================
- * SCAN PROGRESS SECTION
- * ============================================ */
-.scan-progress {
-  margin-bottom: 20px;
-  padding: 16px;
-  background: #f8f9fa;
-  border-radius: 6px;
-  transition: all 0.3s ease;
-}
-
-.scan-progress.hidden {
-  display: none;
-}
-
-.scan-progress h4 {
-  margin: 0 0 12px 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: #333;
-}
-
-.scan-items {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px;
-}
-
-.scan-item {
-  display: flex;
-  align-items: center;
-  padding: 8px 12px;
-  background: #fff;
-  border: 1px solid #e0e0e0;
-  border-radius: 4px;
+.elapsed-time-display {
+  margin-left: 12px;
   font-size: 12px;
-  transition: all 0.2s ease;
-}
-
-.scan-item[data-status="scanning"] {
-  border-color: #0a66c2;
-  background: #f0f8ff;
-}
-
-.scan-item[data-status="complete"] {
-  border-color: #057642;
-  background: #f0fdf4;
-}
-
-.scan-icon {
-  margin-right: 6px;
-  font-size: 14px;
-}
-
-.scan-label {
-  flex: 1;
-  color: #333;
-}
-
-.scan-count {
-  margin-left: 4px;
-  color: #666;
-  font-size: 11px;
-}
-
-/* ============================================
- * RECOMMENDATIONS SECTION
- * ============================================ */
-.recommendations-section {
-  margin-bottom: 20px;
-  transition: all 0.3s ease;
-}
-
-.recommendations-section.hidden {
-  display: none;
-}
-
-.recommendations-section h4 {
-  font-size: 14px;
-  font-weight: 600;
-  color: #333;
-  margin: 0 0 12px 0;
-}
-
-.recommendations-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.recommendation-item {
-  padding: 8px 0;
-  padding-left: 24px;
-  position: relative;
-  color: #666;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.recommendation-item::before {
-  content: "→";
-  position: absolute;
-  left: 0;
-  color: #0a66c2;
-  font-weight: bold;
-}
-
-/* ============================================
- * INSIGHTS SECTION
- * ============================================ */
-.insights-section {
-  margin-bottom: 20px;
-  padding: 16px;
-  background: #f0f8ff;
-  border-radius: 6px;
-  border: 1px solid #d0e5ff;
-  transition: all 0.3s ease;
-}
-
-.insights-section.hidden {
-  display: none;
-}
-
-.insights-section h4 {
-  font-size: 14px;
-  font-weight: 600;
-  color: #0a66c2;
-  margin: 0 0 8px 0;
-}
-
-.insights-content {
-  font-size: 13px;
-  color: #333;
-  line-height: 1.6;
-}
-
-.insights-content strong {
-  color: #0a66c2;
-  font-weight: 600;
-}
-
-/* ============================================
- * ACTION BUTTONS
- * ============================================ */
-.overlay-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid #e0e0e0;
-}
-
-.action-button {
-  display: inline-flex;
-  align-items: center;
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: 600;
-  border-radius: 20px;
-  border: 1px solid #0a66c2;
-  background: #fff;
-  color: #0a66c2;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.action-button:hover {
-  background: #0a66c2;
-  color: #fff;
-}
-
-.action-button.hidden {
-  display: none;
-}
-
-.button-icon {
-  margin-right: 6px;
-  font-size: 16px;
-}
-
-/* Primary button style */
-.analyze-button {
-  background: #0a66c2;
-  color: #fff;
-}
-
-.analyze-button:hover {
-  background: #084d8a;
-  border-color: #084d8a;
+  color: var(--eli-text-muted);
 }
 
 /* ============================================
  * STATE-BASED STYLING
  * ============================================ */
-.elevateli-overlay[data-state="initializing"] .status-indicator {
-  background: #e3f2fd;
-}
-
-.elevateli-overlay[data-state="scanning"] .status-indicator {
-  background: #fff3cd;
-}
-
-.elevateli-overlay[data-state="extracting"] .status-indicator {
-  background: #d1ecf1;
-}
-
-.elevateli-overlay[data-state="calculating"] .status-indicator {
-  background: #d4edda;
-}
-
-.elevateli-overlay[data-state="ai_analyzing"] .status-indicator {
-  background: #e2e3ff;
-}
-
-.elevateli-overlay[data-state="complete"] .status-indicator {
-  background: #d4edda;
-}
-
+/* Progress stays on the neutral base background; only an error tints the status line */
 .elevateli-overlay[data-state="error"] .status-indicator {
-  background: #f8d7da;
-  color: #721c24;
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--eli-error);
 }
 
 /* ============================================
  * ANIMATIONS
  * ============================================ */
-@keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.4; }
-  100% { opacity: 1; }
+/* Prefixed: content-script keyframes share the page's namespace with LinkedIn's */
+@keyframes eli-spin {
+  to { transform: rotate(360deg); }
 }
 
-@keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+@keyframes eli-fade {
+  from { opacity: 0; }
 }
 
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-@keyframes fadeInUp {
-  0% { 
-    opacity: 0;
-    transform: translateY(20px);
+/* Only the spinner keeps moving, slower (it is the progress signal); the toast and the panel fade just appear */
+@media (prefers-reduced-motion: reduce) {
+  .elevateli-overlay-wrapper *,
+  .elevateli-toast {
+    transition: none !important;
   }
-  100% { 
-    opacity: 1;
-    transform: translateY(0);
+
+  .elevateli-overlay-wrapper *:not(.eli-spinner) {
+    animation: none !important;
+  }
+
+  .elevateli-overlay-wrapper .eli-spinner {
+    animation-duration: 2.5s;
   }
 }
 
-@keyframes slideInLeft {
-  0% { 
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  100% { 
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-@keyframes expandCollapse {
-  0% {
-    max-height: 0;
-    opacity: 0;
-  }
-  100% {
-    max-height: 2000px;
-    opacity: 1;
-  }
-}
-
-/* ============================================
- * RESPONSIVE DESIGN
- * ============================================ */
-@media (max-width: 768px) {
-  .scores-container {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-  
-  .scan-items {
-    grid-template-columns: 1fr;
-  }
-  
-  .overlay-actions {
-    flex-direction: column;
-  }
-  
-  .action-button {
-    width: 100%;
-    justify-content: center;
-  }
-}
-
-/* ============================================
- * SKELETON LOADING STATES
- * ============================================ */
-.skeleton::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.4),
-    transparent
-  );
-  animation: shimmer 1.5s ease-in-out infinite;
-}
-
-.skeleton.loading {
-  position: relative;
-  overflow: hidden;
-  background: #e0e0e0;
-}
-
-/* ============================================
- * LINKEDIN INTEGRATION
- * ============================================ */
-/* Ensure overlay matches LinkedIn's visual hierarchy */
-.pvs-list__paged-list-item + .elevateli-overlay-wrapper {
-  margin-top: 24px;
-}
-
-/* Match LinkedIn's card hover behavior */
-.elevateli-overlay-wrapper:hover {
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-}
-
-/* Prevent LinkedIn's grid layout from placing overlay in sidebar */
-.scaffold-layout__sidebar .elevateli-overlay-wrapper {
-  display: none !important; /* Never show in sidebar */
-}
-
-/* Force overlay to stay in main content area */
-.elevateli-overlay-wrapper {
-  grid-area: unset !important;
-  grid-row: unset !important;
-  grid-column: unset !important;
-}
-
-/* Toast Notifications */
+/* Toast: top right, under LinkedIn's 52px nav and clear of the Messaging dock and chat windows at the bottom */
 .elevateli-toast {
   position: fixed;
-  bottom: 20px;
+  top: 64px;
   right: 20px;
   padding: 12px 20px;
-  border-radius: 6px;
-  background: #fff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  border-radius: 8px;
+  background: var(--eli-surface);
+  box-shadow: 0 0 0 1px rgba(140, 140, 140, 0.2), 0 4px 12px rgba(0, 0, 0, 0.15);
   max-width: 400px;
   z-index: 10001;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--eli-text);
   transform: translateX(calc(100% + 20px));
   transition: transform 0.3s ease-out, opacity 0.3s ease-out;
   opacity: 0;
@@ -1040,93 +508,4 @@
 .elevateli-toast-show {
   transform: translateX(0);
   opacity: 1;
-}
-
-.elevateli-toast-hide {
-  transform: translateX(calc(100% + 20px));
-  opacity: 0;
-}
-
-.elevateli-toast-icon {
-  font-size: 16px;
-  flex-shrink: 0;
-}
-
-.elevateli-toast-text {
-  font-size: 14px;
-  line-height: 1.4;
-  color: #333;
-}
-
-/* Toast types */
-.elevateli-toast-info {
-  background: #e7f3ff;
-  border: 1px solid #c2e0ff;
-}
-
-.elevateli-toast-success {
-  background: #d4edda;
-  border: 1px solid #c3e6cb;
-}
-
-.elevateli-toast-warning {
-  background: #fff3cd;
-  border: 1px solid #ffeaa7;
-}
-
-.elevateli-toast-error {
-  background: #f8d7da;
-  border: 1px solid #f5c6cb;
-}
-
-.elevateli-toast-error .elevateli-toast-text {
-  color: #721c24;
-}
-
-.elevateli-toast-warning .elevateli-toast-text {
-  color: #856404;
-}
-
-.elevateli-toast-success .elevateli-toast-text {
-  color: #155724;
-}
-
-.elevateli-toast-info .elevateli-toast-text {
-  color: #004085;
-}
-
-/* Error indicator on button */
-.elevateli-overlay .action-button.has-error::before {
-  content: '•';
-  color: #dc2626;
-  font-size: 20px;
-  position: absolute;
-  left: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.elevateli-overlay .action-button.has-error {
-  position: relative;
-  padding-left: 24px;
-}
-
-/* Chrome Store Release v1.0 - Clean Unified UI */
-/* Hides legacy UI elements in expanded view for better UX */
-.overlay-expanded-view .scores-container,
-.overlay-expanded-view .missing-items-section,
-.overlay-expanded-view .recommendations-section,
-.overlay-expanded-view .insights-section,
-.overlay-expanded-view .overlay-actions {
-  display: none !important;
-}
-
-/* Ensure unified section is always visible */
-.overlay-expanded-view .unified-section {
-  display: block !important;
-}
-
-/* Clean up any spacing issues from hidden elements */
-.overlay-expanded-view .status-indicator + .unified-section {
-  margin-top: 16px;
 }

@@ -1,27 +1,26 @@
 /**
  * Experience Extractor Module for ElevateLI
  * Handles extraction of LinkedIn profile experience section
- * This module will be concatenated into analyzer.js for Manifest V3 compatibility
  */
 
 const ExperienceExtractor = {
-  name: 'experience',
-  
   /**
    * Quick scan for experience section existence
    * @returns {Object} Scan results
    */
   async scan() {
     const section = BaseExtractor.findSection('Experience');
-    const visibleCount = BaseExtractor.items(section).length;
-    // "Show all" carries no number on the new profile page, so the total is the visible rows
-    const totalCount = section ? BaseExtractor.count(section) : 0;
-    
+    const visibleCount = this.rows(section).length;
+    // "Show all" carries no number on the new profile page, so the total is the visible rows,
+    // but the link itself says older roles are hidden
+    const totalCount = section ? BaseExtractor.count(section, visibleCount) : 0;
+    const showAll = Array.from(section?.querySelectorAll('a') || []).some(a => /^Show all\b/.test(a.textContent.trim()));
+
     return {
       exists: visibleCount > 0,
       visibleCount,
       totalCount,
-      hasMore: totalCount > visibleCount
+      hasMore: showAll || totalCount > visibleCount
     };
   },
   
@@ -31,94 +30,35 @@ const ExperienceExtractor = {
    */
   async extract() {
     const scanResult = await this.scan();
-    
-    if (!scanResult.exists) {
-      return {
-        exists: false,
-        count: 0,
-        charCount: 0, // Added for completeness scoring
-        averageDescriptionLength: 0, // Added for completeness scoring
-        totalMonths: 0,
-        hasCurrentRole: false
-      };
-    }
-    
-    // Use totalCount from scan
-    const totalCount = scanResult.totalCount || scanResult.visibleCount;
-    
-    // Calculate total months and check for current role
-    const basicInfo = await this.extractBasicInfo();
-    
-    // Calculate character count for completeness scoring
-    // More experience entries = more content depth
-    // Average description length is ~200 chars per role
-    const charCount = totalCount * 200;
-    
-    const result = {
-      exists: true,
-      count: totalCount,
-      charCount: charCount, // Added for completeness scoring
-      averageDescriptionLength: basicInfo.averageDescriptionLength, // Across visible roles, empty ones included
-      totalMonths: basicInfo.totalMonths,
-      hasCurrentRole: basicInfo.hasCurrentRole,
-      visibleCount: scanResult.visibleCount,
-      hasMoreItems: totalCount > scanResult.visibleCount
-    };
-    
-    return result;
-  },
-  
-  /**
-   * Deep extraction for AI analysis
-   * @returns {Object} Detailed experience data
-   */
-  async extractDeep() {
-    const basicData = await this.extract();
-    
-    if (!basicData.exists) {
-      return basicData;
-    }
-    
-    // Descriptions are in the DOM in full; "… more" only unclamps them
+    if (!scanResult.exists) return scanResult;
+
     const experiences = await this.extractDetailedExperiences();
-    
-    const result = {
-      ...basicData,
-      experiences: experiences,
-      
-      // Analysis metrics
-      averageTenure: this.calculateAverageTenure(experiences),
-      careerProgression: this.analyzeCareerProgression(experiences),
-      industryChanges: this.countIndustryChanges(experiences),
-      hasQuantifiedAchievements: experiences.some(e => e.hasQuantifiedAchievements),
-      hasTechStack: experiences.some(e => e.hasTechStack),
-      
-      // Content quality metrics
-      averageDescriptionLength: this.calculateAverageDescriptionLength(experiences),
-      rolesWithDescriptions: experiences.filter(e => e.description).length,
-      
-      // For AI processing
-      experienceChunks: this.prepareForAI(experiences)
-    };
-    
-    return result;
-  },
-  
-  
-  /**
-   * Extract basic info like total months and current role
-   * @returns {Object} Basic info
-   */
-  async extractBasicInfo() {
-    const experiences = await this.extractDetailedExperiences();
-    
+
     return {
-      totalMonths: this.coveredMonths(experiences),
-      hasCurrentRole: experiences.some(exp => /present/i.test(exp.duration)),
+      exists: true,
+      // A company row can hold several roles (promotions), so count roles, not rows
+      count: Math.max(scanResult.totalCount, experiences.length),
+      // Across visible roles, empty ones included
       averageDescriptionLength: Math.round(
         experiences.reduce((sum, exp) => sum + exp.description.length, 0) / (experiences.length || 1)
-      )
+      ),
+      // Employers (or titles) with a visible role lacking a description; grouped roles share a company, so name it once
+      emptyRoles: [...new Set(experiences.filter(exp => !exp.description).map(exp => exp.company || exp.title))],
+      totalMonths: this.coveredMonths(experiences),
+      hasCurrentRole: experiences.some(exp => /present/i.test(exp.duration)),
+      visibleCount: scanResult.visibleCount,
+      hasMoreItems: scanResult.hasMore // Older roles hidden behind "Show all": count and months are a lower bound
     };
+  },
+
+  /**
+   * Deep extraction for AI analysis: the roles and their average tenure (analyzer-base reads only these)
+   * @returns {Object} { experiences, averageTenure }
+   */
+  async extractDeep() {
+    // Descriptions are in the DOM in full; "… more" only unclamps them
+    const experiences = await this.extractDetailedExperiences();
+    return { experiences, averageTenure: this.calculateAverageTenure(experiences) };
   },
   
   /**
@@ -157,8 +97,8 @@ const ExperienceExtractor = {
    */
   async extractDetailedExperiences() {
     const roles = [];
-    
-    for (const item of BaseExtractor.items(BaseExtractor.findSection('Experience'))) {
+
+    for (const item of this.rows(BaseExtractor.findSection('Experience'))) {
       // Several roles at one employer: a company row with one <li> per role
       const grouped = Array.from(item.querySelectorAll('li'))
         .filter(li => BaseExtractor.fields(li).some(field => this.isDateLine(field)));
@@ -171,10 +111,18 @@ const ExperienceExtractor = {
     }
     
     return roles
-      .map((role, i) => this.extractExperienceItem(role.element, i, roles.length, role.company))
+      .map(role => this.extractExperienceItem(role.element, role.company))
       .filter(experience => experience.title);
   },
   
+  /**
+   * Experience rows without LinkedIn "Career break" entries, which are not jobs
+   * ponytail: English label only, same limit as the English-only headings
+   */
+  rows(section) {
+    return BaseExtractor.items(section).filter(item => BaseExtractor.fields(item)[1] !== 'Career break');
+  },
+
   /**
    * Dates line of a role: "Jan 2022 - Present · 2 yrs", "2011 – Present"
    */
@@ -188,7 +136,7 @@ const ExperienceExtractor = {
    * @param {string|null} groupCompany - Company of the group the role sits in
    * @returns {Object} Experience data
    */
-  extractExperienceItem(item, index = 0, totalCount = 1, groupCompany = null) {
+  extractExperienceItem(item, groupCompany = null) {
     // Fields in order: title, "Company · Full-time" (not inside a company group), "Jan 2022 - Present · 2 yrs",
     // "City · Remote", description, skills
     const fields = BaseExtractor.fields(item);
@@ -203,7 +151,6 @@ const ExperienceExtractor = {
     return {
       title,
       company: groupCompany ?? companyLine.split('·')[0].trim(),
-      companyDetails: { size: '', industry: '', type: '' },
       employment: {
         type: /Full-time|Part-time|Contract|Freelance|Internship/i.test(companyLine) ? this.detectEmploymentType(companyLine) : '',
         ...dateInfo
@@ -213,42 +160,8 @@ const ExperienceExtractor = {
       endDate: dateInfo.endDate,
       duration,
       location: next && !description.startsWith(next) && !/skills?$/.test(next) ? next : '',
-      description, // Raw description text; AI judges achievements and quality
-      hasQuantifiedAchievements: this.hasQuantifiedAchievements(description),
-      hasTechStack: this.hasTechStack(description),
-      recencyScore: this.calculateRecencyScore(index, totalCount)
+      description // Raw description text; AI judges achievements and quality
     };
-  },
-  
-  /**
-   * Check for quantified achievements
-   * @param {string} text - Description text
-   * @returns {boolean}
-   */
-  hasQuantifiedAchievements(text) {
-    const pattern = /\d+[%+,kKmMbB$]*\s*(revenue|users|customers|growth|increase|decrease|ROI|saved|generated|improvement|reduction)/gi;
-    return pattern.test(text);
-  },
-  
-  /**
-   * Check for tech stack mentions
-   * @param {string} text - Description text
-   * @returns {boolean}
-   */
-  hasTechStack(text) {
-    const techPattern = /\b(React|Angular|Vue|Node|Python|Java|JavaScript|AWS|Azure|Docker|Kubernetes|SQL|API)\b/gi;
-    return techPattern.test(text);
-  },
-  
-  /**
-   * Extract keywords from text
-   * @param {string} text - Description text
-   * @returns {Array<string>}
-   */
-  extractKeywords(text) {
-    const techPattern = /\b(React|Angular|Vue|Node|Python|Java|JavaScript|AWS|Azure|Docker|Kubernetes|SQL|API)\b/gi;
-    const matches = text.match(techPattern) || [];
-    return [...new Set(matches.map(k => k.toLowerCase()))];
   },
   
   /**
@@ -288,93 +201,6 @@ const ExperienceExtractor = {
   },
   
   /**
-   * Analyze career progression
-   * @param {Array<Object>} experiences - Experience items
-   * @returns {string} Progression analysis
-   */
-  analyzeCareerProgression(experiences) {
-    if (experiences.length < 2) return 'insufficient_data';
-    
-    const titles = experiences.map(e => e.title.toLowerCase());
-    const progressionIndicators = ['senior', 'lead', 'principal', 'manager', 'director', 'vp', 'chief'];
-    
-    let progressionScore = 0;
-    for (let i = 1; i < titles.length; i++) {
-      const currentLevel = progressionIndicators.findIndex(ind => titles[i].includes(ind));
-      const previousLevel = progressionIndicators.findIndex(ind => titles[i-1].includes(ind));
-      
-      if (currentLevel > previousLevel) progressionScore++;
-    }
-    
-    return progressionScore > experiences.length / 3 ? 'upward' : 'lateral';
-  },
-  
-  /**
-   * Count industry changes
-   * @param {Array<Object>} experiences - Experience items
-   * @returns {number} Number of industry changes
-   */
-  countIndustryChanges(experiences) {
-    // Simplified - could be enhanced with industry detection
-    const companies = experiences.map(e => e.company);
-    const uniqueCompanies = new Set(companies);
-    return Math.max(0, uniqueCompanies.size - 1);
-  },
-  
-  /**
-   * Prepare experiences for AI processing
-   * @param {Array<Object>} experiences - Experience items
-   * @returns {Array<Object>} Chunked data for AI
-   */
-  prepareForAI(experiences) {
-    return experiences.map(exp => ({
-      // Core data that AI needs
-      title: exp.title,
-      company: exp.company,
-      duration: exp.duration,
-      location: exp.location,
-      description: exp.description || '', // Full description text
-      
-      // Employment details
-      employment: exp.employment,
-      companyDetails: exp.companyDetails,
-      
-      // Simple metadata
-      recencyScore: exp.recencyScore,
-      descriptionLength: exp.description ? exp.description.length : 0
-    }));
-  },
-  
-  /**
-   * Calculate average description length
-   * @param {Array<Object>} experiences - Experience items
-   * @returns {number} Average length
-   */
-  calculateAverageDescriptionLength(experiences) {
-    const withDescriptions = experiences.filter(e => e.description);
-    if (withDescriptions.length === 0) return 0;
-    
-    const totalLength = withDescriptions.reduce((sum, exp) => {
-      const descLength = exp.description ? exp.description.length : 0;
-      return sum + descLength;
-    }, 0);
-    
-    return Math.round(totalLength / withDescriptions.length);
-  },
-  
-  /**
-   * Calculate recency score for position
-   * @param {number} index - Position index (0 = most recent)
-   * @param {number} totalCount - Total number of positions
-   * @returns {number} Score from 0-1 (1 = most recent)
-   */
-  calculateRecencyScore(index, totalCount) {
-    if (totalCount <= 1) return 1;
-    // Exponential decay - recent positions weighted much higher
-    return Math.pow(0.8, index);
-  },
-  
-  /**
    * Detect employment type from text
    * @param {string} text - Text to analyze
    * @returns {string} Employment type
@@ -395,50 +221,6 @@ const ExperienceExtractor = {
     }
     
     return 'Full-time'; // Default assumption
-  },
-  
-  /**
-   * Parse company details from LinkedIn data
-   * @param {string} text - Company details text
-   * @returns {Object} Parsed company details
-   */
-  parseCompanyDetails(text) {
-    const details = {
-      size: '',
-      industry: '',
-      type: ''
-    };
-    
-    // Extract employee count
-    const sizeMatch = text.match(/(\d[\d,\+\s-]*) employees?/i);
-    if (sizeMatch) {
-      details.size = sizeMatch[1].trim();
-    }
-    
-    // Extract company type
-    const typePatterns = [
-      /Public Company/i,
-      /Private Company/i,
-      /Nonprofit/i,
-      /Government Agency/i,
-      /Educational Institution/i,
-      /Self-Employed/i
-    ];
-    
-    for (const pattern of typePatterns) {
-      if (pattern.test(text)) {
-        details.type = text.match(pattern)[0];
-        break;
-      }
-    }
-    
-    // Extract industry (usually after ·)
-    const industryMatch = text.match(/·\s*([^\u00b7]+)(?:\s*·|$)/);
-    if (industryMatch && !industryMatch[1].match(/employees?/i)) {
-      details.industry = industryMatch[1].trim();
-    }
-    
-    return details;
   },
   
   /**
@@ -473,38 +255,5 @@ const ExperienceExtractor = {
     }
     
     return info;
-  },
-  
-  /**
-   * Extract mentioned skills from text
-   * @param {string} text - Content to analyze
-   * @returns {Array<string>}
-   */
-  extractMentionedSkills(text) {
-    // Comprehensive list of technical and professional skills
-    const skillPatterns = [
-      // Programming languages
-      /\b(Python|Java|JavaScript|TypeScript|C\+\+|C#|Ruby|Go|Swift|Kotlin|PHP|R|Scala|Rust)\b/gi,
-      // Frameworks and libraries
-      /\b(React|Angular|Vue|Node\.js|Django|Flask|Spring|Rails|Express|Next\.js)\b/gi,
-      // Databases
-      /\b(SQL|MySQL|PostgreSQL|MongoDB|Redis|Elasticsearch|DynamoDB|Cassandra)\b/gi,
-      // Cloud and DevOps
-      /\b(AWS|Azure|GCP|Docker|Kubernetes|Jenkins|CI\/CD|Terraform|Ansible)\b/gi,
-      // Data and ML
-      /\b(Machine Learning|Deep Learning|TensorFlow|PyTorch|Pandas|NumPy|Spark|Hadoop)\b/gi,
-      // Professional skills
-      /\b(Agile|Scrum|Project Management|Leadership|Strategy|Analytics|Communication)\b/gi
-    ];
-    
-    const skills = new Set();
-    skillPatterns.forEach(pattern => {
-      const matches = text.match(pattern);
-      if (matches) {
-        matches.forEach(skill => skills.add(skill));
-      }
-    });
-    
-    return Array.from(skills);
   }
 };

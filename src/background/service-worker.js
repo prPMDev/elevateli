@@ -1,146 +1,127 @@
 /* Background Service Worker for ElevateLI */
 
-// Import crypto manager module
-importScripts('../common/crypto-manager.js');
+// [CRITICAL_PATH:API_KEY_ENCRYPTION] - P0: API key security
+// The key is stored only as encryptedApiKey: base64 of salt (16 bytes) + iv (12 bytes) + AES-GCM ciphertext,
+// under a PBKDF2 key from a random per-install installationId
+async function getOrCreatePassphrase() {
+  const { installationId } = await chrome.storage.local.get('installationId');
+  if (installationId) return installationId;
+  const newId = crypto.randomUUID() + '-' + Date.now();
+  await chrome.storage.local.set({ installationId: newId });
+  return newId;
+}
 
-// Use shared crypto manager instead of local class
-const cryptoUtils = CryptoManager;
+async function generateKey(passphrase, salt) {
+  const passphraseKey = await crypto.subtle.importKey('raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+    passphraseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encryptApiKey(apiKey) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await generateKey(await getOrCreatePassphrase(), salt);
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(apiKey));
+  return btoa(String.fromCharCode(...salt, ...iv, ...new Uint8Array(encrypted)));
+}
+
+// Corrupt data or a changed installationId throws (atob or subtle.decrypt)
+async function decryptApiKey(encryptedData) {
+  const bytes = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
+  const key = await generateKey(await getOrCreatePassphrase(), bytes.slice(0, 16));
+  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(16, 28) }, key, bytes.slice(28)));
+}
 
 // [CRITICAL_PATH:API_KEY_RETRIEVAL] - P0: Decrypts API key for all AI operations
-// Helper function to get decrypted API key
-async function getDecryptedApiKey() {
+// Callers read encryptedApiKey in the same storage get as the provider, model and base URL,
+// so a settings save in between can't pair the old key with the new server
+async function getDecryptedApiKey(encryptedApiKey) {
+  if (!encryptedApiKey) return null;
   try {
-    // Check if Chrome storage is available
-    if (!chrome || !chrome.storage || !chrome.storage.local) {
-      return null;
-    }
-    
-    const { encryptedApiKey } = await chrome.storage.local.get('encryptedApiKey');
-
-  // If we have an encrypted key, decrypt it
-  if (encryptedApiKey) {
-    try {
-      return await cryptoUtils.decryptApiKey(encryptedApiKey);
-    } catch (error) {
-      console.error('AI.PROMPTS', 'Failed to decrypt API key', error);
-
-      // DO NOT auto-delete the key on decryption failure
-      // This was causing keys to disappear from settings
-      return null;
-    }
-  }
-
-  return null;
+    return await decryptApiKey(encryptedApiKey);
   } catch (error) {
-    console.error('AI.PROMPTS', 'getDecryptedApiKey error', error);
+    console.error('Failed to decrypt API key', error); // never delete the key here: that made saved keys vanish
     return null;
   }
 }
 
-// Use onInstalled only for one-time setup
-if (chrome && chrome.runtime && chrome.runtime.onInstalled) {
-  chrome.runtime.onInstalled.addListener(async (details) => {
-    // Open LinkedIn tabs have no content script after an install, and a dead one after an update or
-    // reload, so popup messages to them go nowhere. Inject the current one unless the tab already
-    // loaded it; OverlayManager.initialize() replaces the overlay a dead script left behind.
-    // Tabs still loading get the manifest scripts on their own; injecting there would run them twice.
-    if (details.reason === 'install' || details.reason === 'update') {
-      const { js, css } = chrome.runtime.getManifest().content_scripts[0];
-      for (const { id } of await chrome.tabs.query({ url: 'https://www.linkedin.com/*', status: 'complete' })) {
-        const target = { tabId: id };
-        chrome.scripting.executeScript({ target, func: () => typeof OverlayManager !== 'undefined' })
-          .then(([probe]) => probe?.result || Promise.all([
-            chrome.scripting.insertCSS({ target, files: css }),
-            chrome.scripting.executeScript({ target, files: js })
-          ]))
-          .catch(() => {}); // tab closed or not scriptable (error page)
+chrome.runtime.onInstalled.addListener(async (details) => {
+  // Open LinkedIn tabs have no content script after an install, and a dead one after an update or
+  // reload, so popup messages to them go nowhere. Inject the current one unless the tab already
+  // loaded it; OverlayManager.initialize() replaces the overlay a dead script left behind.
+  if (details.reason === 'install' || details.reason === 'update') {
+    const { js, css } = chrome.runtime.getManifest().content_scripts[0];
+    const reinject = id => {
+      const target = { tabId: id };
+      chrome.scripting.executeScript({ target, func: () => typeof OverlayManager !== 'undefined' })
+        .then(([probe]) => probe?.result || Promise.all([
+          chrome.scripting.insertCSS({ target, files: css }),
+          chrome.scripting.executeScript({ target, files: js })
+        ]))
+        .catch(() => {}); // tab closed or not scriptable (error page)
+    };
+    for (const { id, status } of await chrome.tabs.query({ url: 'https://www.linkedin.com/*' })) {
+      if (status === 'complete') reinject(id);
+      // A tab still loading may already be past document_idle, where the new manifest scripts never run.
+      // Wait for it to finish; the probe then skips tabs that did get them. 'unloaded' tabs reload fresh.
+      else if (status === 'loading') {
+        const onUpdated = (tabId, info) => {
+          if (tabId !== id || info.status !== 'complete') return;
+          chrome.tabs.onUpdated.removeListener(onUpdated);
+          reinject(id);
+        };
+        chrome.tabs.onUpdated.addListener(onUpdated);
       }
     }
-
-    if (details.reason === 'install') {
-      // Open updates page on fresh install
-      chrome.tabs.create({ url: 'updates.html' });
-    } else if (details.reason === 'update') {
-      
-      // Parse version numbers
-      const previousVersion = details.previousVersion || '0.0.0';
-      const currentVersion = chrome.runtime.getManifest().version;
-      
-      // Check if this is a major or minor version update
-      const [prevMajor, prevMinor] = previousVersion.split('.').map(Number);
-      const [currMajor, currMinor] = currentVersion.split('.').map(Number);
-      
-      // Show updates page for major or minor version changes
-      if (currMajor > prevMajor || (currMajor === prevMajor && currMinor > prevMinor)) {
-        chrome.tabs.create({ url: 'updates.html' });
-      }
-    }
-  });
-}
-
-// Rate limiting class defined later in file to avoid duplication
-
-// Keep service worker alive
-if (chrome && chrome.runtime && chrome.runtime.getPlatformInfo) {
-  const keepAlive = () => setInterval(() => {
-    if (chrome && chrome.runtime && chrome.runtime.getPlatformInfo) {
-      chrome.runtime.getPlatformInfo(() => {
-        // Keep alive ping
-      });
-    }
-  }, 20e3);
-  
-  if (chrome.runtime.onStartup) {
-    chrome.runtime.onStartup.addListener(keepAlive);
   }
-  keepAlive();
+
+  if (details.reason === 'install') chrome.tabs.create({ url: 'updates.html' });
+  else if (details.reason === 'update') {
+    // Show updates page for major or minor version changes
+    const [pMaj, pMin] = details.previousVersion.split('.').map(Number);
+    const [cMaj, cMin] = chrome.runtime.getManifest().version.split('.').map(Number);
+    if (cMaj > pMaj || (cMaj === pMaj && cMin > pMin)) chrome.tabs.create({ url: 'updates.html' });
+  }
+});
+
+// Keep the SW alive only while a message handler runs: a slow local model can outlast the 30 s idle timer.
+// A permanent ping would keep it alive forever, and Chrome installs updates only once the SW is unloaded.
+let inFlight = 0, keepAliveTimer;
+function keepAliveWhile(promise) {
+  if (!inFlight++) keepAliveTimer = setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20e3);
+  return promise.finally(() => { if (!--inFlight) clearInterval(keepAliveTimer); });
 }
 
-// Create section-specific prompt
+// Content sends an object for every section; about's text is in .text
+const PROMPTS = {
+  experience_overall: createExperienceOverallPrompt,
+  experience: createExperienceSectionPrompt, // fallback when roles were not extracted
+  recommendations: createRecommendationsPrompt,
+  first_impression: createFirstImpressionPrompt,
+  about: (content, config) => createAboutPrompt(content?.text, config),
+  skills: createSkillsPrompt
+};
 function createSectionPrompt(sectionName, content, config, context = {}) {
-  // Add current date to config for all prompts
-  const enhancedConfig = {
-    ...config,
-    currentDate: new Date().toISOString().split('T')[0] // Format: "2025-01-19"
-  };
-  
-  // Special handling for overall experience analysis
-  if (sectionName === 'experience_overall' && typeof content === 'object') {
-    return createExperienceOverallPrompt(content, enhancedConfig);
-  }
-  
-  // Special handling for experience section (fallback)
-  if (sectionName === 'experience' && typeof content === 'object') {
-    return createExperienceSectionPrompt(content, config);
-  }
-  
-  // Special handling for recommendations
-  if (sectionName === 'recommendations' && typeof content === 'object') {
-    return createRecommendationsPrompt(content, enhancedConfig, context);
-  }
-  
-  // Special handling for first impression (headline + photo + banner)
-  if (sectionName === 'first_impression' && typeof content === 'object') {
-    return createFirstImpressionPrompt(content, enhancedConfig);
-  }
-  
-  // Special handling for standalone about section
-  // Content script sends an object ({ text, charCount, ... })
-  if (sectionName === 'about') {
-    return createAboutPrompt(content?.text, enhancedConfig);
-  }
-  
-  // Special handling for skills
-  if (sectionName === 'skills' && typeof content === 'object') {
-    return createSkillsPrompt(content, enhancedConfig, context);
-  }
-  
-  throw new Error(`No prompt for section: ${sectionName}`);
+  if (!Object.hasOwn(PROMPTS, sectionName)) throw new Error(`No prompt for section: ${sectionName}`);
+  return PROMPTS[sectionName](content, { ...config, currentDate: new Date().toISOString().split('T')[0] }, context);
 }
+
+// The <context> block every section prompt but the experience fallback starts with
+const contextBlock = (config, extra = '') => `<context>
+Analysis Date: ${config.currentDate}
+Target Role: ${config.targetRole}
+Seniority Level: ${config.seniorityLevel}
+${extra}Custom Instructions: ${config.customInstructions || 'None provided'}
+</context>`;
 
 // Create prompt for experience section (when not broken into individual roles)
 function createExperienceSectionPrompt(experienceData, config) {
-  const prompt = `You are a LinkedIn profile optimization expert. Analyze this experience section overview.
+  return `You are a LinkedIn profile optimization expert. Analyze this experience section overview.
 
 TARGET ROLE: ${config.targetRole}
 SENIORITY LEVEL: ${config.seniorityLevel}
@@ -156,12 +137,9 @@ Analyze the overall experience section and provide:
 2. Feedback on career progression and trajectory
 3. Recommendations for improving the experience section
 
-Reply with JSON, filling in these fields: score, positiveInsight (what works, quoting their roles), gapAnalysis (what is weak),
-specificFeedback (one weak line and its rewrite), actionItems (specific improvements).
+Reply with JSON, filling in these fields: score, positiveInsight (what works, quoting their roles) and actionItems (specific improvements).
 
 NOTE: This is a fallback analysis. Individual role analysis would provide better insights.`;
-
-  return prompt;
 }
 
 // Create specialized prompt for overall experience analysis
@@ -169,15 +147,12 @@ function createExperienceOverallPrompt(experienceData, config) {
   const totalMonths = experienceData.totalMonths || 0;
   const yearsOfExperience = Math.floor(totalMonths / 12);
   const totalRoles = experienceData.totalRoles || experienceData.count || 0;
-  
-  const prompt = `You are an expert career coach analyzing LinkedIn profiles for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+  // Older roles behind "Show all" are never read, so the totals below are then only a lower bound
+  const partial = !!experienceData.hasMoreItems;
 
-<context>
-Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
-Target Role: ${config.targetRole}  
-Seniority Level: ${config.seniorityLevel}
-Custom Instructions: ${config.customInstructions || 'None provided'}
-</context>
+  return `You are an expert career coach analyzing LinkedIn profiles for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+
+${contextBlock(config)}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
@@ -189,14 +164,15 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
    - Scores 7-10: START with what's working well, END with specific steps to reach 10/10
 5. Give SPECIFIC actions: "Move your Oracle ML project mention to the first bullet" not "Highlight technical skills"
 6. Focus on STRATEGIC career trajectory patterns, not individual role nitpicks
-7. If they already have strong metrics, suggest how to REPOSITION or ENHANCE them, not add more
+7. If they already have strong metrics, suggest how to REPOSITION or ENHANCE them, not add more${partial ? `
+8. Only their most recent roles are provided; older roles exist but were not read. Never judge the career as only as long as the roles shown` : ''}
 </critical_rules>
 
 <profile_overview>
-Total Experience: ${yearsOfExperience} years across ${totalRoles} roles
+Total Experience: ${partial ? `${yearsOfExperience}+ years in the ${totalRoles} most recent roles (older roles are not shown on the profile page)` : `${yearsOfExperience} years across ${totalRoles} roles`}
 Average Tenure: ${experienceData.averageTenure ? Math.round(experienceData.averageTenure) + ' months per role' : 'Unknown'}
 Current Status: ${experienceData.hasCurrentRole ? 'Currently employed' : 'Not currently employed'}
-Career Start: ${experienceData.experiences?.[experienceData.experiences.length - 1]?.employment?.startDate || 'Unknown'}
+${partial ? 'Earliest Listed Role Start' : 'Career Start'}: ${experienceData.experiences?.[experienceData.experiences.length - 1]?.employment?.startDate || 'Unknown'}
 Industry Changes: ${experienceData.industryChanges || 0}
 </profile_overview>
 
@@ -250,24 +226,22 @@ Analyze the OVERALL career trajectory and experience section:
    - If metrics missing, be specific: "Quantify the 'API-first products' user base or revenue impact"
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above), gapAnalysis, specificFeedback and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or '10/10 Optimization').`;
-
-  return prompt;
+Reply with JSON: fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above) and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or '10/10 Optimization').`;
 }
 
 // Create specialized prompt for recommendations using Anthropic best practices
 function createRecommendationsPrompt(recommendationsData, config, context = {}) {
   const recommendationCount = recommendationsData.count || recommendationsData.receivedCount || 0;
-  
-  
-  const prompt = `You are an expert LinkedIn profile optimizer analyzing recommendations for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+  // Only the cards shown on the profile page are read (/details/recommendations is client-rendered)
+  const shown = recommendationsData.recommendationChunks?.length || 0;
+  const received = recommendationsData.receivedCount || 0;
+  const partialNote = shown < received
+    ? `\nContent shown below: ${shown} of ${received} received (only those visible on the profile page were read). Judge content quality and who wrote them only from the shown ones; do not report a perspective (manager, peer, report, client) as missing, because the unread ones may cover it.`
+    : '';
 
-<context>
-Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
-Target Role: ${config.targetRole}
-Seniority Level: ${config.seniorityLevel}
-Custom Instructions: ${config.customInstructions || 'None provided'}
-</context>
+  return `You are an expert LinkedIn profile optimizer analyzing recommendations for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+
+${contextBlock(config)}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
@@ -290,8 +264,8 @@ Years of Experience: ${context.yearsOfExperience || 0}
 
 <recommendations_overview>
 Total Recommendations: ${recommendationCount}
-Received: ${recommendationsData.receivedCount || 0}
-Given: ${recommendationsData.givenCount || 0}
+Received: ${received}
+Given: ${recommendationsData.givenCount || 0}${partialNote}
 </recommendations_overview>
 
 <recommendation_content>
@@ -336,23 +310,16 @@ Analyze the recommendations section:
    - If they have good recommendations, suggest how to leverage them better
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight (what they have, even if it's 0), gapAnalysis, specificFeedback (quote a recommendation or describe the gap) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or '10/10 Optimization'; name people and companies when possible).`;
-
-  return prompt;
+Reply with JSON: fill in score, positiveInsight (what they have, even if it's 0) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or '10/10 Optimization'; name people and companies when possible).`;
 }
 
 // [CRITICAL_PATH:FIRST_IMPRESSION_AI] - P0: AI analysis for unified first impression
-// Create specialized prompt for first impression (headline + photo + banner)
+// Create specialized prompt for first impression (headline + photo). Only these are extracted, so the
+// prompt states nothing about the banner, Open to Work, Creator Mode or connections.
 function createFirstImpressionPrompt(firstImpressionData, config) {
-  
-  const prompt = `You are an expert LinkedIn profile optimizer analyzing first impressions for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+  return `You are an expert LinkedIn profile optimizer analyzing first impressions for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
-<context>
-Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
-Target Role: ${config.targetRole}
-Seniority Level: ${config.seniorityLevel}
-Custom Instructions: ${config.customInstructions || 'None provided'}
-</context>
+${contextBlock(config)}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
@@ -361,17 +328,12 @@ Custom Instructions: ${config.customInstructions || 'None provided'}
    - Scores 0-6: START with critical gaps, then acknowledge strengths
    - Scores 7-10: START with what's working, END with refinements to reach 10/10
 3. Analyze how all elements work together for first impression
-4. Don't penalize for default banner - it's common and professional
 </critical_rules>
 
 <first_impression_data>
 HEADLINE: "${firstImpressionData.headline || '[NO HEADLINE - CRITICAL GAP]'}"
 Character Count: ${firstImpressionData.headlineCharCount || 0} of 220 maximum
 Profile Photo: ${firstImpressionData.photo?.exists ? 'Present ✓' : 'MISSING - Critical gap'}
-Background Banner: ${firstImpressionData.banner?.isCustomBanner ? 'Custom (good!)' : 'Default (normal, not a weakness)'}
-Open to Work: ${firstImpressionData.metadata?.openToWork ? 'Enabled' : 'Not enabled'}
-Creator Mode: ${firstImpressionData.metadata?.creatorMode ? 'Enabled' : 'Not enabled'}
-Connection Count: ${firstImpressionData.metadata?.connectionCount || 'Not visible'}
 </first_impression_data>
 
 <analysis_task>
@@ -380,14 +342,11 @@ Analyze the first impression elements:
 1. FIRST, evaluate what's present:
    - Headline quality and relevance to ${config.targetRole}
    - Profile photo presence (critical for trust)
-   - Banner customization (nice-to-have, not critical)
-   - Open to Work badge implications
 
 2. Score (0-10) based on:
    - Headline clarity and positioning (weighs heavily)
    - Photo presence (missing = cap at 5)
    - Overall professional presentation
-   - NOTE: Default banner is NORMAL, don't penalize heavily
 
 3. Provide feedback:
    - Quote the exact headline when discussing it
@@ -395,23 +354,15 @@ Analyze the first impression elements:
    - For scores 0-6: Focus on critical gaps first
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight, gapAnalysis (quote their actual headline), specificFeedback and actionItems (category: 'Profile Photo', 'Headline Enhancement', 'Visual Branding' or '10/10 Optimization'; element: 'photo', 'headline' or 'banner').`;
-
-  return prompt;
+Reply with JSON: fill in score, positiveInsight and actionItems (category: 'Profile Photo', 'Headline Enhancement' or '10/10 Optimization'; element: 'photo' or 'headline').`;
 }
 
 // [CRITICAL_PATH:ABOUT_SECTION_AI] - P0: Standalone About section analysis
 // Create specialized prompt for About section only using Anthropic best practices
 function createAboutPrompt(aboutContent, config) {
-  
-  const prompt = `You are an expert LinkedIn profile optimizer analyzing About sections for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+  return `You are an expert LinkedIn profile optimizer analyzing About sections for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
-<context>
-Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
-Target Role: ${config.targetRole}
-Seniority Level: ${config.seniorityLevel}
-Custom Instructions: ${config.customInstructions || 'None provided'}
-</context>
+${contextBlock(config)}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
@@ -449,47 +400,38 @@ Analyze the About section for strategic positioning:
    - Narrative clarity and flow
    - Positioning for target role
    - Professional tone and personal brand
+   - Major weaknesses throughout, including the first 2-3 lines and the story's flow
 
-3. Provide two distinct assessments:
-   - positiveInsight: What's working well (quote specific strong content)
-   - gapAnalysis: Major weaknesses throughout, including the first 2-3 lines and the story's flow (quote weak phrases)
+3. positiveInsight: What's working well (quote specific strong content)
 
-4. For action items:
+4. For action items (quote the weak phrases they fix):
    - If opening is weak: Show exact rewrite
    - If claims lack evidence: Quote the claim and suggest specific metrics
    - If flow is poor: Identify the disconnect and suggest restructuring
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight, gapAnalysis, specificFeedback (their weakest sentence) and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or '10/10 Refinement').`;
-
-  return prompt;
+Reply with JSON: fill in score, positiveInsight and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or '10/10 Refinement').`;
 }
 
 // Create specialized prompt for skills section
 function createSkillsPrompt(skillsData, config, context = {}) {
-  
-  
-  
-  
   // Add completeness context for conditional generic advice
   const completenessScore = context.completenessScore || 100;
   const hasCompletenessIssues = completenessScore < 95;
   const visibleSkillsCount = skillsData.visibleCount || 0;
-  
-  const prompt = `You are an expert LinkedIn profile optimizer analyzing skills for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+  // Only the skills shown on the profile page are read (/details/skills is client-rendered); the AI must not treat them as the whole list
+  const readSkills = skillsData.skills || [];
+  const totalSkills = skillsData.count || readSkills.length;
+  const unreadSkills = Math.max(0, totalSkills - readSkills.length);
 
-<context>
-Analysis Date: ${config.currentDate || new Date().toISOString().split('T')[0]}
-Target Role: ${config.targetRole}
-Seniority Level: ${config.seniorityLevel}
-Profile Completeness: ${completenessScore}%
-Custom Instructions: ${config.customInstructions || 'None provided'}
-</context>
+  return `You are an expert LinkedIn profile optimizer analyzing skills for ${config.targetRole} positions at the ${config.seniorityLevel} level.
+
+${contextBlock(config, `Profile Completeness: ${completenessScore}%\n`)}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
-1. READ THE FULL SKILLS LIST FIRST - Identify what skills ARE already present AND their endorsement status
-2. NEVER suggest adding skills that already exist in their list
+1. READ THE VISIBLE SKILLS FIRST - Identify what skills ARE present AND their endorsement status${unreadSkills ? '. Only the visible skills were read; the rest of their list is unknown' : ''}
+2. ${unreadSkills ? `NEVER claim a skill is missing or tell them to add one: ${unreadSkills} of their skills were not read. Phrase it as "if X isn't already among your skills, add it" or as "move X into your top skills"` : 'NEVER suggest adding skills that already exist in their list'}
 3. ENDORSEMENT REALITY CHECK:
    - Having ANY endorsements with recency (< 6 months) = OUTSTANDING validation, top tier
    - Having ANY endorsements (even 1) = EXCELLENT credibility signal
@@ -533,21 +475,15 @@ ${skillsData.skills?.slice(0, 3).map((s, i) =>
 ).join('\n') || 'No skills data available'}
 </top_3_most_visible_skills>
 
-<all_skills_full_list>
-${skillsData.skills ? 
-  skillsData.skills.slice(0, 30).map((s, i) => {
-    const visibility = i < 3 ? '[MOST PROMINENT]' : i < visibleSkillsCount ? '[VISIBLE]' : '[REQUIRES EXPANSION]';
-    return `"${s.name}" ${visibility} - ${s.endorsementCount || 0} endorsements`;
-  }).join('\n') :
-  'No detailed skills data available'}
-${skillsData.skills?.length > 30 ? `\n... and ${skillsData.skills.length - 30} more skills` : ''}
-
-</all_skills_full_list>
+<visible_skills>
+Only these ${readSkills.length} of ${totalSkills} skills were read${unreadSkills ? `; the other ${unreadSkills} are unknown` : ''}.
+${readSkills.map((s, i) => `"${s.name}" ${i < 3 ? '[MOST PROMINENT]' : '[VISIBLE]'} - ${s.endorsementCount || 0} endorsements`).join('\n') || 'No detailed skills data available'}
+</visible_skills>
 
 <analysis_task>
 Analyze the skills section for quality and relevance:
 
-1. FIRST, identify from the full list above:
+1. FIRST, identify from the visible skills above:
    - What skills ARE already present (don't suggest adding them)
    - Which skills have endorsements vs which don't
    - How well the most prominent skills align with ${config.targetRole}
@@ -574,16 +510,14 @@ Analyze the skills section for quality and relevance:
 4. For action items:
    - CRITICAL: Check if score >= 9. If yes, provide 0-1 improvements MAX (or none if perfect)
    - DO NOT suggest repositioning skills that are already most prominent
-   - Focus on: Adding missing critical skills, getting endorsements for unendorsed skills, or highlighting hidden gems
+   - Focus on: critical skills to add (worded as rule 2 says), getting endorsements for unendorsed skills, or highlighting hidden gems
    - If skills are well-positioned and endorsed, suggest strategic additions instead
    - Avoid mechanical position swapping - focus on strategic improvements
    - Example good feedback: "Consider highlighting your 'Data Analysis' skill more prominently"
    - Example bad feedback: "Move skill from position #1 to #1" (meaningless)
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight (their actual skills and endorsement counts), gapAnalysis, specificFeedback (their actual top 3 skills and how to position them) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or '10/10 Refinement'; name their actual skills).`;
-
-  return prompt;
+Reply with JSON: fill in score, positiveInsight (their actual skills and endorsement counts) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or '10/10 Refinement'; name their actual skills).`;
 }
 
 // Parse section analysis response. Providers return SECTION_SCHEMA JSON; slicing to the outer
@@ -601,9 +535,7 @@ function parseSectionAnalysis(response) {
       return {
         score: Math.min(10, Math.max(0, score)),
         positiveInsight: parsed.positiveInsight || '',
-        gapAnalysis: parsed.gapAnalysis || '',
-        actionItems,
-        specificFeedback: parsed.specificFeedback || null
+        actionItems
       };
     }
   } catch {
@@ -612,10 +544,10 @@ function parseSectionAnalysis(response) {
   throw Object.assign(new Error('AI response could not be read'), { errorType: 'RESPONSE_PARSE_ERROR' });
 }
 
-// The openai provider talks to any OpenAI-compatible server; the user can point it at Ollama or LM Studio
+// The openai provider talks to any OpenAI-compatible server; the user can point it at Ollama or LM Studio.
+// '' means OpenAI. Callers pass the URL that goes with their key; this never reads storage on its own.
 const OPENAI_URL = 'https://api.openai.com/v1';
-const openaiBaseUrl = async (url) =>
-  (url || (await chrome.storage.local.get('aiBaseUrl')).aiBaseUrl || OPENAI_URL).replace(/\/+$/, '');
+const openaiBaseUrl = url => (url || OPENAI_URL).replace(/\/+$/, '');
 
 // Trim and strip the non-printable characters a pasted key can carry
 const cleanKey = apiKey => typeof apiKey === 'string' ? apiKey.trim().replace(/[^\x20-\x7E]/g, '') : '';
@@ -630,6 +562,28 @@ const authHeaders = (provider, key) => ({
   gemini: { 'x-goog-api-key': key }
 })[provider];
 
+// Error text in a reply body: { error: { message } } from the cloud providers, { error: '...' } from LM Studio
+const bodyError = body => body?.error?.message || (typeof body?.error === 'string' ? body.error : '');
+
+// What a failed provider call tells the user, decided here where the provider, base URL and HTTP status are known.
+// status 0 = no answer. The provider's own text is kept: it often names the fix (low credit, a missing scope, an API to enable).
+function providerError(provider, baseUrl, status, body) {
+  const message = bodyError(body);
+  const custom = provider === 'openai' && baseUrl !== OPENAI_URL;
+  const local = custom && /^http:\/\/(localhost|127\.0\.0\.1)\b/.test(baseUrl);
+  const name = local ? 'Your local AI server' : custom ? baseUrl : { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini' }[provider];
+  // Gemini answers a bad key with 400 API_KEY_INVALID. A local server's 403 is OLLAMA_ORIGINS, not a key.
+  const auth = !(local && status === 403) && (status === 401 || status === 403 || !!body?.error?.details?.some(d => d.reason === 'API_KEY_INVALID'));
+  return {
+    errorType: !status ? 'NETWORK' : auth ? 'AUTH' : status === 429 ? 'RATE_LIMIT' : status >= 500 ? 'SERVICE_UNAVAILABLE' : 'PROVIDER_ERROR',
+    error: !status ? (local ? `Can't reach your local AI server at ${baseUrl}. Is Ollama or LM Studio running?` : `Couldn't reach ${name}. Check your connection and try again.`)
+      : local && status === 403 ? 'Your local AI server refused ElevateLI. Set OLLAMA_ORIGINS=chrome-extension://* and restart Ollama.'
+      : auth ? `${name} rejected your API key${message ? `: ${message}` : '.'}`
+      : status === 429 ? `${name} is limiting requests on your key${message ? `: ${message}` : '. Wait a minute, then try again.'}`
+      : message || `${name} returned error ${status}.`
+  };
+}
+
 // Every section prompt asks for this shape; each provider enforces it as JSON-schema output.
 // The descriptions carry the per-field guidance, so prompts only name the fields and their section's values.
 // No minimum/maximum: Anthropic rejects them, and parseSectionAnalysis clamps the score.
@@ -637,21 +591,10 @@ const str = description => ({ type: 'string', description });
 const SECTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['score', 'positiveInsight', 'gapAnalysis', 'specificFeedback', 'actionItems'],
+  required: ['score', 'positiveInsight', 'actionItems'],
   properties: {
     score: { type: 'integer', description: '0-10, where 10 is perfect for landing the target role' },
     positiveInsight: str('150-300 chars on what works, quoting their actual content'),
-    gapAnalysis: str('150-250 chars on the weakest areas, quoting their actual phrases'),
-    specificFeedback: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['originalLine', 'suggestion', 'why'],
-      properties: {
-        originalLine: str('The line or gap this addresses, quoted when it is a line'),
-        suggestion: str('The specific improvement'),
-        why: str('50-100 chars on why the rewrite is stronger')
-      }
-    },
     actionItems: {
       type: 'array',
       items: {
@@ -664,7 +607,7 @@ const SECTION_SCHEMA = {
           impact: str('How it helps for the target role and level'),
           priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
           quotedContent: str('Exact quote from their profile this item addresses, or the specific gap'),
-          element: str("'photo', 'headline' or 'banner' for first-impression items, else ''")
+          element: str("'photo' or 'headline' for first-impression items, else ''")
         }
       }
     }
@@ -672,11 +615,11 @@ const SECTION_SCHEMA = {
 };
 
 // Call AI provider
-async function callAIProvider(provider, apiKey, prompt, model) {
+async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
   const cleanApiKey = cleanKey(apiKey);
   if (!cleanApiKey) throw new Error('API key is required');
   if (!model) throw new Error('No AI model selected');
-  const baseUrl = await openaiBaseUrl();
+  baseUrl = openaiBaseUrl(baseUrl);
   // Local servers may never show response_format's schema to the model; Ollama's docs put it in the prompt too
   if (provider === 'openai' && baseUrl !== OPENAI_URL) prompt += `\n\nReply with JSON matching: ${JSON.stringify(SECTION_SCHEMA)}`;
 
@@ -708,266 +651,99 @@ async function callAIProvider(provider, apiKey, prompt, model) {
         generationConfig: {
           temperature: 0.1,
           maxOutputTokens: 8192,
-          responseFormat: { text: { mimeType: 'application/json', schema: SECTION_SCHEMA } }
+          // responseFormat.text.mimeType is an enum that rejects 'application/json'; responseJsonSchema takes plain JSON Schema
+          responseMimeType: 'application/json',
+          responseJsonSchema: SECTION_SCHEMA
         }
       }
     }
   };
-  
+
   const providerConfig = config[provider];
   if (!providerConfig) {
     throw new Error(`Unknown provider: ${provider}`);
   }
-  
+
+  const timeout = "The AI didn't answer within 3 minutes. Try again, or pick a faster model.";
+  let response;
   try {
-    const response = await fetch(providerConfig.url, {
+    response = await fetch(providerConfig.url, {
       method: 'POST',
       headers: { ...authHeaders(provider, cleanApiKey), 'Content-Type': 'application/json' },
       body: JSON.stringify(providerConfig.body),
       // Local models and reasoning models take minutes; stay under Chrome's 5-minute limit per event
       signal: AbortSignal.timeout(180000)
     });
-
-    if (!response.ok) {
-      // Keep the provider's own message (e.g. "credit balance is too low"); HTTP/2 has no statusText
-      const body = await response.json().catch(() => ({}));
-      const s = response.status;
-      throw Object.assign(new Error(body.error?.message || `API error ${s}`), {
-        errorType: s === 401 || s === 403 ? 'AUTH' : s === 429 ? 'RATE_LIMIT' : s >= 500 ? 'SERVICE_UNAVAILABLE' : 'PROVIDER_ERROR'
-      });
-    }
-    
-    const data = await response.json();
-    return processProviderResponse(provider, data, model);
-    
   } catch (error) {
-    if (error.name === 'TimeoutError') {
-      throw new Error('Request timeout - API not responding');
-    }
-
-    throw error;
+    throw Object.assign(new Error(error.name === 'TimeoutError' ? timeout : providerError(provider, baseUrl, 0).error), { errorType: 'NETWORK' });
   }
-  
-  // Helper function to process provider response
-  function processProviderResponse(provider, data, model) {
 
-    // Extract content based on provider
-    if (provider === 'openai') {
-      return data.choices?.[0]?.message?.content || '';
-    } else if (provider === 'anthropic') {
-      return data.content?.find(block => block.type === 'text')?.text || '';
-    } else if (provider === 'gemini') {
-      return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    }
-
-    return '';
+  if (!response.ok) {
+    // HTTP/2 has no statusText, so the body carries the reason
+    const { error, errorType } = providerError(provider, baseUrl, response.status, await response.json().catch(() => ({})));
+    throw Object.assign(new Error(error), { errorType });
   }
+
+  // The timeout also runs during the body read. Any other unreadable body returns '', which parseSectionAnalysis reports as a parse error.
+  const data = await response.json().catch(error => {
+    if (error.name === 'TimeoutError') throw Object.assign(new Error(timeout), { errorType: 'NETWORK' });
+    return {};
+  });
+  return (provider === 'openai' ? data.choices?.[0]?.message?.content
+    : provider === 'anthropic' ? data.content?.find(block => block.type === 'text')?.text
+    : data.candidates?.[0]?.content?.parts?.[0]?.text) || '';
 }
 
-// Message handler
-if (chrome && chrome.runtime && chrome.runtime.onMessage) {
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+// Message handlers. Each returns its reply; a throw replies { success: false, error, errorType }.
+const handlers = {
+  // A typed key goes only to the typed base URL ('' = OpenAI). No apiKey in the request = reload models
+  // with the saved key, which only ever goes to the saved base URL.
+  async testApiKey({ provider, apiKey, baseUrl }) {
+    if (apiKey) return testApiKey(provider, apiKey, baseUrl);
+    const { encryptedApiKey, aiBaseUrl } = await chrome.storage.local.get(['encryptedApiKey', 'aiBaseUrl']);
+    return testApiKey(provider, await getDecryptedApiKey(encryptedApiKey), aiBaseUrl);
+  },
+  // [CRITICAL_PATH:API_KEY_ENCRYPTION_HANDLER] - P0: Handles API key encryption requests from popup
+  encryptApiKey: async ({ apiKey }) => ({ success: true, encryptedApiKey: await encryptApiKey(apiKey) }),
+  analyzeSection: handleSectionAnalysis,
+  validateApiKey,
+  // Reply with the real result: openPopup rejects when no window is focused (and is missing before Chrome 127),
+  // so the caller can fall back to its own hint
+  async openPopup() {
+    await chrome.action.openPopup();
+    return { success: true };
+  }
+};
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // SECURITY: Validate message sender
-  if (!sender || sender.id !== chrome.runtime.id) {
+  if (sender.id !== chrome.runtime.id) return false;
+  if (!Object.hasOwn(handlers, request.action)) {
+    sendResponse({ success: false, error: 'Unknown action' });
     return false;
   }
-  
-  const { action } = request;
-  
-  
-  // Handle test API key
-  // No apiKey in the request = reload models with the saved key, which only ever goes to the saved base URL
-  if (action === 'testApiKey') {
-    (async () => testApiKey(request.provider, request.apiKey || await getDecryptedApiKey(), request.apiKey && request.baseUrl))().then(result => {
-      sendResponse(result);
-    }).catch(error => {
-      sendResponse({ success: false, error: error.message });
-    });
-    return true;
-  }
-  
-  
-  // [CRITICAL_PATH:API_KEY_ENCRYPTION_HANDLER] - P0: Handles API key encryption requests from popup
-  // Handle API key encryption with better error handling
-  if (action === 'encryptApiKey') {
-    cryptoUtils.encryptApiKey(request.apiKey).then(async (encryptedKey) => {
-      // Get installationId from storage
-      const { installationId } = await chrome.storage.local.get('installationId');
-      sendResponse({ 
-        success: true, 
-        encryptedApiKey: encryptedKey,
-        installationId: installationId || null
-      });
-    }).catch(error => {
-      console.error('AI.PROMPTS', 'Encryption failed', error);
-      sendResponse({ 
-        success: false, 
-        error: error.message || 'Failed to encrypt API key',
-        details: {
-          errorName: error.name,
-          errorStack: error.stack
-        }
-      });
-    });
-    return true;
-  }
-  
-  // [CRITICAL_PATH:API_KEY_CLEAR_HANDLER] - P0: Securely removes all API key data
-  // Handle API key clearing
-  if (action === 'clearApiKey') {
-    cryptoUtils.clearApiKey().then(() => {
-      sendResponse({ success: true });
-    }).catch(error => {
-      console.error('AI.PROMPTS', 'Failed to clear API key', error);
-      sendResponse({ 
-        success: false, 
-        error: error.message || 'Failed to clear API key'
-      });
-    });
-    return true;
-  }
-  
-  // Handle individual section analysis
-  if (action === 'analyzeSection') {
-    handleSectionAnalysis(request, sendResponse);
-    return true;
-  }
-  
-  // Handle synthesis of section scores
-  if (action === 'synthesizeAnalysis') {
-    handleSynthesisAnalysis(request, sendResponse);
-    return true;
-  }
-  
-  // Handle API key validation
-  if (action === 'validateApiKey') {
-    (async () => {
-      try {
-        // Use provider and API key from request (during setup)
-        // OR fall back to storage (for later validation)
-        let provider = request.provider;
-        let apiKey = request.apiKey;
-        
-        // If not provided in request, get from storage
-        if (!provider || !apiKey) {
-          const stored = await chrome.storage.local.get('aiProvider');
-          provider = provider || stored.aiProvider;
-          apiKey = apiKey || await getDecryptedApiKey();
-        }
-        
-        if (!provider || !apiKey) {
-          sendResponse({ 
-            success: false, 
-            error: 'API key or provider not configured' 
-          });
-          return;
-        }
-        
-        // Use the existing testApiKey function
-        const result = await testApiKey(provider, apiKey);
-        sendResponse(result);
-      } catch (error) {
-        console.error('AI.PROMPTS', 'API key validation error', error);
-        sendResponse({ 
-          success: false, 
-          error: error.message || 'Validation failed' 
-        });
-      }
-    })();
-    return true;
-  }
-  
-  // Handle popup open request
-  if (action === 'openPopup') {
-    chrome.action.openPopup();
-    sendResponse({ success: true });
-    return true;
-  }
-  
-  // Default response for unknown actions
-  sendResponse({ success: false, error: 'Unknown action' });
+  keepAliveWhile(handlers[request.action](request)).then(sendResponse, error => {
+    console.error(request.action, error);
+    sendResponse({ success: false, error: error.message, errorType: error.errorType });
+  });
   return true;
 });
 
-// API Rate Limiter
-class RateLimiter {
-  constructor() {
-    this.requests = new Map();
-    this.limits = {
-      'api': { limit: 10, window: 60000 },        // 10 API calls per minute
-      // Counted per section call; an analysis makes about 10. ponytail: send a run id from content if per-run limits matter
-      'analysis': { limit: 300, window: 300000 }  // ~30 analyses per 5 minutes
-    };
-  }
-
-  canMakeRequest(type, identifier = 'global') {
-    const config = this.limits[type] || this.limits['api'];
-    const key = `${type}:${identifier}`;
-    const now = Date.now();
-    
-    // Get request history
-    const requests = this.requests.get(key) || [];
-    
-    // Filter to requests within the time window
-    const recentRequests = requests.filter(t => now - t < config.window);
-    
-    // Check if under limit
-    if (recentRequests.length >= config.limit) {
-      const oldestRequest = recentRequests[0];
-      const waitTime = Math.ceil((config.window - (now - oldestRequest)) / 1000);
-      return { allowed: false, waitTime };
-    }
-    
-    // Add current request
-    recentRequests.push(now);
-    this.requests.set(key, recentRequests);
-    
-    // Clean old entries periodically
-    if (Math.random() < 0.1) { // 10% chance to clean
-      this.cleanOldEntries();
-    }
-    
-    return { allowed: true };
-  }
-
-  cleanOldEntries() {
-    const now = Date.now();
-    for (const [key, requests] of this.requests.entries()) {
-      const [type] = key.split(':');
-      const config = this.limits[type] || this.limits['api'];
-      const recentRequests = requests.filter(t => now - t < config.window);
-      
-      if (recentRequests.length === 0) {
-        this.requests.delete(key);
-      } else {
-        this.requests.set(key, recentRequests);
-      }
-    }
-  }
-
-  reset(type = null, identifier = null) {
-    if (type && identifier) {
-      this.requests.delete(`${type}:${identifier}`);
-    } else if (type) {
-      for (const key of this.requests.keys()) {
-        if (key.startsWith(`${type}:`)) {
-          this.requests.delete(key);
-        }
-      }
-    } else {
-      this.requests.clear();
-    }
-  }
+// ElevateLI's own limit: ~30 analyses (about 10 section calls each) per 5 minutes.
+// ponytail: send a run id from content if per-run limits matter
+let analysisCalls = [];
+function checkRateLimit(now = Date.now()) {
+  analysisCalls = analysisCalls.filter(t => now - t < 300000);
+  if (analysisCalls.length >= 300) return { allowed: false, waitTime: Math.ceil((300000 - (now - analysisCalls[0])) / 1000) };
+  analysisCalls.push(now);
+  return { allowed: true };
 }
-
-// Create rate limiter instance
-const rateLimiter = new RateLimiter();
 
 // List the provider's models. Doubles as the key check: a GET, so no tokens are spent.
 async function testApiKey(provider, apiKey, baseUrl) {
   const key = cleanKey(apiKey);
   if (!key) return { success: false, error: 'API key is required' };
-  baseUrl = await openaiBaseUrl(baseUrl);
+  baseUrl = openaiBaseUrl(baseUrl);
 
   const url = {
     openai: `${baseUrl}/models`,
@@ -976,138 +752,87 @@ async function testApiKey(provider, apiKey, baseUrl) {
   }[provider];
   if (!url) return { success: false, error: 'Unknown provider' };
 
+  let response;
   try {
-    const response = await fetch(url, { headers: authHeaders(provider, key) });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const error = [401, 403].includes(response.status) ? 'Invalid API key'
-        : response.status === 429 ? 'Rate limit exceeded'
-        : data.error?.message || `API error ${response.status}`;
-      return { success: false, error };
-    }
-
-    const list = provider === 'gemini'
-      ? (data.models || [])
-          .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
-          .map(m => ({ id: m.name.replace(/^models\//, '') }))
-      : (data.data || [])
-          // Hide models on their way out (Anthropic: lifecycle, OpenAI: shutdown_date) or without JSON-schema output (Anthropic)
-          .filter(m => m.capabilities?.structured_outputs?.supported !== false && m.lifecycle !== 'deprecated' && !m.shutdown_date)
-          .sort((a, b) => (b.created || 0) - (a.created || 0)); // OpenAI newest first; Anthropic already is
-    // ponytail: OpenAI/Gemini lists don't say which models can chat, so drop the non-chat ones by name. A wrong pick only errors on analysis.
-    const models = list.map(m => m.id)
-      .filter(id => !/embed|tts|whisper|dall-e|davinci|babbage|moderation|audio|realtime|transcribe|image|search|sora/.test(id));
-    return { success: true, models };
+    // A list answers in well under a second; a wedged local server that accepts the connection would otherwise hang the analysis
+    response = await fetch(url, { headers: authHeaders(provider, key), signal: AbortSignal.timeout(20000) });
   } catch (error) {
     console.error('Test API key error', error);
-    return { success: false, error: error.message || 'Connection failed' };
+    return { success: false, errorType: 'NETWORK', error: error.name === 'TimeoutError'
+      ? 'No answer within 20 seconds. Check that the AI server is running, then try again.'
+      : providerError(provider, baseUrl, 0).error };
   }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return { success: false, ...providerError(provider, baseUrl, response.status, data) };
+
+  const list = provider === 'gemini'
+    ? (data.models || [])
+        .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+        .map(m => ({ id: m.name.replace(/^models\//, '') }))
+    : (data.data || [])
+        // Hide models on their way out (Anthropic: lifecycle, OpenAI: shutdown_date) or without JSON-schema output (Anthropic)
+        .filter(m => m.capabilities?.structured_outputs?.supported !== false && m.lifecycle !== 'deprecated' && !m.shutdown_date)
+        .sort((a, b) => (b.created || 0) - (a.created || 0)); // OpenAI newest first; Anthropic already is
+  // ponytail: OpenAI/Gemini lists don't say which models can chat, so drop the non-chat ones by name. A wrong pick only errors on analysis.
+  // Also dropped: Gemma on the Gemini API (no JSON-schema output) and OpenAI families not served on /chat/completions.
+  const unusable = provider === 'gemini' ? /gemma/ : provider === 'openai' && baseUrl === OPENAI_URL ? /codex|-pro\b|computer-use|^o1/ : null;
+  const models = list.map(m => m.id)
+    .filter(id => !/embed|tts|whisper|dall-e|davinci|babbage|moderation|audio|realtime|transcribe|image|search|sora/.test(id) && !unusable?.test(id));
+  // A 200 can still be no list: LM Studio answers a wrong path with 200 + an error, Ollama with nothing pulled sends []
+  if (!models.length) {
+    return { success: false, errorType: 'PROVIDER_ERROR', error: bodyError(data) || (provider === 'openai' && baseUrl !== OPENAI_URL
+      ? `No models found at ${baseUrl}. Check the address (it usually ends in /v1) and that the server has a model.`
+      : 'No usable models found for this key.') };
+  }
+  return { success: true, models };
 }
 
 // Handle individual section analysis request
-async function handleSectionAnalysis(request, sendResponse) {
-  const { section, data, context } = request;
-  const sectionStartTime = Date.now();
+async function handleSectionAnalysis({ section, data, context }) {
+  // Read settings at call time, not from the content script's snapshot, and in one get: provider, model,
+  // base URL and key then always match
+  const { enableAI, aiProvider, aiModel, aiBaseUrl, encryptedApiKey, targetRole, customRole, seniorityLevel, customInstructions } = await chrome.storage.local.get(
+    ['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions']
+  );
+  // Turning AI off in the popup only writes storage; stop here so a running analysis sends no more profile text
+  if (!enableAI) return { success: false, error: 'AI analysis was turned off' };
+  const apiKey = await getDecryptedApiKey(encryptedApiKey);
+  if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: 'API key or provider not configured' };
+  if (!aiModel) return { success: false, errorType: 'AUTH', error: 'Choose an AI model in ElevateLI settings.' };
 
-  try {
-    // Read settings at call time, not from the content script's snapshot: provider, key and model then always match
-    const { aiProvider, aiModel, targetRole, customRole, seniorityLevel, customInstructions } = await chrome.storage.local.get(
-      ['aiProvider', 'aiModel', 'targetRole', 'customRole', 'seniorityLevel', 'customInstructions']
-    );
-    const apiKey = await getDecryptedApiKey();
-    
-    if (!aiProvider || !apiKey) {
-      sendResponse({ 
-        success: false, 
-        error: 'API key or provider not configured' 
-      });
-      return;
-    }
-    
-    // Check rate limit
-    const rateCheck = rateLimiter.canMakeRequest('analysis');
-    if (!rateCheck.allowed) {
-      sendResponse({
-        success: false,
-        error: `Rate limit exceeded. Please wait ${rateCheck.waitTime} seconds.`,
-        errorType: 'RATE_LIMIT',
-        retryAfter: rateCheck.waitTime
-      });
-      return;
-    }
-    
-    // Create section-specific prompt
-    const config = {
-      targetRole: (targetRole === 'other' ? customRole : targetRole) || 'general professional',
-      seniorityLevel: seniorityLevel || 'any level',
-      customInstructions: customInstructions || ''
-    };
-
-
-    const prompt = createSectionPrompt(section, data, config, context);
-
-    // Regular text-only analysis
-    const response = await callAIProvider(aiProvider, apiKey, prompt, aiModel);
-    
-    
-    
-    // Parse the response
-    const analysis = parseSectionAnalysis(response);
-
-    sendResponse({
-      success: true,
-      section: section,
-      score: analysis.score,
-      insight: analysis.positiveInsight,
-      gapAnalysis: analysis.gapAnalysis,
-      actionItems: analysis.actionItems,
-      specificFeedback: analysis.specificFeedback
-    });
-    
-  } catch (error) {
-    const sectionElapsed = Date.now() - sectionStartTime;
-    console.error('SECTIONS.EXPERIENCE', 'Error analyzing section', error, {
-      section,
-      elapsedMs: sectionElapsed
-    });
-    sendResponse({
+  const rateCheck = checkRateLimit();
+  if (!rateCheck.allowed) {
+    return {
       success: false,
-      error: error.message || 'Section analysis failed',
-      errorType: error.errorType
-    });
+      // ElevateLI's own limit, not the provider's
+      error: `Too many analyses in a few minutes. Wait ${rateCheck.waitTime} seconds, then click Analyze.`,
+      errorType: 'RATE_LIMIT',
+      retryAfter: rateCheck.waitTime
+    };
   }
-}
 
-// Handle synthesis analysis request: the content score is the weighted average of the section scores
-function handleSynthesisAnalysis(request, sendResponse) {
-  const { sectionScores } = request;
-  let totalScore = 0;
-  let totalWeight = 0;
-  const weights = {
-    first_impression: 0.20,   // 20% - First impression (headline + photo + banner)
-    about: 0.25,              // 25% - Standalone about section
-    experience_overall: 0.30, // 30% - Overall experience
-    skills: 0.15,             // 15% - Skills
-    recommendations: 0.10     // 10% - Recommendations
+  const config = {
+    targetRole: (targetRole === 'other' ? customRole : targetRole) || 'general professional',
+    seniorityLevel: seniorityLevel || 'any level',
+    customInstructions: customInstructions || ''
   };
-
-  Object.entries(sectionScores || {}).forEach(([sectionType, result]) => {
-    if (result && result.score !== undefined && result.score !== null) {
-      const weight = weights[sectionType] || 0.1;
-      totalScore += result.score * weight;
-      totalWeight += weight;
-    }
-  });
-
-  // No section scored: fail instead of inventing a 5 that would be shown and cached as the content score
-  if (!totalWeight) {
-    sendResponse({ success: false, error: 'AI could not score any section' });
-    return;
-  }
-  const finalScore = Math.round((totalScore / totalWeight) * 10) / 10;
-  
-  sendResponse({ success: true, finalScore, sectionScores });
+  const prompt = createSectionPrompt(section, data, config, context);
+  const analysis = parseSectionAnalysis(await callAIProvider(aiProvider, apiKey, prompt, aiModel, aiBaseUrl));
+  return {
+    success: true,
+    section,
+    score: analysis.score,
+    insight: analysis.positiveInsight,
+    actionItems: analysis.actionItems
+  };
 }
 
-
+// The saved provider, model, base URL and key, from one read. Auto-save can store a key before a model is picked.
+async function validateApiKey() {
+  const { aiProvider, aiModel, aiBaseUrl, encryptedApiKey } = await chrome.storage.local.get(['aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey']);
+  const apiKey = await getDecryptedApiKey(encryptedApiKey);
+  if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: 'API key or provider not configured' };
+  if (!aiModel) return { success: false, errorType: 'AUTH', error: 'Choose an AI model in ElevateLI settings.' };
+  return testApiKey(aiProvider, apiKey, aiBaseUrl);
 }
+

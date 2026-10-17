@@ -2,8 +2,7 @@
   "manifest_version": 3,
   "name": "ElevateLI",
   "version": "1.0.0",
-  "description": "Optimize your LinkedIn profile with AI-powered suggestions",
-  "default_locale": "en",
+  "description": "See how complete your LinkedIn profile is and what to add next. Scoring runs in your browser; AI review is optional.",
   "permissions": [
     "storage",
     "activeTab",
@@ -28,7 +27,6 @@
         "src/content/modules/chromeUtils.js",
         "src/content/modules/domUtils.js",
         "src/content/modules/ownership-detector.js",
-        "src/content/modules/core/cache-manager.js",
         "src/content/modules/extractors/base-extractor.js",
         "src/content/modules/extractors/photo.js",
         "src/content/modules/extractors/headline.js",
@@ -52,13 +50,7 @@
     }
   ],
   "action": {
-    "default_popup": "src/popup/popup.html",
-    "default_icon": {
-      "16": "src/images/icon16.png",
-      "48": "src/images/icon48.png",
-      "128": "src/images/icon128.png"
-    },
-    "default_title": "ElevateLI - LinkedIn Optimizer"
+    "default_popup": "src/popup/popup.html"
   },
   "icons": {
     "16": "src/images/icon16.png",
@@ -68,18 +60,13 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "src/images/icon.png",
         "src/images/icon48.png",
-        "updates.html",
         "privacy-terms.html"
       ],
       "matches": [
-        "https://www.linkedin.com/*",
-        "chrome-extension://*/*"
-      ]
+        "https://www.linkedin.com/*"
+      ],
+      "use_dynamic_url": true
     }
-  ],
-  "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none';"
-  }
+  ]
 }
