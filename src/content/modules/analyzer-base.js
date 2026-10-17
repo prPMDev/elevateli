@@ -128,6 +128,8 @@ class Analyzer {
       
       // Run AI analysis if enabled
       const hasApiKey = this.settings.encryptedApiKey;
+      // Sections the AI could not score this run (named in the completion toast)
+      let failedSections = [];
       
       
       if (this.settings.enableAI && hasApiKey && this.settings.aiProvider) {
@@ -149,12 +151,13 @@ class Analyzer {
 
           // Pass completeness score to AI analysis for conditional advice
           extractedData.completenessScore = completenessData?.score || 100;
-          aiResult = await this.runAIAnalysis(extractedData);
+          aiResult = await this.runAIAnalysis(extractedData, cachedData?.sectionScores);
         }
 
         if (aiResult.success) {
           result.contentScore = aiResult.score;
           result.sectionScores = aiResult.sectionScores;
+          failedSections = aiResult.failed;
         } else {
 
           // Check for cached AI data to merge with new completeness
@@ -230,6 +233,10 @@ class Analyzer {
       
       
       OverlayManager.setState(finalState, overlayData);
+      // Announce the end of the run from the fixed-position toast, wherever the page is scrolled
+      const aiNote = result.aiError ? ` AI analysis failed: ${result.aiError.message}`
+        : failedSections.length ? ` AI could not analyze ${failedSections.join(', ')} this time.` : '';
+      OverlayManager.showToast(`Analysis done: profile ${result.completeness}% complete.${aiNote}`, aiNote ? 'warning' : 'success');
       
       return { success: true, data: result };
       
@@ -481,7 +488,7 @@ class Analyzer {
   /**
    * Run distributed AI analysis (section by section)
    */
-  async runDistributedAIAnalysis(extractedData) {
+  async runDistributedAIAnalysis(extractedData, prevScores) {
     const sectionResults = {};
     const sections = [];
     
@@ -700,59 +707,59 @@ class Analyzer {
     // Track consecutive failures for early exit
     let consecutiveFailures = 0;
     const MAX_CONSECUTIVE_FAILURES = 2;
+    let result;
+    let scored = false;
+    const failed = [];
     
     // Analyze sections sequentially
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
-      let result;
       // Also covers the recommendations extractDeep above
       if (this.cancelled) return { success: false, cancelled: true };
 
-      try {
-        OverlayManager.updateAIProgress('analyzing', section.name);
+      // Two failures in a row: stop calling the provider; the remaining sections fail with the same error
+      if (consecutiveFailures < MAX_CONSECUTIVE_FAILURES) {
+        try {
+          OverlayManager.updateAIProgress('analyzing', section.name);
 
-        // Above the SW's 180 s per AI call, so the SW's own error is the one reported
-        result = await Promise.race([
-          this.analyzeSection(section.type, section.data, section.context),
-          new Promise((resolve) =>
-            setTimeout(() => resolve({ success: false, error: 'Section analysis timeout (190s)' }), 190000)
-          )
-        ]);
-      } catch (error) {
-        console.error(`[AI Analysis] Error analyzing ${section.name}:`, error);
-        result = { success: false, error: error.message };
+          // Above the SW's 180 s per AI call, so the SW's own error is the one reported
+          result = await Promise.race([
+            this.analyzeSection(section.type, section.data, section.context),
+            new Promise((resolve) =>
+              setTimeout(() => resolve({ success: false, error: 'Section analysis timeout (190s)' }), 190000)
+            )
+          ]);
+        } catch (error) {
+          console.error(`[AI Analysis] Error analyzing ${section.name}:`, error);
+          result = { success: false, error: error.message };
+        }
       }
 
       if (result.success) {
         consecutiveFailures = 0; // Reset on success
+        scored = true;
         sectionResults[section.type] = result;
       } else {
-        // Record the failure so the overlay says this section failed instead of "Enable AI"
-        sectionResults[section.type] = { score: null, errorType: 'ANALYSIS_FAILED', error: result.error, actionItems: [] };
-
-        // Check for early exit condition. analyze() keeps the previous AI results on failure.
-        if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-          return {
-            success: false,
-            error: result.error,
-            errorType: result.errorType || 'NETWORK',
-            retryAfter: result.retryAfter,
-            partialResults: sectionResults
-          };
-        }
+        consecutiveFailures++;
+        failed.push(section.name.replace(/ \(.*\)$/, ''));
+        // Keep the section's last good result, as a whole-run failure keeps them all. Otherwise record
+        // the failure so the overlay says this section failed instead of "Enable AI"
+        const prev = prevScores?.[section.type];
+        sectionResults[section.type] = prev?.score != null ? prev
+          : { score: null, errorType: 'ANALYSIS_FAILED', error: result.error, actionItems: [] };
       }
+    }
+
+    // Nothing scored this run: report the real error (RATE_LIMIT/AUTH, retryAfter); analyze() keeps the previous AI results
+    if (result && !scored) {
+      return { success: false, error: result.error, errorType: result.errorType, retryAfter: result.retryAfter };
     }
 
     // 5. Synthesize all results
     if (this.cancelled) return { success: false, cancelled: true };
     OverlayManager.updateAIProgress('synthesizing', 'Synthesizing results...');
 
-    const synthesis = await this.synthesizeResults(sectionResults);
-    
-    
-    
-    
-    return synthesis;
+    return { ...await this.synthesizeResults(sectionResults), failed };
   }
   
   /**
@@ -820,9 +827,9 @@ class Analyzer {
   /**
    * Run AI analysis. Resolves with { success: false, error } instead of rejecting.
    */
-  async runAIAnalysis(extractedData) {
+  async runAIAnalysis(extractedData, prevScores) {
     try {
-      return await this.runDistributedAIAnalysis(extractedData);
+      return await this.runDistributedAIAnalysis(extractedData, prevScores);
     } catch (error) {
       return { success: false, error: error.message };
     }
