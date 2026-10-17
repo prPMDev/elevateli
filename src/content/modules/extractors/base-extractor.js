@@ -88,31 +88,41 @@ const BaseExtractor = {
   /**
    * Lower sections render only once scrolled into view: scroll each empty placeholder section into view,
    * then the bottom of the page, until nothing new loads. Restores the user's scroll position.
+   * @param {Function} shouldStop - True once the run is cancelled (navigation, reset): stop and leave the page alone
    */
-  async loadLazySections(timeout = 15000) {
+  async loadLazySections(shouldStop = () => false, timeout = 8000) {
     const main = document.querySelector('main');
     if (!main) return;
     // The profile scrolls inside <main>, not the window
     const scroller = main.scrollHeight > main.clientHeight ? main : document.scrollingElement;
     const start = scroller.scrollTop;
     const tried = new Set();
-    const end = Date.now() + timeout;
+    let end = Date.now() + timeout;
 
     while (Date.now() < end) {
+      if (shouldStop()) return;
+      // A background tab doesn't render, so nothing mounts: wait until it is visible, then retry every empty section
+      if (document.hidden) {
+        const hiddenAt = Date.now();
+        await new Promise(resolve => document.addEventListener('visibilitychange', resolve, { once: true }));
+        end += Date.now() - hiddenAt;
+        tried.clear();
+        continue;
+      }
       const placeholder = Array.from(main.querySelectorAll('section'))
         .find(s => !s.textContent.trim() && !tried.has(s));
       if (placeholder) {
         tried.add(placeholder);
         placeholder.scrollIntoView();
-        for (let i = 0; i < 30 && !placeholder.textContent.trim(); i++) await this.wait(100);
+        for (let i = 0; i < 10 && !placeholder.textContent.trim() && !document.hidden; i++) await this.wait(100);
       } else {
         const height = scroller.scrollHeight;
         scroller.scrollTop = height;
         await this.wait(600);
-        if (scroller.scrollHeight === height) break;
+        if (scroller.scrollHeight === height && !document.hidden) break;
       }
     }
 
-    scroller.scrollTop = start;
+    if (!shouldStop()) scroller.scrollTop = start;
   }
 };
