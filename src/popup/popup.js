@@ -402,9 +402,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     clearFieldError(settingsApiKeyInput, apiKeyError);
+    // Nothing picked yet: preselect the newest cheap tier, since the list leads with the newest (often priciest) models.
+    // Shortest id wins a version tie, so a stable name beats its -preview variants.
+    const version = id => parseFloat(id.match(/\d+(\.\d+)?/)?.[0]) || 0;
+    const pick = keep || response.models.filter(id => /flash-lite|luna|nano|haiku/.test(id))
+      .sort((a, b) => version(b) - version(a) || a.length - b.length)[0];
     settingsAiModelSelect.replaceChildren(
       new Option('Choose a model…', ''),
-      ...response.models.map(id => new Option(id, id, false, id === keep))
+      ...response.models.map(id => new Option(id, id, false, id === pick))
     );
     if (apiKey) {
       // The new key works: store it with the provider, server and model it was tested with.

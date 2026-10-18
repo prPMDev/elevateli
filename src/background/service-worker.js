@@ -657,6 +657,9 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
         max_completion_tokens: 8192,
         // api.openai.com gets no temperature: gpt-5.5+, GPT-6 and o-series reject it
         ...(baseUrl !== OPENAI_URL && { temperature: 0.1 }),
+        // Reasoning is billed as output and defaults to medium; 'low' is the one level every gpt-5+/o-series model takes.
+        // Non-reasoning (gpt-4.x) and -chat models reject the field; local servers get nothing.
+        ...(baseUrl === OPENAI_URL && /^(gpt-[5-9]|o\d)/.test(model) && !/-(chat|pro)\b/.test(model) && { reasoning_effort: 'low' }),
         response_format: { type: 'json_schema', json_schema: { name: 'section_analysis', strict: true, schema: SECTION_SCHEMA } }
       }
     },
@@ -666,7 +669,9 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
         model: model,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 8192, // no temperature: Claude 4.7+ rejects anything but 1
-        output_config: { format: { type: 'json_schema', schema: SECTION_SCHEMA } }
+        // Effort 'low' cuts thinking, billed as output (Haiku 5.5 thinks by default). Claude 3, 4.0-4.4 and Haiku/Sonnet 4.5 reject effort.
+        output_config: { format: { type: 'json_schema', schema: SECTION_SCHEMA },
+          ...(!/claude-3|-4-(\d{8}|[0-4]\b)|(haiku|sonnet)-4-5/.test(model) && { effort: 'low' }) }
       }
     },
     gemini: {
@@ -676,6 +681,9 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
         generationConfig: {
           temperature: 0.1,
           maxOutputTokens: 8192,
+          // Thinking is billed as output: 2.5 Flash takes a budget (0 = off), 3.x and up a level ('minimal' is a 400 on 3.8 Flash and 4 Argon)
+          ...(/^gemini-2\.5-flash/.test(model) && { thinkingConfig: { thinkingBudget: 0 } }),
+          ...(/^gemini-[3-9]/.test(model) && { thinkingConfig: { thinkingLevel: /flash-lite/.test(model) ? 'minimal' : 'low' } }),
           // responseFormat.text.mimeType is an enum that rejects 'application/json'; responseJsonSchema takes plain JSON Schema
           responseMimeType: 'application/json',
           responseJsonSchema: SECTION_SCHEMA
@@ -817,7 +825,7 @@ async function testApiKey(provider, apiKey, baseUrl) {
 }
 
 // Handle individual section analysis request
-async function handleSectionAnalysis({ section, data, context }) {
+async function handleSectionAnalysis({ section, data, context, prevKey }) {
   // Read settings at call time, not from the content script's snapshot, and in one get: provider, model,
   // base URL and key then always match
   const { enableAI, aiProvider, aiModel, aiBaseUrl, encryptedApiKey, targetRole, customRole, seniorityLevel, customInstructions } = await chrome.storage.local.get(
@@ -828,6 +836,19 @@ async function handleSectionAnalysis({ section, data, context }) {
   const apiKey = await getDecryptedApiKey(encryptedApiKey);
   if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: "AI analysis isn't fully set up" };
   if (!aiModel) return { success: false, errorType: 'AUTH', error: 'no AI model is selected' };
+
+  const config = {
+    // The prompt reads a role in words: product-manager -> product manager
+    targetRole: (targetRole === 'other' ? customRole : targetRole !== 'general' && targetRole?.replace(/-/g, ' ')) || 'general professional',
+    seniorityLevel: seniorityLevel || 'any level',
+    customInstructions: customInstructions || ''
+  };
+  // Re-analyze: a section whose prompt, schema and model match its cached rating keeps that rating, with no AI call.
+  // The prompt carries role, level and instructions. Its date line is left out, so an unchanged profile isn't rated again the next day.
+  const prompt = createSectionPrompt(section, data, config, context);
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([aiModel, prompt.replace(/^Analysis Date: .*$/m, ''), SECTION_SCHEMA])));
+  const inputKey = btoa(String.fromCharCode(...new Uint8Array(digest)));
+  if (inputKey === prevKey) return { success: true, unchanged: true };
 
   const rateCheck = checkRateLimit();
   if (!rateCheck.allowed) {
@@ -843,20 +864,14 @@ async function handleSectionAnalysis({ section, data, context }) {
     };
   }
 
-  const config = {
-    // The prompt reads a role in words: product-manager -> product manager
-    targetRole: (targetRole === 'other' ? customRole : targetRole !== 'general' && targetRole?.replace(/-/g, ' ')) || 'general professional',
-    seniorityLevel: seniorityLevel || 'any level',
-    customInstructions: customInstructions || ''
-  };
-  const prompt = createSectionPrompt(section, data, config, context);
   const analysis = parseSectionAnalysis(await callAIProvider(aiProvider, apiKey, prompt, aiModel, aiBaseUrl), aiModel);
   return {
     success: true,
     section,
     score: analysis.score,
     insight: analysis.positiveInsight,
-    actionItems: analysis.actionItems
+    actionItems: analysis.actionItems,
+    inputKey
   };
 }
 
