@@ -313,7 +313,7 @@
   display: inline-block;
 }
 
-/* Results: banner with the next step, caption, one row per section. The advice is the main text. */
+/* Results: banner with the next tip and the AI line, one row per section. The advice is the main text. */
 .eli-banner {
   margin: 8px 0 12px;
   padding: 12px;
@@ -328,7 +328,11 @@
   margin: 0;
 }
 
-/* The AI line: the rating, why there is none, or (amber) what failed */
+.eli-banner strong {
+  font-weight: 600;
+}
+
+/* The AI line: why there are no AI ratings, or (amber) what failed */
 .eli-banner .eli-ai-line {
   margin-top: 4px;
 }

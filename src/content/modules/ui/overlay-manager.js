@@ -456,14 +456,6 @@ const OverlayManager = {
   },
 
   /**
-   * "Next: {tip} ({gainText})": the scorer sorts its gaps by impact. Experience steps may not earn all of it.
-   */
-  nextTip(completenessData) {
-    const next = completenessData?.allRecommendations?.[0];
-    return next ? `Next: ${next.message.replace(/\.$/, '')} (${next.section === 'experience' ? 'up to ' : ''}+${Math.round(next.impact)}%)` : '';
-  },
-
-  /**
    * Error line in the collapsed bar, the only part of the overlay visible in both views. Failures fixed
    * in settings get an "Open settings" link; the Analyze button is the retry.
    * @param {string} message - What failed and the fix; also the title and the announcement
@@ -522,8 +514,9 @@ const OverlayManager = {
     const badge = this.setBadge('completeness', `${Math.round(score)}%`);
     badge.classList.add(this.getScoreClass(score, false));
     if (completenessData) {
+      // The scorer sorts its gaps by impact
       badge.title = Math.round(score) >= 100 ? 'Every section ElevateLI checks is complete.'
-        : `${100 - Math.round(score)}% to go. ${this.nextTip(completenessData)}`.trim();
+        : `${100 - Math.round(score)}% to go. ${completenessData.allRecommendations?.[0]?.message || ''}`.trim();
     }
   },
 
@@ -845,7 +838,7 @@ const OverlayManager = {
   
   
   /**
-   * Results: a banner (completeness and the next step, then the AI line), one row per section
+   * Results: a banner (the next tip, then the AI line), one row per section
    */
   showUnifiedView(data) {
     const unifiedSection = this.overlayElement.querySelector('.unified-section');
@@ -860,11 +853,13 @@ const OverlayManager = {
       : section.errorType ? `No AI rating this time: ${this.reason({ message: section.error })}. Click Analyze to retry.`
       : rated ? 'No AI rating for this section.' : this.noRatingText(data);
 
+    const next = this.generateUnifiedMessage(data, sections);
+
     // The banner stays neutral (a green one on a 51% score read as success); only a failure's AI line is amber
     this.fillFromTemplate(unifiedSection, `
       <div class="eli-banner">
-        <p>${this.escapeHtml(this.generateUnifiedMessage(data))}</p>
-        <p class="eli-ai-line${ai.warn ? ' is-warning' : ''}">${this.escapeHtml(ai.text)}${ai.button ? ` <button type="button" class="eli-link" data-action="open-settings">${this.escapeHtml(ai.button)}</button>` : ''}</p>
+        <p><strong>${this.escapeHtml(next.text)}</strong>${next.why ? ` ${this.escapeHtml(next.why)}` : ''}</p>
+        ${ai ? `<p class="eli-ai-line${ai.warn ? ' is-warning' : ''}">${this.escapeHtml(ai.text)}${ai.button ? ` <button type="button" class="eli-link" data-action="open-settings">${this.escapeHtml(ai.button)}</button>` : ''}</p>` : ''}
       </div>
       ${sections.map(section => this.renderSection(section, starLabel(section))).join('')}
     `);
@@ -1145,18 +1140,24 @@ const OverlayManager = {
   },
 
   /**
-   * Banner line 1: the completeness and the next step (the biggest gap; every gap is also first in its card)
+   * Banner line 1, the next tip (no %: the badge shows it). The biggest gap (the scorer sorts by impact; it also leads
+   * its row), else the weakest AI-rated row's first item (the stable sort keeps page order on ties), else keep it current.
+   * @returns {{text: string, why?: string}}
    */
-  generateUnifiedMessage(data) {
-    const percent = Math.round(data.completeness || 0);
-    if (percent >= 100) return 'Profile 100% complete.';
-    const next = this.nextTip(data.completenessData);
-    return `Profile ${percent}% complete.${next ? ` ${next}.` : ''}`;
+  generateUnifiedMessage(data, sections) {
+    const top = data.completenessData?.allRecommendations?.[0];
+    if (top) return { text: top.message, why: top.why };
+    const weakest = sections.filter(section => typeof section.rating === 'number' && section.improvements.length)
+      .sort((a, b) => a.rating - b.rating)[0];
+    if (weakest) return weakest.improvements[0];
+    // Under 100% with no gap only when an extractor failed: then not every section was read
+    return { text: 'Keep Experience and About current as your work changes.',
+      why: Math.round(data.completeness || 0) >= 100 ? 'Every section ElevateLI checks is filled in.' : '' };
   },
 
   /**
-   * Banner line 2, the AI line: what failed, the AI rating, or why there is none
-   * @returns {{text: string, warn?: boolean, button?: string}} button: the label of an Open settings button
+   * Banner line 2, the AI line: what failed, or why there are no AI ratings. None when rows are rated (the stars and badge show it).
+   * @returns {{text: string, warn?: boolean, button?: string}|null} button: the label of an Open settings button
    */
   aiLine(data, sections) {
     const reason = this.reason(data.aiError, data.settings);
@@ -1177,19 +1178,11 @@ const OverlayManager = {
         : { text: `AI analysis failed (${reason}). Click Analyze to retry.`, warn: true, button: settings };
     }
 
-    const rated = sections.filter(section => typeof section.rating === 'number');
-    if (rated.length && typeof data.contentScore === 'number') {
-      // The badge's number; the weakest card is worth naming only next to another one
-      const weakest = rated.reduce((low, section) => section.rating < low.rating ? section : low);
-      return {
-        text: `AI rating: ${(Math.round(data.contentScore * 5) / 10).toFixed(1)} out of 5${data.roleLabel ? ` for ${data.roleLabel} roles` : ''}.` +
-          (rated.length > 1 && weakest.rating < 5 ? ` Weakest: ${weakest.name} (${weakest.rating} of 5).` : '')
-      };
-    }
+    if (sections.some(section => typeof section.rating === 'number')) return null;
     return {
-      on: { text: 'No AI ratings yet. Click Analyze to get them.' },
-      off: { text: 'No AI ratings: AI analysis is off.', button: 'Turn on AI' },
-      unset: { text: "No AI ratings: AI analysis isn't set up.", button: 'Set up AI' }
+      on: { text: 'AI analysis is set up. Click Analyze to get AI ratings.' },
+      off: { text: 'No AI ratings yet.', button: 'Turn on AI' },
+      unset: { text: 'No AI ratings yet.', button: 'Set up AI' }
     }[this.aiState(data.settings)];
   },
 
