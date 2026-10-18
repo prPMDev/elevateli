@@ -657,6 +657,9 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
         max_completion_tokens: 8192,
         // api.openai.com gets no temperature: gpt-5.5+, GPT-6 and o-series reject it
         ...(baseUrl !== OPENAI_URL && { temperature: 0.1 }),
+        // Reasoning is billed as output and defaults to medium; 'low' is the one level every gpt-5+/o-series model takes.
+        // Non-reasoning (gpt-4.x) and -chat models reject the field; local servers get nothing.
+        ...(baseUrl === OPENAI_URL && /^(gpt-[5-9]|o\d)/.test(model) && !/-(chat|pro)\b/.test(model) && { reasoning_effort: 'low' }),
         response_format: { type: 'json_schema', json_schema: { name: 'section_analysis', strict: true, schema: SECTION_SCHEMA } }
       }
     },
@@ -666,7 +669,9 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
         model: model,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 8192, // no temperature: Claude 4.7+ rejects anything but 1
-        output_config: { format: { type: 'json_schema', schema: SECTION_SCHEMA } }
+        // Effort 'low' cuts thinking, billed as output (Haiku 5.5 thinks by default). Claude 3, 4.0-4.4 and Haiku/Sonnet 4.5 reject effort.
+        output_config: { format: { type: 'json_schema', schema: SECTION_SCHEMA },
+          ...(!/claude-3|-4-(\d{8}|[0-4]\b)|(haiku|sonnet)-4-5/.test(model) && { effort: 'low' }) }
       }
     },
     gemini: {
@@ -676,6 +681,9 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
         generationConfig: {
           temperature: 0.1,
           maxOutputTokens: 8192,
+          // Thinking is billed as output: 2.5 Flash takes a budget (0 = off), 3.x and up a level ('minimal' is a 400 on 3.8 Flash and 4 Argon)
+          ...(/^gemini-2\.5-flash/.test(model) && { thinkingConfig: { thinkingBudget: 0 } }),
+          ...(/^gemini-[3-9]/.test(model) && { thinkingConfig: { thinkingLevel: /flash-lite/.test(model) ? 'minimal' : 'low' } }),
           // responseFormat.text.mimeType is an enum that rejects 'application/json'; responseJsonSchema takes plain JSON Schema
           responseMimeType: 'application/json',
           responseJsonSchema: SECTION_SCHEMA
