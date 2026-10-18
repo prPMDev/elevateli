@@ -464,13 +464,6 @@ const OverlayManager = {
   },
 
   /**
-   * The grey line under a completeness tip
-   */
-  gapWhy(rec) {
-    return `${rec.section === 'experience' ? 'Up to ' : ''}+${Math.round(rec.impact)}% completeness`;
-  },
-
-  /**
    * Error line in the collapsed bar, the only part of the overlay visible in both views. Failures fixed
    * in settings get an "Open settings" link; the Analyze button is the retry.
    * @param {string} message - What failed and the fix; also the title and the announcement
@@ -935,7 +928,7 @@ const OverlayManager = {
 
   /**
    * One row per section in LinkedIn's page order. A section the AI rated shows the AI's advice; every
-   * row also leads with its completeness gap and the points fixing it adds.
+   * row also leads with its completeness tip and a chip with the % fixing it adds.
    */
   analyzeSections(data, missingItems) {
     const sectionScores = data.sectionScores || {};
@@ -967,7 +960,7 @@ const OverlayManager = {
         key: 'headline',
         rating: null, // Always show blank stars without AI
         errorType: firstImpression?.errorType || null,
-        positive: !gap('headline') && extracted('headline')?.charCount >= 50 ? `✓ Full credit: ${extracted('headline').charCount}-character headline` : null,
+        positive: !gap('headline') && extracted('headline')?.charCount >= 50 ? '✓ Detailed headline' : null,
         improvements: []
       });
     }
@@ -984,8 +977,7 @@ const OverlayManager = {
         improvements: this.aiImprovements(about.actionItems, rating) });
     } else {
       sections.push({ name: 'About', key: 'about', rating: null, errorType: about?.errorType || null,
-        positive: !gap('about') && extracted('about')?.charCount >= 800
-          ? `✓ Full credit: ${extracted('about').charCount.toLocaleString('en-US')}-character About section` : null,
+        positive: !gap('about') && extracted('about')?.charCount >= 800 ? '✓ Detailed About section' : null,
         improvements: [] });
     }
 
@@ -996,9 +988,10 @@ const OverlayManager = {
       sections.push({ name: 'Experience', key: 'experience', rating, positive: experience.positiveInsight || null,
         improvements: this.aiImprovements(experience.actionItems, rating, 'Experience') });
     } else {
-      // No gap means full credit, which needs a current role (experience.count counts employers, not roles)
-      const positive = !gap('experience') && extracted('experience')?.hasCurrentRole
-        ? '✓ Full credit: a current role, earlier roles and detailed descriptions' : null;
+      // No gap: a current role and earlier roles. A long average can still hide an empty role. exists: a failed extractor has no gap either.
+      const exp = extracted('experience');
+      const positive = !gap('experience') && exp?.exists ? (exp.emptyRoles?.length ? '✓ Current role and earlier roles listed'
+        : '✓ Current role, earlier roles and detailed descriptions') : null;
       sections.push({ name: 'Experience', key: 'experience', rating: null, errorType: experience?.errorType || null,
         positive, improvements: [] });
     }
@@ -1013,7 +1006,7 @@ const OverlayManager = {
     } else {
       const count = extracted('recommendations')?.count;
       sections.push({ name: 'Recommendations', key: 'recommendations', rating: null, errorType: recommendations?.errorType || null,
-        positive: !gap('recommendations') && count > 0 ? `✓ Full credit: ${count} recommendation${count > 1 ? 's' : ''} received` : null,
+        positive: !gap('recommendations') && count > 0 ? '✓ Recommendations received' : null,
         improvements: [] });
     }
 
@@ -1025,33 +1018,34 @@ const OverlayManager = {
     } else {
       const count = extracted('skills')?.count;
       sections.push({ name: 'Skills', key: 'skills', rating: null, errorType: skills?.errorType || null,
-        positive: !gap('skills') && count >= 10 ? `✓ Full credit: ${count} skills` : null,
+        positive: !gap('skills') && count >= 10 ? '✓ Skills section filled out' : null,
         improvements: [] });
     }
 
-    // Each row leads with its completeness gap and what fixing it adds: the scorer's weight, in % points.
+    // Each row leads with its completeness tip; the chip says what fixing it adds, in % points ("up to" for graduated sections).
     // A card whose own AI call failed shows that call's reason.
+    const tip = rec => ({ text: rec.message, why: rec.why, gain: Math.round(rec.impact), upTo: rec.upTo });
     const aiResults = { headline: firstImpression, about, experience, recommendations, skills };
     sections.forEach(section => {
       const rec = gap(section.key);
-      if (rec) section.improvements.unshift({ text: rec.message, why: this.gapWhy(rec) });
+      if (rec) section.improvements.unshift(tip(rec));
       if (section.errorType) section.error = aiResults[section.key]?.error;
     });
 
-    // Sections without a row: their gaps, and which already earn full credit, so the score adds up
+    // Sections without a row: their gaps, and which are already done, so the score adds up
     const rowKeys = sections.map(section => section.key);
     const breakdown = data.completenessData?.breakdown || {};
     const otherGaps = missingItems.filter(item => !rowKeys.includes(item.section));
-    const fullCredit = Object.keys(breakdown).filter(key => !rowKeys.includes(key) && breakdown[key].scoreMultiplier === 1);
-    if (otherGaps.length || fullCredit.length) {
+    const done = Object.keys(breakdown).filter(key => !rowKeys.includes(key) && breakdown[key].scoreMultiplier === 1);
+    if (otherGaps.length || done.length) {
       sections.push({
         name: 'Other sections',
         stars: false,
         rating: null,
         // LinkedIn's section names
-        positive: fullCredit.length ? `✓ Full credit: ${fullCredit.map(key => ({ photo: 'Profile photo', certifications: 'Licenses & certifications' })[key]
+        positive: done.length ? `✓ Already on your profile: ${done.map(key => ({ photo: 'Profile photo', certifications: 'Licenses & certifications' })[key]
           || key[0].toUpperCase() + key.slice(1)).join(', ')}` : null,
-        improvements: otherGaps.map(item => ({ text: item.message, why: this.gapWhy(item) }))
+        improvements: otherGaps.map(tip)
       });
     }
 
@@ -1097,7 +1091,7 @@ const OverlayManager = {
           <ul class="eli-advice">
             ${section.improvements.map(imp => `
               <li>
-                ${this.escapeHtml(imp.text)}
+                ${this.escapeHtml(imp.text)}${imp.gain ? `<span class="eli-gain" role="img" aria-label="adds ${imp.upTo ? 'up to ' : ''}${imp.gain}% to completeness">${imp.upTo ? 'up to ' : ''}+${imp.gain}%</span>` : ''}
                 ${imp.why ? `<div class="eli-why">${this.escapeHtml(imp.why)}</div>` : ''}
               </li>
             `).join('')}

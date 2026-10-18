@@ -401,6 +401,17 @@
   color: var(--eli-text-muted);
 }
 
+/* The % a completeness tip adds, next to it: muted, on the card's surface so it reads as a tag in both themes */
+.eli-gain {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--eli-surface);
+  color: var(--eli-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 /* ============================================
  * BASE OVERLAY STYLES
  * ============================================ */
