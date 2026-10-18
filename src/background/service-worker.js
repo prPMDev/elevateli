@@ -161,7 +161,7 @@ ${contextBlock(config)}
 3. Be DIRECT and ACTIONABLE - no generic praise or fluff
 4. SCORING FEEDBACK RULES:
    - Scores 0-6: START with the most critical gap, then mention strengths
-   - Scores 7-10: START with what's working well, END with specific steps to reach 10/10
+   - Scores 7-10: START with what's working well, END with the specific steps that would strengthen it most
 5. Give SPECIFIC actions: "Move your Oracle ML project mention to the first bullet" not "Highlight technical skills"
 6. Focus on STRATEGIC career trajectory patterns, not individual role nitpicks
 7. If they already have strong metrics, suggest how to REPOSITION or ENHANCE them, not add more${partial ? `
@@ -220,7 +220,7 @@ Analyze the OVERALL career trajectory and experience section:
 
 4. Provide actionItems:
    - For scores 0-6: 3 critical improvements needed
-   - For scores 7-10: 2-3 refinements to reach 10/10
+   - For scores 7-10: 2-3 refinements
    - Each action must reference ACTUAL content from above or specific gaps
    - If metrics exist, suggest repositioning: "Lead with your $50M ARR at Avalara"
    - If metrics missing, be specific: "Quantify the 'API-first products' user base or revenue impact"
@@ -249,7 +249,7 @@ ${contextBlock(config)}
 2. If they have recent recommendations (< 6 months), say so: recency counts in their favor
 3. SCORING FEEDBACK APPROACH:
    - Scores 0-6: Focus on critical gaps, but acknowledge any positives
-   - Scores 7-10: START with strengths, END with refinements to reach 10/10
+   - Scores 7-10: START with strengths, END with refinements
 4. Quote EXACT content from recommendations when discussing them
 5. Give SPECIFIC actions: "Request recommendation from your manager John at Avalara" not "Get more recommendations"
 6. Consider recency heavily - recent recommendations (< 1 year) are highly valuable
@@ -326,7 +326,7 @@ ${contextBlock(config)}
 1. Quote the EXACT headline text when giving feedback
 2. SCORING FEEDBACK APPROACH:
    - Scores 0-6: START with critical gaps, then acknowledge strengths
-   - Scores 7-10: START with what's working, END with refinements to reach 10/10
+   - Scores 7-10: START with what's working, END with refinements
 3. Analyze how all elements work together for first impression
 </critical_rules>
 
@@ -350,7 +350,7 @@ Analyze the first impression elements:
 
 3. Provide feedback:
    - Quote the exact headline when discussing it
-   - For scores 7-10: Celebrate strengths, suggest refinements
+   - For scores 7-10: Name strengths, suggest refinements
    - For scores 0-6: Focus on critical gaps first
 </analysis_task>
 
@@ -371,7 +371,7 @@ ${contextBlock(config)}
 3. NEVER use placeholder text like "[opening line]" - use their ACTUAL words
 4. SCORING FEEDBACK APPROACH:
    - Scores 0-6: START with critical opening issues, then other gaps
-   - Scores 7-10: START with what's working, END with refinements to reach 10/10
+   - Scores 7-10: START with what's working, END with refinements
 5. Focus on the opening 2-3 lines as CRITICAL (visible before "see more" click)
 6. Give SPECIFIC rewrites: Show exactly how to improve weak sentences
 7. If they have metrics, suggest how to position them better, don't ask to add metrics
@@ -426,7 +426,7 @@ function createSkillsPrompt(skillsData, config, context = {}) {
 
   return `You are an expert LinkedIn profile optimizer analyzing skills for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
-${contextBlock(config, `Profile Completeness: ${completenessScore}%\n`)}
+${contextBlock(config)}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
@@ -443,12 +443,11 @@ ${contextBlock(config, `Profile Completeness: ${completenessScore}%\n`)}
 5. Quote EXACT skill names and endorsement counts (e.g., "Your 'Product Management' with 1 recent endorsement...")
 6. If a skill has endorsements, say so; don't ask for more unless there's a strategic reason
 7. DO NOT give mechanical repositioning advice with position numbers
-8. Focus on skill quality: "Consider making 'Data Analysis' more prominent" not "Move from #8 to #3"
+8. Focus on skill quality: "Make 'Data Analysis' one of your top skills" not "Move from #8 to #3"
 9. Focus on LinkedIn UI reality: Only some skills are visible without clicking "Show all"
 </critical_rules>
 
 <profile_status>
-Completeness Score: ${completenessScore}%
 Has Major Gaps: ${hasCompletenessIssues ? 'YES - Focus on critical issues only' : 'NO - Can provide strategic advice'}
 Visible Skills Count: ${visibleSkillsCount} (without clicking "Show all")
 </profile_status>
@@ -497,7 +496,7 @@ Analyze the skills section for quality and relevance:
    - CRITICAL: Recent endorsements (< 6 months) automatically add +2 to score
 
 3. Provide feedback:
-   - If they have recent endorsements (< 6 months), start by naming those skills and their endorsement counts
+   - If they have recent endorsements (< 6 months), start positiveInsight by naming those skills and their recent endorsements
    - If most prominent skills are already perfect for the role, acknowledge this
    - For scores 7-10: Name what works first, focus on skill quality not positions
    - Focus on skill relevance and endorsement quality, not mechanical reordering
@@ -508,7 +507,7 @@ Analyze the skills section for quality and relevance:
    - Focus on: critical skills to add (worded as rule 2 says), getting endorsements for unendorsed skills, or highlighting hidden gems
    - If skills are well-positioned and endorsed, suggest strategic additions instead
    - Avoid mechanical position swapping - focus on strategic improvements
-   - Example good feedback: "Consider highlighting your 'Data Analysis' skill more prominently"
+   - Example good feedback: "Make 'Data Analysis' one of your top skills"
    - Example bad feedback: "Move skill from position #1 to #1" (meaningless)
 </analysis_task>
 
@@ -617,7 +616,7 @@ const SECTION_SCHEMA = {
   required: ['score', 'positiveInsight', 'actionItems'],
   properties: {
     score: { type: 'integer', description: '0-10, where 10 is perfect for landing the target role' },
-    positiveInsight: str('150-300 chars on what works, quoting their actual content. Plain tone: no exclamation marks, no hype'),
+    positiveInsight: str('One or two short sentences on what already works, quoting their words. Plain statements: no scores, ratings, character counts, percentages, statistics, exclamation marks or emoji.'),
     actionItems: {
       type: 'array',
       items: {
@@ -626,8 +625,8 @@ const SECTION_SCHEMA = {
         required: ['category', 'action', 'impact', 'priority', 'quotedContent', 'element'],
         properties: {
           category: str('Improvement area: one of the categories the prompt lists'),
-          action: str('Specific step based on their actual content, never generic'),
-          impact: str('How it helps for the target role and level. No statistics or percentages'),
+          action: str('One change to make on their own LinkedIn profile: verb first, one short sentence, naming their actual content (never generic). For a rewrite, quote their words and give the new wording. No scores, ratings like 10/10, character counts, percentages, exclamation marks or emoji.'),
+          impact: str('One short sentence on why the change helps for the target role and level. No statistics, percentages, exclamation marks, emoji, claims about what recruiters think, or claims about how LinkedIn ranks or recommends profiles.'),
           priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
           quotedContent: str('Exact quote from their profile this item addresses, or the specific gap'),
           element: str("'photo' or 'headline' for first-impression items, else ''")
