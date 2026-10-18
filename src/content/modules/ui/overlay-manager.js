@@ -938,7 +938,7 @@ const OverlayManager = {
     const firstImpression = sectionScores.first_impression;
     if (scored(firstImpression)) {
       const rating = this.scoreToRating(firstImpression.score);
-      // Keep headline, photo, untagged '10/10' and plain-string items (schema-ignoring local models). Drop banner
+      // Keep headline, photo, untagged (such as 'Refinement') and plain-string items (schema-ignoring local models). Drop banner
       // items (no banner is extracted) and photo items when the Profile Photo row already says to add one.
       const items = (firstImpression.actionItems || [])
         .filter(item => item.element !== 'banner' && !(photoMissing && item.element === 'photo'));
@@ -1150,9 +1150,11 @@ const OverlayManager = {
     const weakest = sections.filter(section => typeof section.rating === 'number' && section.improvements.length)
       .sort((a, b) => a.rating - b.rating)[0];
     if (weakest) return weakest.improvements[0];
-    // Under 100% with no gap only when an extractor failed: then not every section was read
-    return { text: 'Keep Experience and About current as your work changes.',
-      why: Math.round(data.completeness || 0) >= 100 ? 'Every section ElevateLI checks is filled in.' : '' };
+    if (Math.round(data.completeness || 0) >= 100) {
+      return { text: 'Keep Experience and About current as your work changes.', why: 'Every section ElevateLI checks is filled in.' };
+    }
+    // Under 100% with no gap only when an extractor or the scorer failed: then not every section was read
+    return { text: 'Reload the page, then click Analyze.', why: "ElevateLI couldn't read every section of your profile." };
   },
 
   /**
@@ -1237,7 +1239,7 @@ const OverlayManager = {
         : `<div class="eli-welcome">
             <h3 class="eli-welcome-title">Welcome to ElevateLI${firstName ? `, ${this.escapeHtml(firstName)}` : ''}</h3>
             <p class="eli-welcome-text">See what's missing from your profile and what to fix first. ${scroll} ${time}</p>
-            <p class="eli-welcome-consent">By continuing, you confirm this is your own LinkedIn profile and agree to the <a href="${termsUrl}#terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="${termsUrl}#privacy" target="_blank" rel="noopener">Privacy Policy</a>. Results stay in this browser.</p>
+            <p class="eli-welcome-consent">By continuing, you confirm this is your own LinkedIn profile and agree to the <a href="${termsUrl}#terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="${termsUrl}#privacy" target="_blank" rel="noopener">Privacy Policy</a>. Your results stay in this browser unless you turn on AI analysis.</p>
             <button type="button" class="eli-primary" data-action="consent">Confirm and analyze</button>
           </div>`);
 

@@ -94,7 +94,7 @@ class ProfileCompletenessCalculator {
             !company ? title : empty.filter(other => other.company === company).length > 1 ? `${title} at ${company}` : company))];
           if (data.count === 1) {
             if (!data.hasCurrentRole) {
-              return { why: outdated, message: 'Add the role you\'re in now to Experience, or tick "I am currently working in this role" on the one you have, then add your earlier roles.' };
+              return { why: outdated, message: 'Add what you\'re doing now to Experience, such as freelance, contract or advisory work, or tick "I am currently working in this role" on your current job, then add your earlier roles.' };
             }
             const why = role ? `Earlier roles show the experience you bring to ${role} roles.` : "A single role doesn't show how your experience has grown.";
             if (names.length) return { why, message: `Add your earlier roles to Experience, and describe your ${names[0]} role: what you owned and one outcome.` };
@@ -102,7 +102,7 @@ class ProfileCompletenessCalculator {
             return { why, message: 'Add your earlier roles to Experience, such as a previous job, internship or contract work.' };
           }
           if (!data.hasCurrentRole) {
-            return { why: outdated, message: 'Add the role you\'re in now to Experience, or tick "I am currently working in this role" on it if it\'s already listed.' };
+            return { why: outdated, message: 'Add what you\'re doing now to Experience, such as freelance, contract or advisory work, or tick "I am currently working in this role" if your current job is already listed.' };
           }
           // Two or more roles with a current one fall short only on description depth
           if (names.length) {

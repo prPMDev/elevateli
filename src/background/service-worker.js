@@ -226,7 +226,7 @@ Analyze the OVERALL career trajectory and experience section:
    - If metrics missing, be specific: "Quantify the 'API-first products' user base or revenue impact"
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above) and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or '10/10 Optimization').`;
+Reply with JSON: fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above) and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or 'Refinement').`;
 }
 
 // Create specialized prompt for recommendations using Anthropic best practices
@@ -310,7 +310,7 @@ Analyze the recommendations section:
    - If they have good recommendations, suggest how to leverage them better
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight (what they have, even if it's 0) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or '10/10 Optimization'; name people and companies when possible).`;
+Reply with JSON: fill in score, positiveInsight (what they already have, even if that is none yet) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or 'Refinement'; name people and companies when possible).`;
 }
 
 // [CRITICAL_PATH:FIRST_IMPRESSION_AI] - P0: AI analysis for unified first impression
@@ -354,7 +354,7 @@ Analyze the first impression elements:
    - For scores 0-6: Focus on critical gaps first
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight and actionItems (category: 'Profile Photo', 'Headline Enhancement' or '10/10 Optimization'; element: 'photo' or 'headline').`;
+Reply with JSON: fill in score, positiveInsight and actionItems (category: 'Profile Photo', 'Headline Enhancement' or 'Refinement'; element: 'photo' or 'headline').`;
 }
 
 // [CRITICAL_PATH:ABOUT_SECTION_AI] - P0: Standalone About section analysis
@@ -410,7 +410,7 @@ Analyze the About section for strategic positioning:
    - If flow is poor: Identify the disconnect and suggest restructuring
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or '10/10 Refinement').`;
+Reply with JSON: fill in score, positiveInsight and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or 'Refinement').`;
 }
 
 // Create specialized prompt for skills section
@@ -431,7 +431,7 @@ ${contextBlock(config)}
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
 1. READ THE VISIBLE SKILLS FIRST - Identify what skills ARE present AND their endorsement status${unreadSkills ? '. Only the visible skills were read; the rest of their list is unknown' : ''}
-2. ${unreadSkills ? `NEVER claim a skill is missing or tell them to add one: ${unreadSkills} of their skills were not read. Phrase it as "if X isn't already among your skills, add it" or as "move X into your top skills"` : 'NEVER suggest adding skills that already exist in their list'}
+2. ${unreadSkills ? `NEVER claim a skill is missing or tell them to add one: ${unreadSkills} of their skills were not read. Phrase it as "Add X to your skills if it isn't there already" or as "Move X into your top skills"` : 'NEVER suggest adding skills that already exist in their list'}
 3. ENDORSEMENTS:
    - 0 endorsements is normal, not a weakness
    - Any endorsement counts in their favor, and 1 recent endorsement (< 6 months) counts for more than 10 old ones
@@ -511,7 +511,7 @@ Analyze the skills section for quality and relevance:
    - Example bad feedback: "Move skill from position #1 to #1" (meaningless)
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight (their actual skills and endorsement counts) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or '10/10 Refinement'; name their actual skills).`;
+Reply with JSON: fill in score, positiveInsight (their actual skills and endorsement counts) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or 'Refinement'; name their actual skills).`;
 }
 
 // Parse section analysis response. Providers return SECTION_SCHEMA JSON; slicing to the outer
