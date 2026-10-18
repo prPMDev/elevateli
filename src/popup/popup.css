@@ -332,6 +332,11 @@ select:focus, input:focus, textarea:focus {
   text-decoration: underline;
 }
 
+/* Remove API key is hidden while no key is saved; so is its "•" */
+#settingsClearApiKey.hidden + .separator {
+  display: none;
+}
+
 /* Settings labels and form elements */
 .settings-label {
   display: block;

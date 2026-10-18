@@ -14,6 +14,37 @@ function debounce(func, wait) {
 }
 
 /**
+ * The target role and level as copy reads them ({roleLabel}): "Senior Product Manager", always followed by
+ * "roles", "work" or "job posts". '' when no role is set (blank or the old 'general').
+ */
+function targetRoleLabel({ targetRole, seniorityLevel, customRole } = {}) {
+  const role = targetRole === 'other' ? customRole?.trim() : {
+    'product-manager': 'Product Manager', 'software-engineer': 'Software Engineer', 'data-scientist': 'Data Scientist',
+    designer: 'Designer', marketing: 'Marketing', sales: 'Sales', consultant: 'Consultant', entrepreneur: 'Founder'
+  }[targetRole];
+  if (!role) return '';
+  // Founder and custom roles get no level: custom text may already carry one
+  const level = ['other', 'entrepreneur'].includes(targetRole) ? ''
+    : { entry: 'Entry-level', mid: 'Mid-level', senior: 'Senior', lead: 'Lead', director: 'Director-level' }[seniorityLevel];
+  return level ? `${level} ${role}` : role;
+}
+
+/**
+ * The AI provider in a sentence ({provider}): Gemini, OpenAI, Claude, or "your local model" when a server URL is set
+ */
+function aiProviderName({ aiProvider, aiBaseUrl } = {}) {
+  if (aiBaseUrl) return 'your local model';
+  return { gemini: 'Gemini', openai: 'OpenAI', anthropic: 'Claude' }[aiProvider] || 'your AI provider';
+}
+
+/**
+ * A result's date in copy ({date}): "Oct 7, 2026"
+ */
+function formatDate(timestamp) {
+  return new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
  * Check if current page is a LinkedIn profile page
  */
 function isProfilePage() {
@@ -80,8 +111,8 @@ async function saveUserProfileId() {
   // The extension context dies on reload
   if (!profileId || profileId === 'me' || !chrome.runtime?.id) return;
 
-  // Get profile name from the page
-  const profileName = BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim() || profileId;
+  // Get profile name from the page; '' when not found, so copy uses its no-name variant instead of the URL slug
+  const profileName = BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim() || '';
   
   const userProfile = {
     profileId,

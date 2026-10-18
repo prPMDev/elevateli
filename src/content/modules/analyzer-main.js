@@ -47,12 +47,14 @@
       // Check if extension context is still valid (setState paints nothing without an overlay)
       if (!chrome.runtime?.id) {
         OverlayManager.setState(OverlayManager.states.ERROR, {
-          message: 'Extension was updated. Please refresh the page to continue.'
+          message: 'ElevateLI was updated. Reload this page to keep using it.'
         });
         return;
       }
 
-      const settings = await chrome.storage.local.get(['compliance', 'enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel']);
+      // The base URL and target role shape the overlay's and scorer's copy ({provider}, {roleLabel})
+      const settings = await chrome.storage.local.get(['compliance', 'enableAI', 'encryptedApiKey', 'aiProvider', 'aiModel',
+        'aiBaseUrl', 'targetRole', 'seniorityLevel', 'customRole']);
       if (!settings.compliance?.hasAcknowledged) {
         // Setup was reset elsewhere (Factory Reset in another tab): back to first-run, where Analyze offers setup
         OverlayManager.hasCompliance = false;
@@ -155,7 +157,8 @@
         success: true,
         userProfile: {
           profileId,
-          profileName: BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim() || profileId,
+          // '' when not found: copy has a no-name variant, never the URL slug
+          profileName: BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim() || '',
           profileUrl: window.location.href.split('?')[0],
           savedAt: Date.now(),
           verifiedOwnership: OwnershipDetector.hasOwnershipIndicators()
@@ -165,7 +168,7 @@
     }
   });
 
-  // Setup, Reset all and Show analysis reach every open tab through storage, whichever tab or popup changed them
+  // Setup, Reset all, Show analysis and the AI settings reach every open tab through storage, whichever tab or popup changed them
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || !chrome.runtime?.id) return;
     const has = !!changes.compliance?.newValue?.hasAcknowledged;
@@ -176,6 +179,10 @@
       // Setup and Reset all both leave no cached results: the zero state, with or without the consent card.
       // setState is safe without an overlay.
       OverlayManager.setState(has ? OverlayManager.states.EMPTY_CACHE : OverlayManager.states.INITIALIZING);
+    } else if (OverlayManager.overlayElement
+      && ['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey'].some(key => key in changes)) {
+      // The AI copy (bar, tooltips, zero state) names the current setup; restore skips a running analysis
+      OverlayManager.restoreAppropriateState();
     }
     if (changes.showAnalysis) {
       if (changes.showAnalysis.newValue === false) OverlayManager.hide();
@@ -188,7 +195,7 @@
   init();
   observeNavigation();
 
-  // Isolated-world handle: OverlayManager's Analyze/Refresh buttons call startAnalysis here. For debugging,
+  // Isolated-world handle: OverlayManager's Analyze button calls startAnalysis here. For debugging,
   // OverlayManager, Analyzer and extractProfileIdFromUrl are globals in the same console context.
   window.ElevateLI = { startAnalysis };
 

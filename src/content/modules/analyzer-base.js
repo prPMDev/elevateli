@@ -37,6 +37,9 @@ class Analyzer {
     this.profileId = profileId;
     this.isOwn = isOwn;
     this.settings = settings;
+    // What the overlay's copy reads ({provider}, setup state), never the key itself
+    this.uiSettings = { enableAI: settings.enableAI, aiProvider: settings.aiProvider, aiModel: settings.aiModel,
+      aiBaseUrl: settings.aiBaseUrl, hasKey: !!settings.encryptedApiKey };
   }
   
   /**
@@ -52,11 +55,13 @@ class Analyzer {
 
     try {
       // Update overlay state
-      OverlayManager.setState(OverlayManager.states.SCANNING);
-      
+      OverlayManager.setState(OverlayManager.states.SCANNING, { settings: this.uiSettings });
+
       // Use the cache unless forced refresh; a forced refresh keeps it for the fallbacks below
       const cacheKey = `cache_${this.profileId}`;
       cachedData = (await chrome.storage.local.get(cacheKey))[cacheKey];
+      // The earlier result's date, for the timeout fallback's "Showing your results from {date}"
+      this.previousTimestamp = cachedData?.timestamp;
       if (!forceRefresh && cachedData?.completeness !== undefined) {
         OverlayManager.setState(OverlayManager.states.COMPLETE, {
           ...cachedData,
@@ -64,7 +69,7 @@ class Analyzer {
           // Only mark AI as disabled if there's no content score
           aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
           // Pass current settings for UI logic
-          settings: { enableAI: this.settings.enableAI, aiProvider: this.settings.aiProvider, aiModel: this.settings.aiModel }
+          settings: this.uiSettings
         });
         return;
       }
@@ -75,7 +80,8 @@ class Analyzer {
       if (this.cancelled) return;
 
       // Calculate completeness
-      OverlayManager.setState(OverlayManager.states.CALCULATING);
+      // Its status line names the provider while the key pre-flight below runs
+      OverlayManager.setState(OverlayManager.states.CALCULATING, { settings: this.uiSettings });
 
       const completenessData = this.calculateCompleteness(extractedData);
 
@@ -85,6 +91,8 @@ class Analyzer {
         completeness: completenessData.score,
         completenessData: completenessData,
         extractedData: extractedData,
+        // The role the AI rates for, saved with the result: star text reads it, not today's settings
+        roleLabel: targetRoleLabel(this.settings),
         timestamp: new Date().toISOString()
       };
       
@@ -93,7 +101,7 @@ class Analyzer {
       
       // Run AI analysis if enabled
       const hasApiKey = this.settings.encryptedApiKey;
-      // Sections the AI could not score this run (named in the completion toast)
+      // Sections the AI could not score this run (named in the bar)
       let failedSections = [];
 
       if (this.settings.enableAI && hasApiKey && this.settings.aiProvider) {
@@ -106,34 +114,41 @@ class Analyzer {
         if (!validationResult.isValid) {
           // Only a key problem (the SW's AUTH) is a key error. Offline, 429/5xx or a stopped local server keep
           // the SW's own message and type.
-          aiResult = { success: false, error: validationResult.error || 'Invalid Key',
+          aiResult = { success: false, error: validationResult.error,
             errorType: validationResult.errorType === 'AUTH' ? 'validation_failed' : validationResult.errorType };
         } else {
           // API key is valid, proceed with AI analysis
-          OverlayManager.setState(OverlayManager.states.AI_ANALYZING, { completeness: completenessData.score });
+          OverlayManager.setState(OverlayManager.states.AI_ANALYZING,
+            { completeness: completenessData.score, settings: this.uiSettings, roleLabel: result.roleLabel });
 
           // Pass completeness score to AI analysis for conditional advice
           extractedData.completenessScore = completenessData?.score || 100;
-          aiResult = await this.runDistributedAIAnalysis(extractedData, cachedData?.sectionScores)
-            .catch(error => ({ success: false, error: error.message }));
+          // aiError.message is a reason phrase the overlay puts in a sentence; raw JS errors go to the console only
+          aiResult = await this.runDistributedAIAnalysis(extractedData, cachedData?.sectionScores).catch(error => {
+            console.error('[Analyzer] AI analysis failed:', error);
+            return { success: false, error: 'something went wrong' };
+          });
         }
 
         if (aiResult.success) {
           result.contentScore = aiResult.score;
           result.sectionScores = aiResult.sectionScores;
+          result.aiRatedAt = result.timestamp; // kept through later failed runs, which restamp timestamp
           failedSections = aiResult.failed;
         } else {
           // Keep the previous AI results with the new completeness
           if (cachedData?.contentScore !== undefined) {
             result.contentScore = cachedData.contentScore;
             result.sectionScores = cachedData.sectionScores;
+            result.roleLabel = cachedData.roleLabel; // the role those ratings were for
+            result.aiRatedAt = cachedData.aiRatedAt || cachedData.timestamp; // and when they were made
             result.aiFailedWithCache = true;
           }
           
           // Don't fail the whole analysis, just note AI failed
           result.aiError = {
             message: aiResult.error,
-            type: aiResult.errorType || (aiResult.error?.toLowerCase().includes('network') ? 'NETWORK' : 'UNKNOWN'),
+            type: aiResult.errorType || 'UNKNOWN',
             retryAfter: aiResult.retryAfter
           };
         }
@@ -164,16 +179,24 @@ class Analyzer {
         // Previous AI results kept after an AI failure
         fromCache: result.aiFailedWithCache,
         // Cache-fallback banner text: say what failed (e.g. rate limit wait time)
-        message: result.aiError && `AI analysis failed (${result.aiError.message}). Showing your previous AI results.`,
+        message: result.aiFailedWithCache && `AI analysis failed (${String(result.aiError.message).replace(/\.$/, '')}). ` +
+          `Showing your AI ratings from ${formatDate(result.aiRatedAt)}. Completeness is up to date.`,
         // Only mark AI as disabled if there's no content score
         aiDisabled: result.contentScore === undefined || result.contentScore === null,
         // The overlay's 'AI failed' contract (aiError + settings.enableAI), as the cache restore passes it
-        settings: { enableAI: this.settings.enableAI }
+        settings: this.uiSettings
       };
 
       OverlayManager.setState(finalState, overlayData);
-      // COMPLETE announces the run's end and any AI error. Sections that kept an earlier rating look unchanged, so name them.
-      if (failedSections.length) OverlayManager.showToast(`AI could not analyze ${failedSections.join(', ')} this time.`);
+      // COMPLETE announces the run's end and any AI error. Sections that kept an earlier rating look unchanged, so the
+      // bar names them (not a toast: the scroll notice is the only one)
+      if (failedSections.length) {
+        const list = new Intl.ListFormat('en-GB', { type: 'conjunction' }).format(failedSections); // "A, B and C"
+        const msg = `No new AI rating for your ${list} this time. Click Analyze to retry.`;
+        // The bar's red line (its title holds the whole sentence); the status region keeps COMPLETE's result too
+        OverlayManager.showError(msg);
+        OverlayManager.announce(`Analysis done. Profile ${Math.round(result.completeness)}% complete. ${msg}`);
+      }
     } catch (error) {
       console.error('[Analyzer] Analysis failed:', error);
       // An extension reload orphans this run (chrome.storage throws); the new script's overlay is not its to paint
@@ -185,12 +208,17 @@ class Analyzer {
           ...cachedData,
           fromCache: true,
           analysisError: error.message,
-          message: 'Analysis couldn\'t finish. Showing your last results. Try again in a few minutes.',
+          // A half-loaded page is the usual cause, so reloading is the fix
+          message: `Something went wrong while reading your profile. Showing your results from ${formatDate(cachedData.timestamp)}. ` +
+            'Reload the page, then click Analyze.',
           // Only mark AI as disabled if there's no content score
-          aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null
+          aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
+          settings: this.uiSettings
         });
       } else {
-        OverlayManager.setState(OverlayManager.states.ERROR, { message: error.message });
+        // The raw error is in the console above
+        OverlayManager.setState(OverlayManager.states.ERROR, { message: 'Something went wrong while reading your profile. ' +
+          'Reload the page, then click Analyze. If it keeps happening, use Send feedback in ElevateLI settings.' });
       }
     } finally {
       clearTimeout(analysisTimeout);
@@ -229,9 +257,10 @@ class Analyzer {
           aiDisabled: true,
           aiError: {
             type: 'timeout',
-            message: 'AI analysis took too long. Try again for full analysis.'
+            message: `${aiProviderName(this.settings)} took too long to respond`
           },
-          settings: { enableAI: this.settings.enableAI },
+          settings: this.uiSettings,
+          roleLabel: this.analysisResults.roleLabel,
           timestamp: Date.now()
         };
         
@@ -247,19 +276,22 @@ class Analyzer {
       const recovered = await OverlayManager.restoreAppropriateState(this.profileId, {
         isErrorFallback: true,
         error: 'Analysis timeout',
-        message: 'Analysis is taking too long. Showing your last results. Try again later.'
+        // No cache at run start but one now (another tab): the date is unknown, so the ERR-5 wording
+        message: 'This analysis took too long and was stopped. ' + (this.previousTimestamp
+          ? `Showing your results from ${formatDate(this.previousTimestamp)}. ` : 'Showing your earlier results. ') +
+          'Reload the page, then click Analyze.'
       });
-      
+
       if (!recovered) {
         // Fallback if no cache available
         OverlayManager.setState(OverlayManager.states.ERROR, {
-          message: 'Analysis timeout. Please try again.'
+          message: 'This analysis took too long and was stopped. Reload the page, then click Analyze.'
         });
       }
     } catch (error) {
       console.error('[Analyzer] Error handling timeout:', error);
       OverlayManager.setState(OverlayManager.states.ERROR, {
-        message: 'Analysis timeout. Please try again.'
+        message: 'This analysis took too long and was stopped. Reload the page, then click Analyze.'
       });
     }
   }
@@ -270,7 +302,7 @@ class Analyzer {
   async validateApiKey() {
     const response = await safeSendMessage({ action: 'validateApiKey' });
     return response?.success ? { isValid: true } : { isValid: false, errorType: response?.errorType,
-      error: response?.error || 'ElevateLI could not reach its service worker. Reload the page and try again.' };
+      error: response?.error || 'ElevateLI lost its connection to Chrome; reload the page' };
   }
   
   /**
@@ -306,7 +338,8 @@ class Analyzer {
    */
   calculateCompleteness(extractedData) {
     try {
-      return new ProfileCompletenessCalculator().calculate(extractedData);
+      // The settings carry the target role, which the scorer's tips name
+      return new ProfileCompletenessCalculator().calculate(extractedData, this.settings);
     } catch (error) {
       console.error('[Analyzer] Error calculating completeness:', error);
       // Return a basic result on error
@@ -420,7 +453,10 @@ class Analyzer {
     let result;
     let scored = false;
     const failed = [];
-    
+    // How the status line and the bar name each section: "Rating your skills (4 of 5)…"
+    const label = { first_impression: 'headline', about: 'About section', experience_overall: 'experience',
+      experience: 'experience', skills: 'skills', recommendations: 'recommendations' };
+
     // Analyze sections sequentially
     for (let i = 0; i < sections.length; i++) {
       const section = sections[i];
@@ -430,18 +466,18 @@ class Analyzer {
       // Two failures in a row: stop calling the provider; the remaining sections fail with the same error
       if (consecutiveFailures < MAX_CONSECUTIVE_FAILURES) {
         try {
-          OverlayManager.updateAIProgress('analyzing', section.name, i + 1, sections.length);
+          OverlayManager.updateAIProgress('analyzing', label[section.type], i + 1, sections.length);
 
           // Above the SW's 180 s per AI call, so the SW's own error is the one reported
           result = await Promise.race([
             this.analyzeSection(section.type, section.data, section.context),
             new Promise((resolve) =>
-              setTimeout(() => resolve({ success: false, error: 'Section analysis timeout (190s)' }), 190000)
+              setTimeout(() => resolve({ success: false, error: `${aiProviderName(this.settings)} took too long to respond` }), 190000)
             )
           ]);
         } catch (error) {
           console.error(`[AI Analysis] Error analyzing ${section.name}:`, error);
-          result = { success: false, error: error.message };
+          result = { success: false, error: 'something went wrong' };
         }
       }
 
@@ -451,9 +487,9 @@ class Analyzer {
         sectionResults[section.type] = result;
       } else {
         consecutiveFailures++;
-        failed.push(section.name.replace(/ \(.*\)$/, ''));
+        failed.push(label[section.type]);
         // Keep the section's last good result, as a whole-run failure keeps them all. Otherwise record
-        // the failure so the overlay says this section failed instead of "Enable AI"
+        // the failure so the card says why it has no rating (STAR-3)
         const prev = prevScores?.[section.type];
         sectionResults[section.type] = prev?.score != null ? prev
           : { score: null, errorType: 'ANALYSIS_FAILED', error: result.error, actionItems: [] };
@@ -467,7 +503,7 @@ class Analyzer {
 
     // 6. Synthesize all results
     if (this.cancelled) return { success: false, cancelled: true };
-    OverlayManager.updateAIProgress('synthesizing', 'Synthesizing results...');
+    OverlayManager.updateAIProgress('synthesizing');
 
     return { ...this.synthesizeResults(sectionResults), failed };
   }
@@ -479,7 +515,9 @@ class Analyzer {
     const r = await safeSendMessage({ action: 'analyzeSection', section, data, context });
     return r?.success
       ? { success: true, section, score: r.score, positiveInsight: r.insight, actionItems: r.actionItems }
-      : { success: false, section, error: r?.error || 'Section analysis failed', errorType: r?.errorType, retryAfter: r?.retryAfter };
+      // No reply: the service worker is gone (extension reloaded) or didn't answer
+      : { success: false, section, error: r?.error || 'ElevateLI lost its connection to Chrome; reload the page',
+        errorType: r?.errorType, retryAfter: r?.retryAfter };
   }
   
   /**
@@ -496,6 +534,6 @@ class Analyzer {
     }
     // No section scored: fail instead of inventing a score; analyze() keeps the previous AI results
     return weight ? { success: true, score: Math.round(total / weight * 10) / 10, sectionScores }
-      : { success: false, error: 'AI could not score any section' };
+      : { success: false, error: `${aiProviderName(this.settings)} couldn't rate your profile` };
   }
 }

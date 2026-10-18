@@ -92,16 +92,33 @@
   color: var(--eli-success);
 }
 
-/* Moderate, and AI on but failed ("No score", the reason is in the title) */
-.overlay-collapsed-view .score-badge.score-moderate,
-.overlay-collapsed-view .score-badge.quality.ai-error {
+.overlay-collapsed-view .score-badge.score-moderate {
   background: rgba(245, 158, 11, 0.16);
   color: var(--eli-warning);
 }
 
-.overlay-collapsed-view .score-badge.score-poor {
+/* Poor, and AI on but failed (red blank stars, the reason is in the title) */
+.overlay-collapsed-view .score-badge.score-poor,
+.overlay-collapsed-view .score-badge.quality.ai-error {
   background: rgba(220, 38, 38, 0.12);
   color: var(--eli-error);
+}
+
+/* Stars: empty ones muted, filled ones amber; a failed badge's blank stars take its red */
+.eli-stars {
+  cursor: help;
+}
+
+.eli-stars .stars-visual > span {
+  color: var(--eli-text-muted);
+}
+
+.eli-stars .stars-visual > .eli-star-on {
+  color: var(--eli-warning);
+}
+
+.score-badge.ai-error .eli-stars .stars-visual > span {
+  color: inherit;
 }
 
 .eli-asterisk {
@@ -124,8 +141,10 @@
   color: var(--eli-warning);
 }
 
+/* An error carries its fix (and maybe Open settings): wrap instead of cutting it off */
 .overlay-collapsed-view .last-analyzed-collapsed.has-error {
   color: var(--eli-error);
+  white-space: normal;
 }
 
 /* Text-style button, e.g. "Open settings" */
@@ -229,11 +248,16 @@
   background: color-mix(in srgb, var(--eli-link) 10%, var(--eli-surface));
 }
 
-/* Disabled only while analyzing, and then it carries the progress ("Analyzing 2/5"), so keep it readable */
+/* Disabled only while analyzing, and then it carries the progress ("Analyzing 2 of 5"), so keep it readable */
 .overlay-collapsed-view .analyze-btn-collapsed:disabled {
   background: var(--eli-surface-muted);
   color: var(--eli-text-muted);
   cursor: progress;
+}
+
+.overlay-collapsed-view .analyze-btn-collapsed .eli-spinner {
+  margin-right: 6px;
+  vertical-align: -2px;
 }
 
 /* A disclosure button styled as .eli-link; the vertical padding makes the target 24px+ tall */
@@ -289,7 +313,7 @@
   display: inline-block;
 }
 
-/* Results: banner with the next step, caption, one row per section. The advice is the main text. */
+/* Results: banner with the next tip and the AI line, one row per section. The advice is the main text. */
 .eli-banner {
   margin: 8px 0 12px;
   padding: 12px;
@@ -300,15 +324,21 @@
   color: var(--eli-text);
 }
 
-.eli-banner.is-warning {
-  background: rgba(245, 158, 11, 0.16);
-  color: var(--eli-warning);
+.eli-banner p {
+  margin: 0;
 }
 
-.eli-caption {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: var(--eli-text-muted);
+.eli-banner strong {
+  font-weight: 600;
+}
+
+/* The AI line: why there are no AI ratings, or (amber) what failed */
+.eli-banner .eli-ai-line {
+  margin-top: 4px;
+}
+
+.eli-banner .eli-ai-line.is-warning {
+  color: var(--eli-warning);
 }
 
 .eli-row {
@@ -373,6 +403,17 @@
   margin: 2px 0 0;
   font-size: 12px;
   color: var(--eli-text-muted);
+}
+
+/* The % a completeness tip adds, next to it: muted, on the card's surface so it reads as a tag in both themes */
+.eli-gain {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--eli-surface);
+  color: var(--eli-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 /* ============================================

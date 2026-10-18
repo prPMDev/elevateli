@@ -161,7 +161,7 @@ ${contextBlock(config)}
 3. Be DIRECT and ACTIONABLE - no generic praise or fluff
 4. SCORING FEEDBACK RULES:
    - Scores 0-6: START with the most critical gap, then mention strengths
-   - Scores 7-10: START with what's working well, END with specific steps to reach 10/10
+   - Scores 7-10: START with what's working well, END with the specific steps that would strengthen it most
 5. Give SPECIFIC actions: "Move your Oracle ML project mention to the first bullet" not "Highlight technical skills"
 6. Focus on STRATEGIC career trajectory patterns, not individual role nitpicks
 7. If they already have strong metrics, suggest how to REPOSITION or ENHANCE them, not add more${partial ? `
@@ -216,17 +216,17 @@ Analyze the OVERALL career trajectory and experience section:
 
 3. Provide positiveInsight:
    - For scores 0-6: Acknowledge their journey but focus on potential
-   - For scores 7-10: Celebrate specific achievements you see in their descriptions
+   - For scores 7-10: Name the specific achievements you see in their descriptions
 
 4. Provide actionItems:
    - For scores 0-6: 3 critical improvements needed
-   - For scores 7-10: 2-3 refinements to reach 10/10
+   - For scores 7-10: 2-3 refinements
    - Each action must reference ACTUAL content from above or specific gaps
    - If metrics exist, suggest repositioning: "Lead with your $50M ARR at Avalara"
    - If metrics missing, be specific: "Quantify the 'API-first products' user base or revenue impact"
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above) and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or '10/10 Optimization').`;
+Reply with JSON: fill in score, positiveInsight (their actual career progression, quoting roles, companies and achievements above) and actionItems (category: 'Strategic Positioning', 'Career Narrative', 'Missing Elements', 'Content Enhancement' or 'Refinement').`;
 }
 
 // Create specialized prompt for recommendations using Anthropic best practices
@@ -246,14 +246,14 @@ ${contextBlock(config)}
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
 1. READ ALL RECOMMENDATION CONTENT FIRST before providing feedback
-2. If they have recent recommendations (< 6 months), acknowledge this as exceptional
+2. If they have recent recommendations (< 6 months), say so: recency counts in their favor
 3. SCORING FEEDBACK APPROACH:
    - Scores 0-6: Focus on critical gaps, but acknowledge any positives
-   - Scores 7-10: START with strengths, END with refinements to reach 10/10
+   - Scores 7-10: START with strengths, END with refinements
 4. Quote EXACT content from recommendations when discussing them
 5. Give SPECIFIC actions: "Request recommendation from your manager John at Avalara" not "Get more recommendations"
 6. Consider recency heavily - recent recommendations (< 1 year) are highly valuable
-7. Don't penalize for having 0-2 recommendations - this is increasingly common
+7. Don't penalize for having 0-2 recommendations
 </critical_rules>
 
 <career_context>
@@ -293,7 +293,7 @@ Analyze the recommendations section:
    - Alignment with ${config.targetRole} positioning
 
 2. Score (0-10) based on:
-   - 0-2: No recommendations (but don't be harsh - this is common)
+   - 0-2: No recommendations (state the gap plainly, without judgment)
    - 3-4: Only old recommendations (> 2 years)
    - 5-6: Recent but generic or few in number
    - 7-8: Recent and specific with good coverage
@@ -310,7 +310,7 @@ Analyze the recommendations section:
    - If they have good recommendations, suggest how to leverage them better
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight (what they have, even if it's 0) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or '10/10 Optimization'; name people and companies when possible).`;
+Reply with JSON: fill in score, positiveInsight (what they already have, even if that is none yet) and actionItems (category: 'Strategic Requests', 'Perspective Gaps', 'Content Enhancement' or 'Refinement'; name people and companies when possible).`;
 }
 
 // [CRITICAL_PATH:FIRST_IMPRESSION_AI] - P0: AI analysis for unified first impression
@@ -326,7 +326,7 @@ ${contextBlock(config)}
 1. Quote the EXACT headline text when giving feedback
 2. SCORING FEEDBACK APPROACH:
    - Scores 0-6: START with critical gaps, then acknowledge strengths
-   - Scores 7-10: START with what's working, END with refinements to reach 10/10
+   - Scores 7-10: START with what's working, END with refinements
 3. Analyze how all elements work together for first impression
 </critical_rules>
 
@@ -350,11 +350,11 @@ Analyze the first impression elements:
 
 3. Provide feedback:
    - Quote the exact headline when discussing it
-   - For scores 7-10: Celebrate strengths, suggest refinements
+   - For scores 7-10: Name strengths, suggest refinements
    - For scores 0-6: Focus on critical gaps first
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight and actionItems (category: 'Profile Photo', 'Headline Enhancement' or '10/10 Optimization'; element: 'photo' or 'headline').`;
+Reply with JSON: fill in score, positiveInsight and actionItems (category: 'Profile Photo', 'Headline Enhancement' or 'Refinement'; element: 'photo' or 'headline').`;
 }
 
 // [CRITICAL_PATH:ABOUT_SECTION_AI] - P0: Standalone About section analysis
@@ -371,7 +371,7 @@ ${contextBlock(config)}
 3. NEVER use placeholder text like "[opening line]" - use their ACTUAL words
 4. SCORING FEEDBACK APPROACH:
    - Scores 0-6: START with critical opening issues, then other gaps
-   - Scores 7-10: START with what's working, END with refinements to reach 10/10
+   - Scores 7-10: START with what's working, END with refinements
 5. Focus on the opening 2-3 lines as CRITICAL (visible before "see more" click)
 6. Give SPECIFIC rewrites: Show exactly how to improve weak sentences
 7. If they have metrics, suggest how to position them better, don't ask to add metrics
@@ -410,7 +410,7 @@ Analyze the About section for strategic positioning:
    - If flow is poor: Identify the disconnect and suggest restructuring
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or '10/10 Refinement').`;
+Reply with JSON: fill in score, positiveInsight and actionItems (category: 'Opening Hook', 'Metric Specificity', 'Narrative Flow', 'Value Proposition' or 'Refinement').`;
 }
 
 // Create specialized prompt for skills section
@@ -426,34 +426,28 @@ function createSkillsPrompt(skillsData, config, context = {}) {
 
   return `You are an expert LinkedIn profile optimizer analyzing skills for ${config.targetRole} positions at the ${config.seniorityLevel} level.
 
-${contextBlock(config, `Profile Completeness: ${completenessScore}%\n`)}
+${contextBlock(config)}
 
 <critical_rules>
 ⚠️ YOU MUST FOLLOW THESE RULES:
 1. READ THE VISIBLE SKILLS FIRST - Identify what skills ARE present AND their endorsement status${unreadSkills ? '. Only the visible skills were read; the rest of their list is unknown' : ''}
-2. ${unreadSkills ? `NEVER claim a skill is missing or tell them to add one: ${unreadSkills} of their skills were not read. Phrase it as "if X isn't already among your skills, add it" or as "move X into your top skills"` : 'NEVER suggest adding skills that already exist in their list'}
-3. ENDORSEMENT REALITY CHECK:
-   - Having ANY endorsements with recency (< 6 months) = OUTSTANDING validation, top tier
-   - Having ANY endorsements (even 1) = EXCELLENT credibility signal
-   - 0 endorsements = Normal and common, not a weakness
-   - 1 endorsement = Strong validation, especially if recent
-   - 2-3 endorsements = Exceptional, rare achievement
-   - 5+ endorsements = Extremely rare, top 1% of profiles
-   - CRITICAL: If someone has 1 recent endorsement, this is BETTER than 10 old endorsements
-   - Most professionals have ZERO endorsements - having even 1 puts you ahead
+2. ${unreadSkills ? `NEVER claim a skill is missing or tell them to add one: ${unreadSkills} of their skills were not read. Phrase it as "Add X to your skills if it isn't there already" or as "Move X into your top skills"` : 'NEVER suggest adding skills that already exist in their list'}
+3. ENDORSEMENTS:
+   - 0 endorsements is normal, not a weakness
+   - Any endorsement counts in their favor, and 1 recent endorsement (< 6 months) counts for more than 10 old ones
+   - State endorsement counts as facts: never compare them with other profiles or say how rare they are
 4. SCORING FEEDBACK APPROACH:
    - Scores 0-4: Missing critical skills or poor alignment
    - Scores 5-7: Good skills but could optimize positioning or get more endorsements
    - Scores 8-10: Strong skills with endorsements - focus on refinements only
 5. Quote EXACT skill names and endorsement counts (e.g., "Your 'Product Management' with 1 recent endorsement...")
-6. If skill has ANY endorsements, celebrate them - don't ask for more unless there's a strategic reason
+6. If a skill has endorsements, say so; don't ask for more unless there's a strategic reason
 7. DO NOT give mechanical repositioning advice with position numbers
-8. Focus on skill quality: "Consider making 'Data Analysis' more prominent" not "Move from #8 to #3"
+8. Focus on skill quality: "Make 'Data Analysis' one of your top skills" not "Move from #8 to #3"
 9. Focus on LinkedIn UI reality: Only some skills are visible without clicking "Show all"
 </critical_rules>
 
 <profile_status>
-Completeness Score: ${completenessScore}%
 Has Major Gaps: ${hasCompletenessIssues ? 'YES - Focus on critical issues only' : 'NO - Can provide strategic advice'}
 Visible Skills Count: ${visibleSkillsCount} (without clicking "Show all")
 </profile_status>
@@ -502,9 +496,9 @@ Analyze the skills section for quality and relevance:
    - CRITICAL: Recent endorsements (< 6 months) automatically add +2 to score
 
 3. Provide feedback:
-   - If they have recent endorsements (< 6 months), START with: "Outstanding! Your recent endorsements show active validation"
+   - If they have recent endorsements (< 6 months), start positiveInsight by naming those skills and their recent endorsements
    - If most prominent skills are already perfect for the role, acknowledge this
-   - For scores 7-10: Celebrate achievements first, focus on skill quality not positions
+   - For scores 7-10: Name what works first, focus on skill quality not positions
    - Focus on skill relevance and endorsement quality, not mechanical reordering
 
 4. For action items:
@@ -513,17 +507,17 @@ Analyze the skills section for quality and relevance:
    - Focus on: critical skills to add (worded as rule 2 says), getting endorsements for unendorsed skills, or highlighting hidden gems
    - If skills are well-positioned and endorsed, suggest strategic additions instead
    - Avoid mechanical position swapping - focus on strategic improvements
-   - Example good feedback: "Consider highlighting your 'Data Analysis' skill more prominently"
+   - Example good feedback: "Make 'Data Analysis' one of your top skills"
    - Example bad feedback: "Move skill from position #1 to #1" (meaningless)
 </analysis_task>
 
-Reply with JSON: fill in score, positiveInsight (their actual skills and endorsement counts) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or '10/10 Refinement'; name their actual skills).`;
+Reply with JSON: fill in score, positiveInsight (their actual skills and endorsement counts) and actionItems (category: 'Strategic Positioning', 'Endorsement Building', 'Skill Optimization' or 'Refinement'; name their actual skills).`;
 }
 
 // Parse section analysis response. Providers return SECTION_SCHEMA JSON; slicing to the outer
 // braces also covers local models that ignore the schema and wrap the JSON in prose or fences.
 // A reply without a numeric score throws, so the section is reported as failed rather than scored.
-function parseSectionAnalysis(response) {
+function parseSectionAnalysis(response, model) {
   try {
     const parsed = JSON.parse(response.slice(response.indexOf('{'), response.lastIndexOf('}') + 1));
     const score = parseFloat(parsed.score); // NaN for a missing score; keeps 0 and "7"
@@ -541,7 +535,7 @@ function parseSectionAnalysis(response) {
   } catch {
     // Not JSON: falls through to the parse error below
   }
-  throw Object.assign(new Error('AI response could not be read'), { errorType: 'RESPONSE_PARSE_ERROR' });
+  throw Object.assign(new Error(`${model} sent a reply ElevateLI couldn't read; try another model`), { errorType: 'RESPONSE_PARSE_ERROR' });
 }
 
 // The openai provider talks to any OpenAI-compatible server; the user can point it at Ollama or LM Studio.
@@ -565,22 +559,50 @@ const authHeaders = (provider, key) => ({
 // Error text in a reply body: { error: { message } } from the cloud providers, { error: '...' } from LM Studio
 const bodyError = body => body?.error?.message || (typeof body?.error === 'string' ? body.error : '');
 
+// How copy names the provider. A server URL means a local model (Ollama, LM Studio).
+const providerName = (provider, baseUrl) => provider === 'openai' && openaiBaseUrl(baseUrl) !== OPENAI_URL
+  ? 'your local model' : { openai: 'OpenAI', anthropic: 'Claude', gemini: 'Gemini' }[provider];
+const capitalize = text => text[0].toUpperCase() + text.slice(1);
+const seconds = n => `${n} second${n === 1 ? '' : 's'}`;
+// Provider text can echo the key ("Incorrect API key provided: sk-…"): mask key-like tokens, keep 80 characters
+function quote(text) {
+  text = text.replace(/\b(sk-|AIza)\S*|[\w-]{30,}/g, '…');
+  return `"${text.length > 80 ? text.slice(0, 79) + '…' : text}"`;
+}
+
 // What a failed provider call tells the user, decided here where the provider, base URL and HTTP status are known.
-// status 0 = no answer. The provider's own text is kept: it often names the fix (low credit, a missing scope, an API to enable).
-function providerError(provider, baseUrl, status, body) {
+// reason: a short phrase the page wraps in its own sentence and fix ("AI analysis failed ({reason}). Click Analyze to retry.").
+// error: a full sentence with the fix, for the key field in ElevateLI settings. status 0 = no answer.
+function providerError(provider, baseUrl, status, body, { timeout, offline, noAccess, retryAfter } = {}) {
   const message = bodyError(body);
-  const custom = provider === 'openai' && baseUrl !== OPENAI_URL;
-  const local = custom && /^http:\/\/(localhost|127\.0\.0\.1)\b/.test(baseUrl);
-  const name = local ? 'Your local AI server' : custom ? baseUrl : { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini' }[provider];
+  const local = provider === 'openai' && baseUrl !== OPENAI_URL;
+  const name = providerName(provider, baseUrl);
+  const Name = capitalize(name);
   // Gemini answers a bad key with 400 API_KEY_INVALID. A local server's 403 is OLLAMA_ORIGINS, not a key.
   const auth = !(local && status === 403) && (status === 401 || status === 403 || !!body?.error?.details?.some(d => d.reason === 'API_KEY_INVALID'));
+  // OpenAI also answers an empty balance with 429; waiting won't fix that, so it keeps the provider's text
+  const rateLimit = status === 429 && body?.error?.code !== 'insufficient_quota';
+  const quoted = message ? `: ${quote(message)}` : '';
+  const [reason, error] =
+    timeout ? [`${name} took too long to respond`, `${Name} took too long to respond. ${local ? "Check that it's running, then try again." : 'Try again in a few minutes.'}`]
+    : noAccess ? ['ElevateLI needs access to localhost to use your local model', 'ElevateLI needs access to localhost to use a local model. Clear the server URL, click outside the field, then enter it again and choose Allow when Chrome asks.']
+    : !status ? (local
+      ? [`ElevateLI couldn't reach ${baseUrl}; check that Ollama or LM Studio is running`, `Can't reach ${baseUrl}. Check that Ollama or LM Studio is running and the URL is right.`]
+      : [`ElevateLI couldn't reach ${name}; check your internet connection`, offline ? "You're offline. Reconnect, then try again." : `Can't reach ${name}. Check your internet connection, then try again.`])
+    : local && status === 403 ? ['your local model blocked the request (Ollama needs OLLAMA_ORIGINS=chrome-extension://*)',
+      'The local server blocked the request. For Ollama, set OLLAMA_ORIGINS=chrome-extension://* and restart it.']
+    // A 403 can come with a valid key (API not enabled, restricted key, region): keep the provider's text, it names the fix
+    : auth ? (status === 403 && quoted ? [`${name} rejected your API key${quoted}`, `${Name} rejected this key (403)${quoted}`]
+      : [`${name} rejected your API key`, `${Name} rejected this key. Check that you copied all of it.`])
+    : rateLimit ? [`${name}'s rate limit was reached; wait ${retryAfter ? seconds(retryAfter) : 'a minute'}`, `${Name}'s rate limit was reached. Wait a minute, then try again.`]
+    // A local server's 500 often names the cause (out of memory), which a retry won't fix
+    : status >= 500 ? [`${name} is unavailable right now${local ? quoted : ''}`, `${Name} is unavailable right now${local && quoted ? quoted : '. Try again in a few minutes.'}`]
+    : [`${name} returned an error${quoted}`, `${Name} returned an error (${status})${quoted || '.'}`];
   return {
-    errorType: !status ? 'NETWORK' : auth ? 'AUTH' : status === 429 ? 'RATE_LIMIT' : status >= 500 ? 'SERVICE_UNAVAILABLE' : 'PROVIDER_ERROR',
-    error: !status ? (local ? `Can't reach your local AI server at ${baseUrl}. Is Ollama or LM Studio running?` : `Couldn't reach ${name}. Check your connection and try again.`)
-      : local && status === 403 ? 'Your local AI server refused ElevateLI. Set OLLAMA_ORIGINS=chrome-extension://* and restart Ollama.'
-      : auth ? `${name} rejected your API key${message ? `: ${message}` : '.'}`
-      : status === 429 ? `${name} is limiting requests on your key${message ? `: ${message}` : '. Wait a minute, then try again.'}`
-      : message || `${name} returned error ${status}.`
+    // 404: the saved model (or a local server's URL) is gone; a retry can't fix it, the quoted text names it
+    errorType: !status ? 'NETWORK' : auth ? 'AUTH' : rateLimit ? 'RATE_LIMIT' : status >= 500 ? 'SERVICE_UNAVAILABLE'
+      : status === 404 ? 'MODEL_NOT_FOUND' : 'PROVIDER_ERROR',
+    status, reason, error, retryAfter
   };
 }
 
@@ -594,7 +616,7 @@ const SECTION_SCHEMA = {
   required: ['score', 'positiveInsight', 'actionItems'],
   properties: {
     score: { type: 'integer', description: '0-10, where 10 is perfect for landing the target role' },
-    positiveInsight: str('150-300 chars on what works, quoting their actual content'),
+    positiveInsight: str('One or two short sentences on what already works, quoting their words. Plain statements: no scores, ratings, character counts, percentages, statistics, exclamation marks or emoji.'),
     actionItems: {
       type: 'array',
       items: {
@@ -603,8 +625,8 @@ const SECTION_SCHEMA = {
         required: ['category', 'action', 'impact', 'priority', 'quotedContent', 'element'],
         properties: {
           category: str('Improvement area: one of the categories the prompt lists'),
-          action: str('Specific step based on their actual content, never generic'),
-          impact: str('How it helps for the target role and level'),
+          action: str('One change to make on their own LinkedIn profile: verb first, one short sentence, naming their actual content (never generic). For a rewrite, quote their words and give the new wording. No scores, ratings like 10/10, character counts, percentages, exclamation marks or emoji.'),
+          impact: str('One short sentence on why the change helps for the target role and level. No statistics, percentages, exclamation marks, emoji, claims about what recruiters think, or claims about how LinkedIn ranks or recommends profiles.'),
           priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
           quotedContent: str('Exact quote from their profile this item addresses, or the specific gap'),
           element: str("'photo' or 'headline' for first-impression items, else ''")
@@ -617,9 +639,12 @@ const SECTION_SCHEMA = {
 // Call AI provider
 async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
   const cleanApiKey = cleanKey(apiKey);
-  if (!cleanApiKey) throw new Error('API key is required');
-  if (!model) throw new Error('No AI model selected');
   baseUrl = openaiBaseUrl(baseUrl);
+  // Thrown with the short reason; the page adds its own fix
+  const fail = (status, body, options) => {
+    const { reason, errorType, retryAfter } = providerError(provider, baseUrl, status, body, options);
+    return Object.assign(new Error(reason), { errorType, retryAfter });
+  };
   // Local servers may never show response_format's schema to the model; Ollama's docs put it in the prompt too
   if (provider === 'openai' && baseUrl !== OPENAI_URL) prompt += `\n\nReply with JSON matching: ${JSON.stringify(SECTION_SCHEMA)}`;
 
@@ -660,11 +685,8 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
   };
 
   const providerConfig = config[provider];
-  if (!providerConfig) {
-    throw new Error(`Unknown provider: ${provider}`);
-  }
+  if (!providerConfig) throw Object.assign(new Error('no AI provider is selected'), { errorType: 'AUTH' });
 
-  const timeout = "The AI didn't answer within 3 minutes. Try again, or pick a faster model.";
   let response;
   try {
     response = await fetch(providerConfig.url, {
@@ -675,18 +697,18 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
       signal: AbortSignal.timeout(180000)
     });
   } catch (error) {
-    throw Object.assign(new Error(error.name === 'TimeoutError' ? timeout : providerError(provider, baseUrl, 0).error), { errorType: 'NETWORK' });
+    throw fail(0, null, { timeout: error.name === 'TimeoutError' });
   }
 
   if (!response.ok) {
     // HTTP/2 has no statusText, so the body carries the reason
-    const { error, errorType } = providerError(provider, baseUrl, response.status, await response.json().catch(() => ({})));
-    throw Object.assign(new Error(error), { errorType });
+    throw fail(response.status, await response.json().catch(() => ({})),
+      { retryAfter: parseInt(response.headers.get('retry-after')) || undefined });
   }
 
   // The timeout also runs during the body read. Any other unreadable body returns '', which parseSectionAnalysis reports as a parse error.
   const data = await response.json().catch(error => {
-    if (error.name === 'TimeoutError') throw Object.assign(new Error(timeout), { errorType: 'NETWORK' });
+    if (error.name === 'TimeoutError') throw fail(0, null, { timeout: true });
     return {};
   });
   return (provider === 'openai' ? data.choices?.[0]?.message?.content
@@ -694,14 +716,17 @@ async function callAIProvider(provider, apiKey, prompt, model, baseUrl) {
     : data.candidates?.[0]?.content?.parts?.[0]?.text) || '';
 }
 
-// Message handlers. Each returns its reply; a throw replies { success: false, error, errorType }.
+// Message handlers. Each returns its reply; a throw replies { success: false, error, errorType, retryAfter }.
 const handlers = {
   // A typed key goes only to the typed base URL ('' = OpenAI). No apiKey in the request = reload models
   // with the saved key, which only ever goes to the saved base URL.
   async testApiKey({ provider, apiKey, baseUrl }) {
     if (apiKey) return testApiKey(provider, apiKey, baseUrl);
     const { encryptedApiKey, aiBaseUrl } = await chrome.storage.local.get(['encryptedApiKey', 'aiBaseUrl']);
-    return testApiKey(provider, await getDecryptedApiKey(encryptedApiKey), aiBaseUrl);
+    const key = await getDecryptedApiKey(encryptedApiKey);
+    if (encryptedApiKey && !key) return { success: false, errorType: 'AUTH', reason: "ElevateLI couldn't read your saved API key",
+      error: "ElevateLI couldn't read your saved key. Paste it again." };
+    return testApiKey(provider, key, aiBaseUrl);
   },
   // [CRITICAL_PATH:API_KEY_ENCRYPTION_HANDLER] - P0: Handles API key encryption requests from popup
   encryptApiKey: async ({ apiKey }) => ({ success: true, encryptedApiKey: await encryptApiKey(apiKey) }),
@@ -724,7 +749,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   keepAliveWhile(handlers[request.action](request)).then(sendResponse, error => {
     console.error(request.action, error);
-    sendResponse({ success: false, error: error.message, errorType: error.errorType });
+    // Only errors thrown on purpose carry an errorType; any other text is a bug's, and stays in this console
+    sendResponse({ success: false, error: error.errorType ? error.message : 'something went wrong', errorType: error.errorType, retryAfter: error.retryAfter });
   });
   return true;
 });
@@ -740,9 +766,9 @@ function checkRateLimit(now = Date.now()) {
 }
 
 // List the provider's models. Doubles as the key check: a GET, so no tokens are spent.
+// A failure replies with both texts from providerError: error for the settings key field, reason for the page.
 async function testApiKey(provider, apiKey, baseUrl) {
   const key = cleanKey(apiKey);
-  if (!key) return { success: false, error: 'API key is required' };
   baseUrl = openaiBaseUrl(baseUrl);
 
   const url = {
@@ -750,7 +776,8 @@ async function testApiKey(provider, apiKey, baseUrl) {
     anthropic: 'https://api.anthropic.com/v1/models?limit=1000',
     gemini: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000'
   }[provider];
-  if (!url) return { success: false, error: 'Unknown provider' };
+  if (!url) return { success: false, errorType: 'AUTH', reason: 'no AI provider is selected', error: 'Choose an AI provider.' };
+  if (!key) return { success: false, errorType: 'AUTH', reason: "AI analysis isn't fully set up", error: `Paste your ${providerName(provider)} API key.` };
 
   let response;
   try {
@@ -758,9 +785,10 @@ async function testApiKey(provider, apiKey, baseUrl) {
     response = await fetch(url, { headers: authHeaders(provider, key), signal: AbortSignal.timeout(20000) });
   } catch (error) {
     console.error('Test API key error', error);
-    return { success: false, errorType: 'NETWORK', error: error.name === 'TimeoutError'
-      ? 'No answer within 20 seconds. Check that the AI server is running, then try again.'
-      : providerError(provider, baseUrl, 0).error };
+    // localhost is an optional host permission: without it the fetch fails like a stopped server
+    const noAccess = /^http:\/\/(localhost|127\.0\.0\.1)\b/.test(baseUrl) &&
+      !await chrome.permissions.contains({ origins: ['http://localhost/*', 'http://127.0.0.1/*'] });
+    return { success: false, ...providerError(provider, baseUrl, 0, null, { timeout: error.name === 'TimeoutError', offline: !navigator.onLine, noAccess }) };
   }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) return { success: false, ...providerError(provider, baseUrl, response.status, data) };
@@ -780,9 +808,10 @@ async function testApiKey(provider, apiKey, baseUrl) {
     .filter(id => !/embed|tts|whisper|dall-e|davinci|babbage|moderation|audio|realtime|transcribe|image|search|sora/.test(id) && !unusable?.test(id));
   // A 200 can still be no list: LM Studio answers a wrong path with 200 + an error, Ollama with nothing pulled sends []
   if (!models.length) {
-    return { success: false, errorType: 'PROVIDER_ERROR', error: bodyError(data) || (provider === 'openai' && baseUrl !== OPENAI_URL
-      ? `No models found at ${baseUrl}. Check the address (it usually ends in /v1) and that the server has a model.`
-      : 'No usable models found for this key.') };
+    const local = provider === 'openai' && baseUrl !== OPENAI_URL;
+    const reason = local ? `no models found at ${new URL(baseUrl).host}` : `${providerName(provider)} returned no chat models for this key`;
+    const fix = !local ? '' : bodyError(data) ? ' Check that the URL ends in /v1.' : ' Download one in Ollama or LM Studio, then reopen settings.';
+    return { success: false, errorType: 'PROVIDER_ERROR', reason, error: `${capitalize(reason)}.${fix}` };
   }
   return { success: true, models };
 }
@@ -797,27 +826,31 @@ async function handleSectionAnalysis({ section, data, context }) {
   // Turning AI off in the popup only writes storage; stop here so a running analysis sends no more profile text
   if (!enableAI) return { success: false, error: 'AI analysis was turned off' };
   const apiKey = await getDecryptedApiKey(encryptedApiKey);
-  if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: 'API key or provider not configured' };
-  if (!aiModel) return { success: false, errorType: 'AUTH', error: 'Choose an AI model in ElevateLI settings.' };
+  if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: "AI analysis isn't fully set up" };
+  if (!aiModel) return { success: false, errorType: 'AUTH', error: 'no AI model is selected' };
 
   const rateCheck = checkRateLimit();
   if (!rateCheck.allowed) {
+    const name = providerName(aiProvider, aiBaseUrl);
     return {
       success: false,
-      // ElevateLI's own limit, not the provider's
-      error: `Too many analyses in a few minutes. Wait ${rateCheck.waitTime} seconds, then click Analyze.`,
+      // ElevateLI's own limit, not the provider's; a local model has none
+      error: name === 'your local model'
+        ? `ElevateLI paused after many requests in a few minutes; wait ${seconds(rateCheck.waitTime)}`
+        : `ElevateLI paused to stay under ${name}'s rate limit; wait ${seconds(rateCheck.waitTime)}`,
       errorType: 'RATE_LIMIT',
       retryAfter: rateCheck.waitTime
     };
   }
 
   const config = {
-    targetRole: (targetRole === 'other' ? customRole : targetRole) || 'general professional',
+    // The prompt reads a role in words: product-manager -> product manager
+    targetRole: (targetRole === 'other' ? customRole : targetRole !== 'general' && targetRole?.replace(/-/g, ' ')) || 'general professional',
     seniorityLevel: seniorityLevel || 'any level',
     customInstructions: customInstructions || ''
   };
   const prompt = createSectionPrompt(section, data, config, context);
-  const analysis = parseSectionAnalysis(await callAIProvider(aiProvider, apiKey, prompt, aiModel, aiBaseUrl));
+  const analysis = parseSectionAnalysis(await callAIProvider(aiProvider, apiKey, prompt, aiModel, aiBaseUrl), aiModel);
   return {
     success: true,
     section,
@@ -828,11 +861,13 @@ async function handleSectionAnalysis({ section, data, context }) {
 }
 
 // The saved provider, model, base URL and key, from one read. Auto-save can store a key before a model is picked.
+// The page wraps error in its own sentence, so a failure replies with the short reason.
 async function validateApiKey() {
   const { aiProvider, aiModel, aiBaseUrl, encryptedApiKey } = await chrome.storage.local.get(['aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey']);
   const apiKey = await getDecryptedApiKey(encryptedApiKey);
-  if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: 'API key or provider not configured' };
-  if (!aiModel) return { success: false, errorType: 'AUTH', error: 'Choose an AI model in ElevateLI settings.' };
-  return testApiKey(aiProvider, apiKey, aiBaseUrl);
+  if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: "AI analysis isn't fully set up" };
+  if (!aiModel) return { success: false, errorType: 'AUTH', error: 'no AI model is selected' };
+  const result = await testApiKey(aiProvider, apiKey, aiBaseUrl);
+  return result.success ? result : { ...result, error: result.reason };
 }
 

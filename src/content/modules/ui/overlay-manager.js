@@ -130,7 +130,7 @@ const OverlayManager = {
           <div class="overlay-expanded-view">
             <div class="status-indicator">
               <span class="status-icon" aria-hidden="true"></span>
-              <span class="status-text">Initializing...</span>
+              <span class="status-text">Loading…</span>
             </div>
             <div class="unified-section"></div>
           </div><!-- Close expanded view -->
@@ -220,7 +220,7 @@ const OverlayManager = {
       await chrome.storage.local.set({ compliance: { hasAcknowledged: true, acknowledgedAt: Date.now(), termsVersion: '2026-10' } });
     } catch (error) {
       console.error('[ElevateLI] Saving setup failed:', error);
-      this.showError('Setup failed. Refresh the page and try again.');
+      this.showError("Setup didn't save. Reload the page, then click Analyze.");
       return;
     }
     this.hasCompliance = true;
@@ -234,7 +234,7 @@ const OverlayManager = {
     if (!chrome.runtime?.id) return;
     chrome.storage.local.set({ showAnalysis: false });
     this.hide();
-    this.showToast('ElevateLI is hidden. Turn it back on from the ElevateLI icon.');
+    this.showToast('ElevateLI is hidden on your profile. Turn it back on in ElevateLI settings.');
   },
 
   /**
@@ -243,7 +243,7 @@ const OverlayManager = {
    */
   openSettings(link) {
     safeSendMessage({ action: 'openPopup' }).then(response => {
-      if (!response?.success) link.replaceWith("Open ElevateLI from Chrome's puzzle-piece menu.");
+      if (!response?.success) link.replaceWith("Open ElevateLI from the puzzle-piece icon in Chrome's toolbar.");
     });
   },
   
@@ -273,23 +273,31 @@ const OverlayManager = {
       [this.states.SCANNING]: () => {
         // COMPLETE (incl. every cache restore) hides the indicator; the status and elapsed counter live in it
         this.overlayElement.querySelector('.status-indicator').style.display = '';
-        this.updateStatus('Scanning profile sections...', true);
+        this.updateStatus('Scanning your profile…', true);
         this.startElapsedTimeDisplay();
         this.overlayElement.querySelector('.unified-section').replaceChildren();
+        this.tipCount = 0;
+        this.updateDetailsLabel();
         // Lower sections mount only when <main> scrolls to them, which carries the overlay out of view.
         // The toast is fixed, so it explains the motion; 20 s is a backstop, the next state removes it.
-        this.scrollToast = this.showToast('Scrolling through your profile so LinkedIn loads every section…', 20000);
+        const provider = this.aiState(data.settings) === 'on' && aiProviderName(data.settings);
+        this.scrollToast = this.showToast('Scrolling through your profile so LinkedIn loads every section. ' +
+          `You'll be back here in a few seconds${provider ? `, then ${provider} rates your writing` : ''}.`, 20000);
       },
 
       [this.states.CALCULATING]: () => {
-        this.updateStatus('Calculating completeness...', true);
+        // With AI on, this line stays up during the key check
+        const provider = this.aiState(data.settings) === 'on' && aiProviderName(data.settings);
+        this.updateStatus(provider ? `Checking your connection to ${provider}…` : 'Scoring completeness…', true);
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
         }
       },
 
       [this.states.AI_ANALYZING]: () => {
-        this.updateStatus('AI analyzing profile sections...', true);
+        // The first section's line (updateAIProgress, "i of n") replaces this one; the section count isn't known yet
+        const role = data.roleLabel ? ` for ${data.roleLabel} roles` : '';
+        this.updateStatus(`Rating your profile with ${aiProviderName(data.settings)}${role}…`, true);
         if (data.completeness !== undefined) {
           this.updateCompleteness(data.completeness);
         }
@@ -314,10 +322,14 @@ const OverlayManager = {
           this.showTimestamp(data.timestamp);
         }
         
-        // A run that just failed AI says so next to its date; a restore shows the amber "No score" badge
+        // A run that just failed AI says so in place of its date; a restore shows the red blank-star badge
         if (!data.fromCache) {
-          if (this.aiFailed(data)) this.showError('AI analysis failed', data.aiError);
-          else this.announce(`Analysis complete. Profile ${Math.round(data.completeness)}% complete.`);
+          if (this.aiFailed(data)) {
+            const fix = this.aiFix(data);
+            this.showError(`No AI rating: ${this.reason(data.aiError, data.settings)}.${fix.settings ? '' : ' Click Analyze to retry.'}`, fix.settings);
+          } else {
+            this.announce(`Analysis done. Profile ${Math.round(data.completeness)}% complete.`);
+          }
         }
       },
 
@@ -325,8 +337,8 @@ const OverlayManager = {
         // Stop elapsed time display if running
         this.stopElapsedTimeDisplay();
 
-        // The provider's own message (e.g. rate limit wait) is the useful part
-        const errorMessage = data.aiError?.message || data.message || 'Analysis failed';
+        // The analyzer's message says what failed and the fix. An AI failure never ends here (it finishes in COMPLETE).
+        const errorMessage = data.message || "Analysis didn't finish. Reload the page, then click Analyze.";
 
         this.updateStatus(errorMessage);
 
@@ -335,8 +347,7 @@ const OverlayManager = {
           this.updateCompleteness(data.completeness);
         }
 
-        // Short label in the slot; showError puts the provider's reason in the title and announcement once
-        this.showError(data.aiError ? 'AI analysis failed' : errorMessage, data.aiError);
+        this.showError(errorMessage);
       },
 
       [this.states.ANALYSIS_FAILED_CACHE_FALLBACK]: () => {
@@ -347,7 +358,7 @@ const OverlayManager = {
         // Show cached data
         this.populateScores(data);
 
-        // The flag makes the results banner carry data.message (what failed) in amber
+        // The flag makes the results banner say, in amber, that this run failed
         this.showUnifiedView({ ...data, isCacheFallback: true });
 
         // Show timestamp
@@ -355,7 +366,12 @@ const OverlayManager = {
           this.showTimestamp(data.timestamp);
         }
         // Only the fresh AI-failure producer has a current aiError; the others spread the cache's old one
-        this.showError('Showing previous results', data.isErrorFallback || data.analysisError ? { message: data.message } : data.aiError);
+        if (data.isErrorFallback || data.analysisError || !data.aiError) {
+          this.showError(`This analysis didn't finish. Showing your ${data.timestamp ? `results from ${formatDate(data.timestamp)}` : 'earlier results'}.`);
+        } else {
+          const fix = this.aiFix(data);
+          this.showError(`AI analysis failed (${this.reason(data.aiError, data.settings)}).${fix.settings ? '' : ' Click Analyze to retry.'}`, fix.settings);
+        }
       }
     };
     
@@ -392,31 +408,65 @@ const OverlayManager = {
 
   /**
    * AI was on for this result but its run failed (cached results keep aiError until a run succeeds).
-   * A fresh result has no settings, and only AI-enabled runs set aiError, so missing settings counts as on.
+   * Only AI-enabled runs set aiError, so missing settings counts as on; turning AI off since then hides an old failure.
    */
   aiFailed(data) {
     return !!data.aiError && data.settings?.enableAI !== false;
   },
 
   /**
-   * AI is set up now but this result has no AI scores (e.g. cached from an AI-off run): the next step is Analyze
+   * 'on' (set up and turned on), 'off' or 'unset'. Set up = a provider, a model and a saved key (a local model's
+   * is a stand-in), as the analyzer requires. Settings without an aiProvider key (none passed) read as 'off'.
    */
-  aiReady(data) {
-    return !data.aiError && !!data.settings?.enableAI && !!data.settings?.aiProvider && !!data.settings?.aiModel;
+  aiState(settings = {}) {
+    if (settings.aiProvider && settings.aiModel && settings.hasKey) return settings.enableAI ? 'on' : 'off';
+    return settings.enableAI || 'aiProvider' in settings ? 'unset' : 'off';
   },
 
   /**
-   * Error line in the collapsed bar, the only part of the overlay visible in both views. Key and
-   * provider-check failures get an "Open settings" link; the Analyze button is the retry.
-   * @param {string} message - Short text; the full reason goes in the title and the expanded banner
-   * @param {Object} [aiError] - aiError of the result, if the failure was AI's
+   * {reason} in copy: the failure's own phrase, without a closing period
+   * @param {Object} [error] - { message, type }: an aiError, or a section's error
    */
-  showError(message, aiError) {
+  reason(error, settings) {
+    if (error?.type === 'timeout') return `${aiProviderName(settings)} took too long to respond`;
+    return String(error?.message || 'something went wrong').replace(/\.$/, '');
+  },
+
+  /**
+   * The fix for an AI failure, and whether it is in ElevateLI settings (the copy then adds Open settings)
+   */
+  aiFix(data) {
+    const type = data.aiError?.type;
+    if (['AUTH', 'validation_failed', 'RESPONSE_PARSE_ERROR', 'MODEL_NOT_FOUND'].includes(type)) return { text: 'Open ElevateLI settings to check it.', settings: true };
+    if (type === 'RATE_LIMIT') return { text: 'Wait a minute, then click Analyze.' };
+    if (type === 'NETWORK' && data.settings?.aiBaseUrl) return { text: "Check that it's running, then click Analyze.", settings: true };
+    return { text: 'Click Analyze to retry.' };
+  },
+
+  /**
+   * Why a card or the badge has blank stars, when nothing failed for that card alone
+   */
+  noRatingText(data) {
+    if (this.aiFailed(data)) return `No AI rating this time: ${this.reason(data.aiError, data.settings)}. ${this.aiFix(data).text}`;
+    return {
+      on: 'No AI rating yet. Click Analyze to get one.',
+      off: 'No AI rating yet. Turn on AI analysis in ElevateLI settings, then click Analyze.',
+      unset: 'No AI rating yet. Set up AI analysis in ElevateLI settings, then click Analyze.'
+    }[this.aiState(data.settings)];
+  },
+
+  /**
+   * Error line in the collapsed bar, the only part of the overlay visible in both views. Failures fixed
+   * in settings get an "Open settings" link; the Analyze button is the retry.
+   * @param {string} message - What failed and the fix; also the title and the announcement
+   * @param {boolean} [settingsLink] - Add "Open settings"
+   */
+  showError(message, settingsLink = false) {
     const slot = this.overlayElement.querySelector('.last-analyzed-collapsed');
     slot.textContent = message;
-    slot.title = aiError?.message || message;
+    slot.title = message;
     slot.className = 'last-analyzed-collapsed has-error';
-    if (['AUTH', 'validation_failed'].includes(aiError?.type)) {
+    if (settingsLink) {
       const link = document.createElement('button');
       link.type = 'button';
       link.className = 'eli-link';
@@ -424,7 +474,7 @@ const OverlayManager = {
       link.textContent = 'Open settings';
       slot.append(' ', link);
     }
-    this.announce(aiError?.message ? `${message}: ${aiError.message}` : message);
+    this.announce(message);
   },
 
   /**
@@ -458,9 +508,16 @@ const OverlayManager = {
   /**
    * Update completeness score
    * @param {number} score - Completeness percentage
+   * @param {Object} [completenessData] - The scorer's result, for the tooltip; a bare number leaves none
    */
-  updateCompleteness(score) {
-    this.setBadge('completeness', `${Math.round(score)}%`).classList.add(this.getScoreClass(score, false));
+  updateCompleteness(score, completenessData) {
+    const badge = this.setBadge('completeness', `${Math.round(score)}%`);
+    badge.classList.add(this.getScoreClass(score, false));
+    if (completenessData) {
+      // The scorer sorts its gaps by impact
+      badge.title = Math.round(score) >= 100 ? 'Every section ElevateLI checks is complete.'
+        : `${100 - Math.round(score)}% to go. ${completenessData.allRecommendations?.[0]?.message || ''}`.trim();
+    }
   },
 
   /**
@@ -469,50 +526,80 @@ const OverlayManager = {
    */
   populateScores(data) {
     if (data.completeness !== undefined) {
-      this.updateCompleteness(data.completeness);
+      this.updateCompleteness(data.completeness, data.completenessData);
     }
 
     // aiDisabled also marks the timeout path's placeholder contentScore 0
     if (typeof data.contentScore === 'number' && !data.aiDisabled) {
-      // 10-point AI score as 5 stars
-      const badge = this.setBadge('quality', this.renderStars(Math.round(data.contentScore / 2)));
+      // 10-point AI score as 5 stars; the narrow bar shows the average, rounded from the 10-point
+      // score because (7.3 / 2).toFixed(1) rounds the float 3.6499… down to 3.6. Stars, word and
+      // colour all come from this average, so they agree
+      const average = (Math.round(data.contentScore * 5) / 10).toFixed(1);
+      const avg = Number(average);
+      const label = `${average} out of 5 (${this.ratingLabel(avg)})${data.roleLabel ? ` for ${data.roleLabel} roles` : ''}`;
+      const badge = this.setBadge('quality', this.renderStars(Math.round(avg), label, `${average}/5★`));
       // These AI results are from an earlier run: this one's AI step failed
       if (data.aiFailedWithCache) {
         const asterisk = document.createElement('span');
         asterisk.className = 'eli-asterisk';
         asterisk.textContent = '*';
-        asterisk.title = 'AI analysis failed, so these are your previous AI results. Click Analyze to retry.';
+        asterisk.title = `Your AI ratings are from an earlier run. The latest one failed (${this.reason(data.aiError, data.settings)}). Click Analyze to retry.`;
         badge.appendChild(asterisk);
       }
-      badge.classList.add(this.getScoreClass(data.contentScore, true));
+      badge.classList.add(this.getScoreClass(avg * 2, true));
     } else if (this.aiFailed(data)) {
-      // Same "No score" for a fresh failure, a failed key check, a timeout and a restored failure
-      const badge = this.setBadge('quality', 'No score');
-      badge.classList.add('ai-error');
-      badge.title = data.aiError.message;
+      // Red blank stars for a fresh failure, a failed key check, a timeout and a restored failure
+      const reason = this.reason(data.aiError, data.settings);
+      const label = data.aiError.type === 'timeout'
+        ? `No AI rating this time: ${reason}. Your completeness score is current. Click Analyze to retry.`
+        : `No AI rating: ${reason}. ${this.aiFix(data).text}`;
+      this.setBadge('quality', this.renderStars(null, label)).classList.add('ai-error');
     } else {
       // Blank stars, never 0/5
-      this.setBadge('quality', this.renderStars(null, this.aiReady(data) ? 'AI_READY' : null)).classList.add('ai-disabled');
+      this.setBadge('quality', this.renderStars(null, this.noRatingText(data))).classList.add('ai-disabled');
     }
   },
 
   /**
    * AI progress: the status line, and the step on the collapsed Analyze button (visible in both views)
    * @param {string} phase - 'analyzing' or 'synthesizing'
-   * @param {string} section - Section name, e.g. "Skills (58 total)"
-   * @param {number} [step] - 1-based number of the section being analyzed
-   * @param {number} [total] - Number of sections
+   * @param {string} section - The section as copy names it, e.g. "skills" or "About section"
+   * @param {number} step - 1-based number of the section being analyzed
+   * @param {number} total - Number of sections
    */
   updateAIProgress(phase, section, step, total) {
     const statusText = this.overlayElement?.querySelector('.status-text');
     if (!statusText) return;
     if (phase === 'synthesizing') {
-      statusText.textContent = 'Synthesizing results...';
+      statusText.textContent = 'Finishing up…';
       return;
     }
-    const count = step ? ` (${step} of ${total})` : '';
-    statusText.textContent = `AI analyzing ${String(section).replace(/ \(.*\)$/, '')}${count}...`;
-    if (step) this.overlayElement.querySelector('.analyze-btn-collapsed').textContent = `Analyzing ${step}/${total}`;
+    statusText.textContent = `Rating your ${section} (${step} of ${total})…`;
+    this.setAnalyzeRunning(`Analyzing ${step} of ${total}`, `${step}/${total}`);
+  },
+
+  /**
+   * The disabled Analyze button during a run: a spinner and the step. resetButtons puts "Analyze" back.
+   * @param {string} full - Label
+   * @param {string} [short] - Label for a narrow bar
+   */
+  setAnalyzeRunning(full, short) {
+    const button = this.overlayElement?.querySelector('.analyze-btn-collapsed');
+    if (!button) return;
+    const spinner = document.createElement('span');
+    spinner.className = 'eli-spinner';
+    spinner.setAttribute('aria-hidden', 'true');
+    if (!short) {
+      button.replaceChildren(spinner, full);
+      return;
+    }
+    const fullSpan = document.createElement('span');
+    fullSpan.className = 'label-full';
+    fullSpan.textContent = full;
+    const shortSpan = document.createElement('span');
+    shortSpan.className = 'label-short';
+    shortSpan.textContent = short;
+    button.replaceChildren(spinner, fullSpan, shortSpan);
   },
 
   /**
@@ -523,14 +610,13 @@ const OverlayManager = {
     const collapsedTimestamp = this.overlayElement.querySelector('.last-analyzed-collapsed');
     if (!timestamp || !collapsedTimestamp) return;
 
-    const date = new Date(timestamp);
-    const isStale = (Date.now() - date.getTime()) / (1000 * 60 * 60 * 24) > 7;
-    const formatted = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+    const age = (Date.now() - new Date(timestamp).getTime()) / (1000 * 60 * 60 * 24);
+    const isStale = age > 7;
 
-    const text = `Last analyzed: ${formatted}${isStale ? ' (outdated)' : ''}`;
+    const text = `Last analyzed: ${formatDate(timestamp)}${isStale ? ' (outdated)' : ''}`;
     collapsedTimestamp.textContent = text;
     // The full text too: a narrow bar cuts the date with an ellipsis
-    collapsedTimestamp.title = isStale ? `${text}: older than 7 days, click Analyze to refresh` : text;
+    collapsedTimestamp.title = isStale ? `${Math.floor(age)} days old. Click Analyze to include changes you've made since.` : text;
     // Also drops an earlier error state
     collapsedTimestamp.className = `last-analyzed-collapsed${isStale ? ' is-stale' : ''}`;
   },
@@ -576,8 +662,10 @@ const OverlayManager = {
 
     if (collapsedBtn) {
       collapsedBtn.disabled = true;
-      // Plain text; resetButtons puts "Analyze" back on every exit path
-      collapsedBtn.textContent = 'Analyzing…';
+      // The zero state's hint was about this first run
+      collapsedBtn.title = '';
+      // resetButtons puts "Analyze" back on every exit path
+      this.setAnalyzeRunning('Analyzing');
     }
     
     // Set failsafe timer to re-enable button if the analyzer never reports back
@@ -667,16 +755,20 @@ const OverlayManager = {
     this.viewState = this.viewState === 'collapsed' ? 'expanded' : 'collapsed';
     this.overlayElement.setAttribute('data-view-state', this.viewState);
     this.overlayElement.querySelector('.view-details-link').setAttribute('aria-expanded', String(this.viewState === 'expanded'));
-    
-    // Update link text - preserve the responsive spans
-    const detailsTextFull = this.overlayElement.querySelector('.details-text-full');
-    const detailsTextMedium = this.overlayElement.querySelector('.details-text-medium');
-    if (detailsTextFull) {
-      detailsTextFull.textContent = this.viewState === 'collapsed' ? 'View details' : 'Hide details';
-    }
-    if (detailsTextMedium) {
-      detailsTextMedium.textContent = this.viewState === 'collapsed' ? 'Details' : 'Hide';
-    }
+    this.updateDetailsLabel();
+  },
+
+  /**
+   * The details toggle's text, in its responsive spans: the tip count while there are no AI ratings (tipCount)
+   */
+  updateDetailsLabel() {
+    const tips = this.tipCount || 0;
+    const open = this.viewState === 'expanded';
+    const plural = tips === 1 ? 'tip' : 'tips';
+    const full = this.overlayElement?.querySelector('.details-text-full');
+    const medium = this.overlayElement?.querySelector('.details-text-medium');
+    if (full) full.textContent = open ? (tips ? 'Hide tips' : 'Hide details') : tips ? `View ${tips} ${plural}` : 'View details';
+    if (medium) medium.textContent = open ? 'Hide' : tips ? `${tips} ${plural}` : 'Details';
   },
   
   /**
@@ -746,31 +838,35 @@ const OverlayManager = {
   
   
   /**
-   * Results: a banner with the outcome and the next step, a caption while nothing is AI-rated, one row per section
+   * Results: a banner (the next tip, then the AI line), one row per section
    */
   showUnifiedView(data) {
     const unifiedSection = this.overlayElement.querySelector('.unified-section');
     // Every gap, not the top-5 'recommendations' slice - smaller gaps would get a false ✓
-    const sections = this.analyzeSections(data, data.completenessData?.allRecommendations || []);
+    const missingItems = data.completenessData?.allRecommendations || [];
+    const sections = this.analyzeSections(data, missingItems);
     const rated = sections.some(section => typeof section.rating === 'number');
-    // Neutral, amber for a failure: a green banner on a 51% score or a failed run read as success
-    const warn = data.isCacheFallback || (this.aiFailed(data) && !data.aiFailedWithCache);
-    // Why an unrated row has no stars: AI rated other rows, failed, is set up but hasn't run, or is off
-    const unrated = rated ? 'NOT_RATED' : this.aiFailed(data) ? 'ANALYSIS_FAILED' : this.aiReady(data) ? 'AI_READY' : null;
+    const ai = this.aiLine(data, sections);
+    const role = data.roleLabel ? ` for ${data.roleLabel} roles` : '';
+    // The stars' tooltip and accessible name: the rating, or why there is none (this card failed, AI rated others, or the AI line's reason)
+    const starLabel = section => typeof section.rating === 'number' ? `${section.rating} out of 5 (${this.ratingLabel(section.rating)})${role}`
+      : section.errorType ? `No AI rating this time: ${this.reason({ message: section.error })}. Click Analyze to retry.`
+      : rated ? 'No AI rating for this section.' : this.noRatingText(data);
 
-    // Blank stars are explained once, here, instead of only in a tooltip on every row
-    let caption = '';
-    if (!rated && !this.aiFailed(data)) {
-      caption = this.aiReady(data)
-        ? '<p class="eli-caption">AI is set up. Click Analyze to rate your content.</p>'
-        : '<p class="eli-caption">Star ratings need AI. <button type="button" class="eli-link" data-action="open-settings">Turn on AI</button></p>';
-    }
+    const next = this.generateUnifiedMessage(data, sections);
 
+    // The banner stays neutral (a green one on a 51% score read as success); only a failure's AI line is amber
     this.fillFromTemplate(unifiedSection, `
-      <p class="eli-banner${warn ? ' is-warning' : ''}">${this.escapeHtml(this.generateUnifiedMessage(data, sections))}</p>
-      ${caption}
-      ${sections.map(section => this.renderSection(section, unrated)).join('')}
+      <div class="eli-banner">
+        <p><strong>${this.escapeHtml(next.text)}</strong>${next.why ? ` ${this.escapeHtml(next.why)}` : ''}</p>
+        ${ai ? `<p class="eli-ai-line${ai.warn ? ' is-warning' : ''}">${this.escapeHtml(ai.text)}${ai.button ? ` <button type="button" class="eli-link" data-action="open-settings">${this.escapeHtml(ai.button)}</button>` : ''}</p>` : ''}
+      </div>
+      ${sections.map(section => this.renderSection(section, starLabel(section))).join('')}
     `);
+
+    // The details toggle counts the tips while there are no AI ratings to look at
+    this.tipCount = rated ? 0 : missingItems.length;
+    this.updateDetailsLabel();
 
     // Replace star placeholders with actual DOM elements
     if (this.pendingStarElements && this.pendingStarElements.length > 0) {
@@ -813,19 +909,21 @@ const OverlayManager = {
   },
 
   /**
-   * AI action items as advice rows: most important first, then capped by the section's rating
+   * AI action items as advice rows: most important first, then capped by the section's rating.
+   * An item without an action has nothing to say.
    */
   aiImprovements(items, rating, sectionName) {
     const rank = { critical: 0, high: 1, medium: 2, low: 3 };
-    return [...(items || [])]
+    return (items || [])
+      .filter(item => item.action)
       .sort((a, b) => (rank[a.priority] ?? 4) - (rank[b.priority] ?? 4))
       .slice(0, this.getImprovementLimit(rating, sectionName))
-      .map(item => ({ text: item.action || 'Improvement needed', why: item.impact }));
+      .map(item => ({ text: item.action, why: item.impact }));
   },
 
   /**
    * One row per section in LinkedIn's page order. A section the AI rated shows the AI's advice; every
-   * row also leads with its completeness gap and the points fixing it adds.
+   * row also leads with its completeness tip and a chip with the % fixing it adds.
    */
   analyzeSections(data, missingItems) {
     const sectionScores = data.sectionScores || {};
@@ -840,7 +938,7 @@ const OverlayManager = {
     const firstImpression = sectionScores.first_impression;
     if (scored(firstImpression)) {
       const rating = this.scoreToRating(firstImpression.score);
-      // Keep headline, photo, untagged '10/10' and plain-string items (schema-ignoring local models). Drop banner
+      // Keep headline, photo, untagged (such as 'Refinement') and plain-string items (schema-ignoring local models). Drop banner
       // items (no banner is extracted) and photo items when the Profile Photo row already says to add one.
       const items = (firstImpression.actionItems || [])
         .filter(item => item.element !== 'banner' && !(photoMissing && item.element === 'photo'));
@@ -885,13 +983,10 @@ const OverlayManager = {
       sections.push({ name: 'Experience', key: 'experience', rating, positive: experience.positiveInsight || null,
         improvements: this.aiImprovements(experience.actionItems, rating, 'Experience') });
     } else {
-      const experienceData = extracted('experience');
-      let positive = null;
-      if (!gap('experience') && experienceData?.hasCurrentRole) {
-        positive = '✓ Current role listed';
-      } else if (!gap('experience') && experienceData?.count >= 2) {
-        positive = `✓ ${experienceData.count} professional experiences documented`;
-      }
+      // No gap: a current role and earlier roles. A long average can still hide an empty role. exists: a failed extractor has no gap either.
+      const exp = extracted('experience');
+      const positive = !gap('experience') && exp?.exists ? (exp.emptyRoles?.length ? '✓ Current role and earlier roles listed'
+        : '✓ Current role, earlier roles and detailed descriptions') : null;
       sections.push({ name: 'Experience', key: 'experience', rating: null, errorType: experience?.errorType || null,
         positive, improvements: [] });
     }
@@ -906,7 +1001,7 @@ const OverlayManager = {
     } else {
       const count = extracted('recommendations')?.count;
       sections.push({ name: 'Recommendations', key: 'recommendations', rating: null, errorType: recommendations?.errorType || null,
-        positive: !gap('recommendations') && count > 0 ? `✓ You have ${count} recommendation${count > 1 ? 's' : ''}` : null,
+        positive: !gap('recommendations') && count > 0 ? '✓ Recommendations received' : null,
         improvements: [] });
     }
 
@@ -918,28 +1013,34 @@ const OverlayManager = {
     } else {
       const count = extracted('skills')?.count;
       sections.push({ name: 'Skills', key: 'skills', rating: null, errorType: skills?.errorType || null,
-        positive: !gap('skills') && count >= 10 ? `✓ Strong skills section with ${count} skills` : null,
+        positive: !gap('skills') && count >= 10 ? '✓ Skills section filled out' : null,
         improvements: [] });
     }
 
-    // Each row leads with its completeness gap and what fixing it adds: the scorer's weight, in % points
+    // Each row leads with its completeness tip; the chip says what fixing it adds, in % points ("up to" for graduated sections).
+    // A card whose own AI call failed shows that call's reason.
+    const tip = rec => ({ text: rec.message, why: rec.why, gain: Math.round(rec.impact), upTo: rec.upTo });
+    const aiResults = { headline: firstImpression, about, experience, recommendations, skills };
     sections.forEach(section => {
       const rec = gap(section.key);
-      if (rec) section.improvements.unshift({ text: rec.message, why: `+${Math.round(rec.impact)}% completeness` });
+      if (rec) section.improvements.unshift(tip(rec));
+      if (section.errorType) section.error = aiResults[section.key]?.error;
     });
 
-    // Sections without a row: their gaps, and which already earn full credit, so the score adds up
+    // Sections without a row: their gaps, and which are already done, so the score adds up
     const rowKeys = sections.map(section => section.key);
     const breakdown = data.completenessData?.breakdown || {};
     const otherGaps = missingItems.filter(item => !rowKeys.includes(item.section));
-    const fullCredit = Object.keys(breakdown).filter(key => !rowKeys.includes(key) && breakdown[key].scoreMultiplier === 1);
-    if (otherGaps.length || fullCredit.length) {
+    const done = Object.keys(breakdown).filter(key => !rowKeys.includes(key) && breakdown[key].scoreMultiplier === 1);
+    if (otherGaps.length || done.length) {
       sections.push({
         name: 'Other sections',
         stars: false,
         rating: null,
-        positive: fullCredit.length ? `✓ Full credit: ${fullCredit.map(key => key[0].toUpperCase() + key.slice(1)).join(', ')}` : null,
-        improvements: otherGaps.map(item => ({ text: item.message, why: `+${Math.round(item.impact)}% completeness` }))
+        // LinkedIn's section names
+        positive: done.length ? `✓ Already on your profile: ${done.map(key => ({ photo: 'Profile photo', certifications: 'Licenses & certifications' })[key]
+          || key[0].toUpperCase() + key.slice(1)).join(', ')}` : null,
+        improvements: otherGaps.map(tip)
       });
     }
 
@@ -955,9 +1056,9 @@ const OverlayManager = {
 
   /**
    * Render a section with star rating
-   * @param {string|null} unrated - getFailureTooltip key for a row with no rating and no errorType of its own
+   * @param {string} starLabel - The stars' tooltip: the rating, or why there is none
    */
-  renderSection(section, unrated) {
+  renderSection(section, starLabel) {
     // Profile photo and Other sections are never AI-rated, so they get no star row
     let stars = '';
     if (section.stars !== false) {
@@ -968,7 +1069,7 @@ const OverlayManager = {
       }
       this.pendingStarElements.push({
         id: starPlaceholderId,
-        element: this.renderStars(section.rating, section.errorType || unrated)
+        element: this.renderStars(section.rating, starLabel)
       });
       stars = `<div class="star-rating" data-star-placeholder="${starPlaceholderId}"></div>`;
     }
@@ -979,13 +1080,13 @@ const OverlayManager = {
           <h3 class="eli-row-title">${this.escapeHtml(section.name)}</h3>
           ${stars}
         </div>
-        ${section.errorType ? '<p class="eli-row-note">Couldn\'t rate this section with AI. Click Analyze to retry.</p>' : ''}
+        ${section.errorType ? `<p class="eli-row-note">${this.escapeHtml(starLabel)}</p>` : ''}
         ${section.positive ? `<p class="eli-row-positive">${this.escapeHtml(section.positive)}</p>` : ''}
         ${section.improvements.length > 0 ? `
           <ul class="eli-advice">
             ${section.improvements.map(imp => `
               <li>
-                ${this.escapeHtml(imp.text)}
+                ${this.escapeHtml(imp.text)}${imp.gain ? `<span class="eli-gain" role="img" aria-label="adds ${imp.upTo ? 'up to ' : ''}${imp.gain}% to completeness">${imp.upTo ? 'up to ' : ''}+${imp.gain}%</span>` : ''}
                 ${imp.why ? `<div class="eli-why">${this.escapeHtml(imp.why)}</div>` : ''}
               </li>
             `).join('')}
@@ -996,104 +1097,95 @@ const OverlayManager = {
   },
 
   /**
-   * Render star rating
+   * Five stars, or blank ones (never 0/5). role="img" reads the label instead of five "white star" glyphs.
+   * A narrow bar shows the numeric form instead.
+   * @param {number|null} rating - Whole stars, or null for not rated
+   * @param {string} label - Tooltip and accessible name; why it is blank when not rated
+   * @param {string} [numeric] - Narrow form
    */
-  renderStars(rating, errorType = null) {
-    const filled = '★';
-    const empty = '☆';
-
-    // Create wrapper span. role="img" reads the label instead of five "white star" glyphs
+  renderStars(rating, label, numeric = rating == null ? '—' : `${rating}/5★`) {
     const wrapper = document.createElement('span');
+    wrapper.className = 'eli-stars';
     wrapper.setAttribute('role', 'img');
+    wrapper.title = label;
+    wrapper.setAttribute('aria-label', rating == null ? `Not rated. ${label}` : label);
 
-    // If no rating (no AI analysis), show responsive display
-    if (rating === null || rating === undefined) {
-      const tooltip = this.getFailureTooltip(errorType);
-      wrapper.title = tooltip;
-      wrapper.setAttribute('aria-label', `Not rated. ${tooltip}`);
-      // The same tone as a rated empty star, not a fainter one
-      wrapper.style.cssText = 'cursor: help; color: var(--eli-text-muted);';
-
-      // Visual stars span
-      const visualSpan = document.createElement('span');
-      visualSpan.className = 'stars-visual';
-      visualSpan.textContent = empty.repeat(5);
-
-      // Numeric span (narrow screens) - 'not rated', never a fake zero score
-      const numericSpan = document.createElement('span');
-      numericSpan.className = 'stars-numeric';
-      numericSpan.textContent = '–/5★';
-
-      wrapper.appendChild(visualSpan);
-      wrapper.appendChild(numericSpan);
-      return wrapper;
-    }
-
-    // Whole stars, so no '.0' that suggests precision
-    const label = this.ratingLabel(rating);
-    wrapper.title = `${rating}/5 - ${label}`;
-    wrapper.setAttribute('aria-label', `${rating} out of 5 stars, ${label}`);
-
-    // Filled stars are 3:1 or better on every badge tint and row in both themes; empty ones match unrated stars
+    // Filled stars are 3:1 or better on every badge tint and row in both themes (CSS)
+    const visualSpan = document.createElement('span');
+    visualSpan.className = 'stars-visual';
     for (let i = 1; i <= 5; i++) {
       const starSpan = document.createElement('span');
-      starSpan.style.color = i <= rating ? 'var(--eli-warning)' : 'var(--eli-text-muted)';
-      starSpan.textContent = i <= rating ? filled : empty;
-      wrapper.appendChild(starSpan);
+      if (i <= rating) starSpan.className = 'eli-star-on';
+      starSpan.textContent = i <= rating ? '★' : '☆';
+      visualSpan.appendChild(starSpan);
     }
 
-    wrapper.style.cursor = 'help';
+    const numericSpan = document.createElement('span');
+    numericSpan.className = 'stars-numeric';
+    numericSpan.textContent = numeric;
+
+    wrapper.append(visualSpan, numericSpan);
     return wrapper;
   },
 
   /**
-   * One word per star rating, for the star tooltips and the results banner alike
+   * One word per rating, for whole stars and the 1-decimal average alike
    */
   ratingLabel(stars) {
-    if (stars >= 5) return 'Excellent';
-    if (stars >= 4) return 'Good';
-    if (stars >= 3) return 'Fair';
-    return 'Needs improvement';
+    if (stars >= 4.5) return 'Excellent';
+    if (stars >= 3.5) return 'Good';
+    if (stars >= 2.5) return 'Fair';
+    if (stars >= 1.5) return 'Needs work';
+    return 'Needs a rewrite';
   },
 
   /**
-   * Get tooltip for failure scenarios
-   */
-  getFailureTooltip(errorType) {
-    const tooltipMap = {
-      'ANALYSIS_FAILED': 'AI was unable to analyze this section',
-      'AI_READY': 'Click Analyze for AI content analysis',
-      'NOT_RATED': 'Not rated by AI',
-      'DEFAULT': 'No AI rating yet. Turn on AI in settings, then click Analyze.'
-    };
-
-    return tooltipMap[errorType] || tooltipMap['DEFAULT'];
-  },
-
-  /**
-   * Banner text: what failed, or the completeness, the AI verdict and the next step
+   * Banner line 1, the next tip (no %: the badge shows it). The biggest gap (the scorer sorts by impact; it also leads
+   * its row), else the weakest AI-rated row's first item (the stable sort keeps page order on ties), else keep it current.
+   * @returns {{text: string, why?: string}}
    */
   generateUnifiedMessage(data, sections) {
-    const percent = Math.round(data.completeness || 0);
+    const top = data.completenessData?.allRecommendations?.[0];
+    if (top) return { text: top.message, why: top.why };
+    const weakest = sections.filter(section => typeof section.rating === 'number' && section.improvements.length)
+      .sort((a, b) => a.rating - b.rating)[0];
+    if (weakest) return weakest.improvements[0];
+    if (Math.round(data.completeness || 0) >= 100) {
+      return { text: 'Keep Experience and About current as your work changes.', why: 'Every section ElevateLI checks is filled in.' };
+    }
+    // Under 100% with no gap only when an extractor or the scorer failed: then not every section was read
+    return { text: 'Reload the page, then click Analyze.', why: "ElevateLI couldn't read every section of your profile." };
+  },
 
-    // A run that just fell back to cached results: the analyzer's message says what failed
-    if (data.isCacheFallback && data.message) return data.message;
-
-    // AI failed with no earlier AI results to show: say why (a restore of earlier ones has the asterisk)
-    if (this.aiFailed(data) && !data.aiFailedWithCache) {
-      const reason = String(data.aiError.message || 'unknown error').replace(/\.$/, '');
-      return `AI analysis failed (${reason}). Profile ${percent}% complete. Click Analyze to retry.`;
+  /**
+   * Banner line 2, the AI line: what failed, or why there are no AI ratings. None when rows are rated (the stars and badge show it).
+   * @returns {{text: string, warn?: boolean, button?: string}|null} button: the label of an Open settings button
+   */
+  aiLine(data, sections) {
+    const reason = this.reason(data.aiError, data.settings);
+    const settings = this.aiFix(data).settings ? 'Open settings' : undefined;
+    // A run that fell back to earlier results after an error: the analyzer's message says what failed.
+    // A fresh AI failure with earlier AI ratings (no isErrorFallback/analysisError) takes the aiFailed branch,
+    // with the analyzer's dated message (ERR-2) on that run and the BAN-4 line on later restores.
+    if (data.isCacheFallback && (data.isErrorFallback || data.analysisError || !this.aiFailed(data))) {
+      return {
+        text: data.message || `This analysis didn't finish. Showing your ${data.timestamp ? `results from ${formatDate(data.timestamp)}` : 'earlier results'}. Click Analyze to try again.`,
+        warn: true
+      };
+    }
+    if (this.aiFailed(data)) {
+      return data.aiFailedWithCache
+        ? { text: (data.isCacheFallback && data.message) || `Your AI ratings are from an earlier run. The latest one failed (${reason}). Click Analyze to retry.`,
+          warn: true, button: settings }
+        : { text: `AI analysis failed (${reason}). Click Analyze to retry.`, warn: true, button: settings };
     }
 
-    const parts = [percent >= 100 ? 'Your profile is complete.' : `${percent}% complete.`];
-    // The quality badge's stars (its colour bands break at the same 3.5 and 2.5 stars), so text, stars and colour agree
-    if (typeof data.contentScore === 'number' && sections.some(section => typeof section.rating === 'number')) {
-      parts.push(`Content quality: ${this.ratingLabel(Math.round(data.contentScore / 2))}.`);
-    }
-    // The biggest gap first: the scorer sorts its recommendations by impact
-    const next = data.completenessData?.allRecommendations?.[0];
-    if (next) parts.push(`Next: ${next.message}`);
-    return parts.join(' ');
+    if (sections.some(section => typeof section.rating === 'number')) return null;
+    return {
+      on: { text: 'AI analysis is set up. Click Analyze to get AI ratings.' },
+      off: { text: 'No AI ratings yet.', button: 'Turn on AI' },
+      unset: { text: 'No AI ratings yet.', button: 'Set up AI' }
+    }[this.aiState(data.settings)];
   },
 
   /**
@@ -1113,30 +1205,57 @@ const OverlayManager = {
     // A reset can land mid-run: no status line or ticking counter over the zero state
     this.stopElapsedTimeDisplay();
     this.hideStatusIndicator();
+    this.tipCount = 0;
+    this.updateDetailsLabel();
 
-    const scrollNote = 'The page scrolls briefly while ElevateLI reads your profile. Under 30 seconds, or a few minutes with AI.';
-    const termsUrl = chrome.runtime.getURL('privacy-terms.html'); // web-accessible (dynamic URL) so the link opens from LinkedIn
-    const unifiedSection = this.overlayElement.querySelector('.unified-section');
-    this.fillFromTemplate(unifiedSection, this.hasCompliance
-      ? `<p class="eli-welcome-text">Click Analyze to score your profile. ${scrollNote}</p>`
-      : `<div class="eli-welcome">
-          <h3 class="eli-welcome-title">Welcome to ElevateLI</h3>
-          <p class="eli-welcome-text">See how complete your profile is and what to add next. ${scrollNote}</p>
-          <p class="eli-welcome-consent">By continuing, you confirm this is your own LinkedIn profile and agree to the <a href="${termsUrl}#terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="${termsUrl}#privacy" target="_blank" rel="noopener">Privacy Policy</a>. Results stay in this browser.</p>
-          <button type="button" class="eli-primary" data-action="consent">Confirm and analyze</button>
-        </div>`);
-
-    this.setBadge('completeness', '—');
-    this.setBadge('quality', '—');
-    const slot = this.overlayElement.querySelector('.last-analyzed-collapsed');
-    slot.textContent = this.hasCompliance ? 'Not analyzed' : 'Setup needed';
-    slot.title = '';
-    slot.className = 'last-analyzed-collapsed';
+    this.setBadge('completeness', '—').title = this.hasCompliance ? 'Click Analyze to see your score' : 'Set up ElevateLI to see your score';
+    const quality = this.setBadge('quality', '—');
 
     // Enabled before setup too: Analyze opens the consent card
     const analyzeBtn = this.overlayElement.querySelector('.analyze-btn-collapsed');
     analyzeBtn.textContent = 'Analyze';
     analyzeBtn.disabled = false;
+
+    // The AI settings decide the quality badge's hint
+    const overlay = this.overlayElement;
+    const render = (stored = {}) => {
+      // A run or a restore may have replaced the zero state while storage answered; a reload kills getURL
+      if (this.overlayElement !== overlay || ![this.states.INITIALIZING, this.states.EMPTY_CACHE].includes(this.currentState)) return;
+      if (!chrome.runtime?.id) return;
+      const settings = { enableAI: stored.enableAI, aiProvider: stored.aiProvider, aiModel: stored.aiModel, aiBaseUrl: stored.aiBaseUrl,
+        hasKey: !!stored.encryptedApiKey };
+      const aiOn = this.aiState(settings) === 'on';
+      // analyzer-main re-renders this when the AI settings change
+      const time = !aiOn ? 'Under 30 seconds.'
+        : `Up to a few minutes with AI analysis on.${settings.aiBaseUrl ? ' Local models can take longer.' : ''}`;
+      const scroll = 'Your page will scroll by itself while ElevateLI reads each section.';
+      // The overlay renders only on the user's own profile: the name is the top card's, as saveUserProfileId reads it
+      const name = BaseExtractor.topCard()?.querySelector('h2')?.textContent.trim();
+      const firstName = name ? name.split(/\s+/)[0] : '';
+      const termsUrl = chrome.runtime.getURL('privacy-terms.html'); // web-accessible (dynamic URL) so the link opens from LinkedIn
+
+      this.fillFromTemplate(overlay.querySelector('.unified-section'), this.hasCompliance
+        ? `<p class="eli-welcome-text">Click Analyze. ${scroll} ${time}</p>`
+        : `<div class="eli-welcome">
+            <h3 class="eli-welcome-title">Welcome to ElevateLI${firstName ? `, ${this.escapeHtml(firstName)}` : ''}</h3>
+            <p class="eli-welcome-text">See what's missing from your profile and what to fix first. ${scroll} ${time}</p>
+            <p class="eli-welcome-consent">By continuing, you confirm this is your own LinkedIn profile and agree to the <a href="${termsUrl}#terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="${termsUrl}#privacy" target="_blank" rel="noopener">Privacy Policy</a>. Your results stay in this browser unless you turn on AI analysis.</p>
+            <button type="button" class="eli-primary" data-action="consent">Confirm and analyze</button>
+          </div>`);
+
+      const slot = overlay.querySelector('.last-analyzed-collapsed');
+      slot.textContent = !this.hasCompliance ? 'Setup needed'
+        : aiOn ? 'Up to a few minutes with AI. Your page will scroll.' : 'Under 30 seconds. Your page will scroll.';
+      // The slot cuts long text with an ellipsis
+      slot.title = slot.textContent;
+      slot.className = 'last-analyzed-collapsed';
+      analyzeBtn.title = this.hasCompliance ? slot.textContent : 'Set up ElevateLI to analyze your profile';
+      quality.title = aiOn ? `Rated by ${aiProviderName(settings)} when you click Analyze` : this.noRatingText({ settings });
+    };
+    // chrome.storage throws at once when the extension was reloaded
+    Promise.resolve()
+      .then(() => chrome.storage.local.get(['enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey']))
+      .then(render, () => render());
   },
 
   /**
@@ -1173,7 +1292,7 @@ const OverlayManager = {
   /**
    * The overlay state for what is stored: the consent card before setup, cached results, or the zero state
    * @param {Object|undefined} cachedData - Cached analysis data
-   * @param {Object} settings - Current settings (enableAI, aiProvider, aiModel)
+   * @param {Object} settings - Current settings (enableAI, aiProvider, aiModel, aiBaseUrl, encryptedApiKey)
    * @param {Object|undefined} compliance - Compliance status
    * @param {Object} context - The analyzer's error fallback: isErrorFallback, error, message (the banner text)
    * @returns {{state: string, data: Object|null}}
@@ -1188,7 +1307,9 @@ const OverlayManager = {
       fromCache: true,
       // Only mark AI as disabled if there's no content score - matches analyzer-base's cache path
       aiDisabled: cachedData.contentScore === undefined || cachedData.contentScore === null,
-      settings: { enableAI: settings.enableAI, aiProvider: settings.aiProvider, aiModel: settings.aiModel },
+      // As analyzer-base's uiSettings: what the copy reads, never the key itself
+      settings: { enableAI: settings.enableAI, aiProvider: settings.aiProvider, aiModel: settings.aiModel, aiBaseUrl: settings.aiBaseUrl,
+        hasKey: !!settings.encryptedApiKey },
       ...context
     };
     return { state: context.isErrorFallback ? this.states.ANALYSIS_FAILED_CACHE_FALLBACK : this.states.COMPLETE, data };
@@ -1208,7 +1329,7 @@ const OverlayManager = {
 
     try {
       const cacheKey = `cache_${profileId || extractProfileIdFromUrl()}`;
-      const stored = await chrome.storage.local.get(['compliance', 'enableAI', 'aiProvider', 'aiModel', cacheKey]);
+      const stored = await chrome.storage.local.get(['compliance', 'enableAI', 'aiProvider', 'aiModel', 'aiBaseUrl', 'encryptedApiKey', cacheKey]);
       const { state, data } = this.determineStateFromData(stored[cacheKey], stored, stored.compliance, context);
 
       // An error fallback with nothing cached is left to the caller (it shows its own error)
