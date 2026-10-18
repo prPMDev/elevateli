@@ -470,7 +470,7 @@ class Analyzer {
 
           // Above the SW's 180 s per AI call, so the SW's own error is the one reported
           result = await Promise.race([
-            this.analyzeSection(section.type, section.data, section.context),
+            this.analyzeSection(section.type, section.data, section.context, prevScores?.[section.type]),
             new Promise((resolve) =>
               setTimeout(() => resolve({ success: false, error: `${aiProviderName(this.settings)} took too long to respond` }), 190000)
             )
@@ -511,10 +511,11 @@ class Analyzer {
   /**
    * Analyze individual section
    */
-  async analyzeSection(section, data, context = {}) {
-    const r = await safeSendMessage({ action: 'analyzeSection', section, data, context });
-    return r?.success
-      ? { success: true, section, score: r.score, positiveInsight: r.insight, actionItems: r.actionItems }
+  async analyzeSection(section, data, context = {}, prev) {
+    // prev: the cached rating. The SW answers unchanged, with no AI call, when its input key still matches.
+    const r = await safeSendMessage({ action: 'analyzeSection', section, data, context, prevKey: prev?.inputKey });
+    return r?.unchanged ? prev
+      : r?.success ? { success: true, section, score: r.score, positiveInsight: r.insight, actionItems: r.actionItems, inputKey: r.inputKey }
       // No reply: the service worker is gone (extension reloaded) or didn't answer
       : { success: false, section, error: r?.error || 'ElevateLI lost its connection to Chrome; reload the page',
         errorType: r?.errorType, retryAfter: r?.retryAfter };

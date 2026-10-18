@@ -825,7 +825,7 @@ async function testApiKey(provider, apiKey, baseUrl) {
 }
 
 // Handle individual section analysis request
-async function handleSectionAnalysis({ section, data, context }) {
+async function handleSectionAnalysis({ section, data, context, prevKey }) {
   // Read settings at call time, not from the content script's snapshot, and in one get: provider, model,
   // base URL and key then always match
   const { enableAI, aiProvider, aiModel, aiBaseUrl, encryptedApiKey, targetRole, customRole, seniorityLevel, customInstructions } = await chrome.storage.local.get(
@@ -836,6 +836,18 @@ async function handleSectionAnalysis({ section, data, context }) {
   const apiKey = await getDecryptedApiKey(encryptedApiKey);
   if (!aiProvider || !apiKey) return { success: false, errorType: 'AUTH', error: "AI analysis isn't fully set up" };
   if (!aiModel) return { success: false, errorType: 'AUTH', error: 'no AI model is selected' };
+
+  const config = {
+    // The prompt reads a role in words: product-manager -> product manager
+    targetRole: (targetRole === 'other' ? customRole : targetRole !== 'general' && targetRole?.replace(/-/g, ' ')) || 'general professional',
+    seniorityLevel: seniorityLevel || 'any level',
+    customInstructions: customInstructions || ''
+  };
+  // Re-analyze: a section whose input, model, role, level and instructions match its cached rating keeps that rating,
+  // with no AI call. The prompt's date is left out, so an unchanged profile isn't rated again the next day.
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([section, data, context, aiModel, config])));
+  const inputKey = btoa(String.fromCharCode(...new Uint8Array(digest)));
+  if (inputKey === prevKey) return { success: true, unchanged: true };
 
   const rateCheck = checkRateLimit();
   if (!rateCheck.allowed) {
@@ -851,12 +863,6 @@ async function handleSectionAnalysis({ section, data, context }) {
     };
   }
 
-  const config = {
-    // The prompt reads a role in words: product-manager -> product manager
-    targetRole: (targetRole === 'other' ? customRole : targetRole !== 'general' && targetRole?.replace(/-/g, ' ')) || 'general professional',
-    seniorityLevel: seniorityLevel || 'any level',
-    customInstructions: customInstructions || ''
-  };
   const prompt = createSectionPrompt(section, data, config, context);
   const analysis = parseSectionAnalysis(await callAIProvider(aiProvider, apiKey, prompt, aiModel, aiBaseUrl), aiModel);
   return {
@@ -864,7 +870,8 @@ async function handleSectionAnalysis({ section, data, context }) {
     section,
     score: analysis.score,
     insight: analysis.positiveInsight,
-    actionItems: analysis.actionItems
+    actionItems: analysis.actionItems,
+    inputKey
   };
 }
 
