@@ -843,9 +843,10 @@ async function handleSectionAnalysis({ section, data, context, prevKey }) {
     seniorityLevel: seniorityLevel || 'any level',
     customInstructions: customInstructions || ''
   };
-  // Re-analyze: a section whose input, model, role, level and instructions match its cached rating keeps that rating,
-  // with no AI call. The prompt's date is left out, so an unchanged profile isn't rated again the next day.
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([section, data, context, aiModel, config])));
+  // Re-analyze: a section whose prompt, schema and model match its cached rating keeps that rating, with no AI call.
+  // The prompt carries role, level and instructions. Its date line is left out, so an unchanged profile isn't rated again the next day.
+  const prompt = createSectionPrompt(section, data, config, context);
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([aiModel, prompt.replace(/^Analysis Date: .*$/m, ''), SECTION_SCHEMA])));
   const inputKey = btoa(String.fromCharCode(...new Uint8Array(digest)));
   if (inputKey === prevKey) return { success: true, unchanged: true };
 
@@ -863,7 +864,6 @@ async function handleSectionAnalysis({ section, data, context, prevKey }) {
     };
   }
 
-  const prompt = createSectionPrompt(section, data, config, context);
   const analysis = parseSectionAnalysis(await callAIProvider(aiProvider, apiKey, prompt, aiModel, aiBaseUrl), aiModel);
   return {
     success: true,
